@@ -3,4 +3,8 @@ name = "cassy"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "cassy"
+path = "src/lib.rs"
+
 [dependencies]
