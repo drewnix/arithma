@@ -1,4 +1,25 @@
 use std::io::{self, Write};
+use std::collections::HashMap;
+
+struct Environment {
+    vars: HashMap<String, f64>,
+}
+
+impl Environment {
+    fn new() -> Self {
+        Environment {
+            vars: HashMap::new(),
+        }
+    }
+
+    fn get(&self, var: &str) -> Option<f64> {
+        self.vars.get(var).cloned()
+    }
+
+    fn set(&mut self, var: &str, value: f64) {
+        self.vars.insert(var.to_string(), value);
+    }
+}
 
 fn get_precedence(op: &str) -> i32 {
     match op {
@@ -27,15 +48,19 @@ fn tokenize(expr: &str) -> Vec<String> {
         } else if c.is_digit(10) || c == '.' {
             current_token.push(c); // Build a number token
             last_was_operator_or_paren = false;
+        } else if c.is_alphabetic() {
+            // Handle variable names
+            current_token.push(c);
+            last_was_operator_or_paren = false;
         } else {
             if !current_token.is_empty() {
                 tokens.push(current_token.clone());
                 current_token.clear();
             }
 
-            if "+*/^()".contains(c) {
+            if "+*/^()=".contains(c) {
                 tokens.push(c.to_string()); // Push operator or parentheses
-                last_was_operator_or_paren = c == '(' || "+*/^".contains(c);  // Set flag based on operator or open parenthesis
+                last_was_operator_or_paren = c == '(' || "+*/^=".contains(c);  // Set flag based on operator or open parenthesis
             } else if c == '-' {
                 // If the previous token was an operator or opening parenthesis, treat '-' as unary
                 if last_was_operator_or_paren {
@@ -63,8 +88,8 @@ fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     let mut iter = tokens.into_iter().peekable();
 
     while let Some(token) = iter.next() {
-        if token.parse::<f64>().is_ok() {
-            // Token is a number, push to output queue
+        if token.parse::<f64>().is_ok() || token.chars().all(char::is_alphabetic) {
+            // Token is a number or a variable, push to output queue
             output_queue.push(token);
         } else if token == "u-" {
             // Apply unary minus directly to the next number in the token stream
@@ -121,14 +146,17 @@ fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     Ok(output_queue)
 }
 
-fn evaluate_rpn(tokens: Vec<String>) -> Result<f64, String> {
+fn evaluate_rpn(tokens: Vec<String>, env: &Environment) -> Result<f64, String> {
     let mut stack: Vec<f64> = Vec::new();
 
     for token in tokens {
         if let Ok(num) = token.parse::<f64>() {
             // Push number to stack
             stack.push(num);
-        } else {
+        } else if env.get(&token).is_some() {
+            // If token is a variable, resolve it and push its value to the stack
+            stack.push(env.get(&token).unwrap());
+        } else if "+-*/^".contains(&token) {
             // Handle binary operators
             if stack.len() < 2 {
                 return Err(format!("Not enough operands for operator '{}'", token));
@@ -149,6 +177,8 @@ fn evaluate_rpn(tokens: Vec<String>) -> Result<f64, String> {
                 "^" => stack.push(left.powf(right)),
                 _ => return Err(format!("Unexpected operator '{}'", token)),
             }
+        } else {
+            return Err(format!("Unexpected token '{}'", token));
         }
     }
 
@@ -162,7 +192,8 @@ fn evaluate_rpn(tokens: Vec<String>) -> Result<f64, String> {
 
 fn main() {
     println!("Cassy - Type 'exit' to quit.");
- 
+    let mut env = Environment::new();  // Create an environment for variables
+
     loop {
         // Prompt
         print!("> ");
@@ -178,19 +209,42 @@ fn main() {
             break;
         }
 
-        // Tokenize input
-        let tokens = tokenize(input);
-        match shunting_yard(tokens) {
-            Ok(rpn) => {
-                println!("RPN: {:?}", rpn);
+        // Handle variable assignment (e.g., "x = 3")
+        if input.contains('=') {
+            let parts: Vec<&str> = input.split('=').collect();
+            if parts.len() == 2 {
+                let var_name = parts[0].trim();
+                let expr = parts[1].trim();
 
-                // Evaluate the RPN expression
-                match evaluate_rpn(rpn) {
-                    Ok(result) => println!("{}", result),
+                let tokens = tokenize(expr);
+                match shunting_yard(tokens) {
+                    Ok(rpn) => {
+                        match evaluate_rpn(rpn, &env) {
+                            Ok(value) => {
+                                env.set(var_name, value);
+                                println!("{} = {}", var_name, value);
+                            }
+                            Err(e) => println!("Error: {}", e),
+                        }
+                    }
                     Err(e) => println!("Error: {}", e),
                 }
+            } else {
+                println!("Invalid assignment. Use format: x = expression");
             }
-            Err(e) => println!("Error: {}", e),
+        } else {
+            // Tokenize input
+            let tokens = tokenize(input);
+            match shunting_yard(tokens) {
+                Ok(rpn) => {
+                    // Evaluate the RPN expression
+                    match evaluate_rpn(rpn, &env) {
+                        Ok(result) => println!("{}", result),
+                        Err(e) => println!("Error: {}", e),
+                    }
+                }
+                Err(e) => println!("Error: {}", e),
+            }
         }
     }
 }
