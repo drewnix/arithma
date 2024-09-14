@@ -20,6 +20,102 @@ impl Environment {
     }
 }
 
+impl Node {
+    pub fn evaluate(&self, env: &Environment) -> Result<f64, String> {
+        match self {
+            Node::Number(n) => Ok(*n),
+            Node::Variable(ref var) => {
+                if let Some(val) = env.get(var) {
+                    Ok(val)
+                } else {
+                    Err(format!("Variable '{}' is not defined.", var))
+                }
+            }
+            Node::Add(left, right) => {
+                let left_val = left.evaluate(env)?;
+                let right_val = right.evaluate(env)?;
+                Ok(left_val + right_val)
+            }
+            Node::Subtract(left, right) => {
+                let left_val = left.evaluate(env)?;
+                let right_val = right.evaluate(env)?;
+                Ok(left_val - right_val)
+            }
+            Node::Multiply(left, right) => {
+                let left_val = left.evaluate(env)?;
+                let right_val = right.evaluate(env)?;
+                Ok(left_val * right_val)
+            }
+            Node::Divide(left, right) => {
+                let left_val = left.evaluate(env)?;
+                let right_val = right.evaluate(env)?;
+                if right_val == 0.0 {
+                    Err("Division by zero.".to_string())
+                } else {
+                    Ok(left_val / right_val)
+                }
+            }
+            Node::Power(left, right) => {
+                let left_val = left.evaluate(env)?;
+                let right_val = right.evaluate(env)?;
+                Ok(left_val.powf(right_val))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Node {
+    // Leaf nodes: numbers or variables
+    Number(f64),
+    Variable(String),
+
+    // Internal nodes: operators with children (operands)
+    Add(Box<Node>, Box<Node>),
+    Subtract(Box<Node>, Box<Node>),
+    Multiply(Box<Node>, Box<Node>),
+    Divide(Box<Node>, Box<Node>),
+    Power(Box<Node>, Box<Node>),
+}
+
+
+pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
+    let rpn = shunting_yard(tokens)?;
+
+    let mut stack: Vec<Node> = Vec::new();
+
+    for token in rpn {
+        if let Ok(num) = token.parse::<f64>() {
+            stack.push(Node::Number(num));
+        } else if token.chars().all(char::is_alphabetic) {
+            stack.push(Node::Variable(token));
+        } else if "+-*/^".contains(&token) {
+            let right = stack.pop().ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+            let left = stack.pop().ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+
+            let node = match token.as_str() {
+                "+" => Node::Add(Box::new(left), Box::new(right)),
+                "-" => Node::Subtract(Box::new(left), Box::new(right)),
+                "*" => Node::Multiply(Box::new(left), Box::new(right)),
+                "/" => Node::Divide(Box::new(left), Box::new(right)),
+                "^" => Node::Power(Box::new(left), Box::new(right)),
+                _ => return Err(format!("Unknown operator '{}'", token)),
+            };
+
+            stack.push(node);
+        } else {
+            return Err(format!("Unknown token '{}'", token));
+        }
+    }
+
+    if stack.len() != 1 {
+        return Err("The expression did not resolve into a single tree.".to_string());
+    }
+
+    Ok(stack.pop().unwrap())
+}
+
+
 pub fn get_precedence(op: &str) -> i32 {
     match op {
         "+" | "-" => 1,
@@ -46,42 +142,83 @@ pub fn extract_variable(expr: &str) -> Option<String> {
     None
 }
 
-pub fn solve_for_variable(left_expr: &str, right_val: f64, env: &Environment) -> Result<f64, String> {
-    // Tokenize and parse the left-hand side of the equation
-    let left_tokens = tokenize(left_expr);
-    let left_rpn = shunting_yard(left_tokens)?;
+pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
+    let mut coefficient = 0.0; // Coefficient of the target variable
+    let mut constant = 0.0;    // Constant part to move to the other side
 
-    // Stack to simulate solving for the variable
-    let mut stack: Vec<f64> = Vec::new();
-    let mut pending_operator: Option<String> = None;
-    
-    for token in left_rpn {
-        if let Ok(num) = token.parse::<f64>() {
-            // Push constant numbers directly to the stack
-            stack.push(num);
-        } else if env.get(&token).is_some() {
-            // Ignore the variable for now, solve for it later
-            continue;
-        } else if "+-*/".contains(&token) {
-            // Handle operators for solving the equation
-            pending_operator = Some(token);
+    // Traverse the expression tree recursively to accumulate the variable's coefficient and constant
+    fn traverse(node: &Node, target_var: &str, coefficient: &mut f64, constant: &mut f64) -> Result<(), String> {
+        match node {
+            Node::Number(num) => {
+                *constant += *num; // Add the constant value
+            }
+            Node::Variable(var_name) => {
+                if var_name == target_var {
+                    *coefficient += 1.0; // Variable found, assume coefficient of 1 if there's no multiplier
+                } else {
+                    return Err(format!("Unexpected variable '{}'", var_name));
+                }
+            }
+            Node::Add(left, right) => {
+                traverse(left, target_var, coefficient, constant)?;
+                traverse(right, target_var, coefficient, constant)?;
+            }
+            Node::Subtract(left, right) => {
+                traverse(left, target_var, coefficient, constant)?;
+                let mut right_constant = 0.0;
+                traverse(right, target_var, &mut 0.0, &mut right_constant)?;
+                *constant -= right_constant; // Subtract the right-side constant
+            }
+            Node::Multiply(left, right) => {
+                // Handle multiplication of a variable by a number
+                let (mut left_const, mut right_const) = (0.0, 0.0);
+                if let (Node::Number(left_val), Node::Variable(right_var)) = (&**left, &**right) {
+                    if right_var == target_var {
+                        *coefficient += left_val; // Multiply coefficient by the number
+                    }
+                } else if let (Node::Variable(left_var), Node::Number(right_val)) = (&**left, &**right) {
+                    if left_var == target_var {
+                        *coefficient += right_val; // Multiply coefficient by the number
+                    }
+                } else {
+                    traverse(left, target_var, &mut 0.0, &mut left_const)?;
+                    traverse(right, target_var, &mut 0.0, &mut right_const)?;
+                    *constant += left_const * right_const; // Regular multiplication of constants
+                }
+            }
+            Node::Divide(left, right) => {
+                // Handle division of a variable by a number
+                if let Node::Variable(var_name) = &**left {
+                    if var_name == target_var {
+                        if let Node::Number(denom) = &**right {
+                            if *denom == 0.0 {
+                                return Err("Division by zero".to_string());
+                            }
+                            *coefficient += 1.0 / denom;
+                        }
+                    }
+                } else {
+                    return Err("Unexpected operation in division.".to_string());
+                }
+            }
+            _ => return Err("Unexpected node in expression.".to_string()), // Handle other operators or errors
         }
+
+        Ok(())
     }
 
-    if let Some(operator) = pending_operator {
-        let value = stack.pop().ok_or_else(|| "Missing value to solve for".to_string())?;
-        match operator.as_str() {
-            "+" => return Ok(right_val - value),
-            "-" => return Ok(right_val + value),
-            "*" => return Ok(right_val / value),
-            "/" => return Ok(right_val * value),
-            _ => return Err("Unsupported operator".to_string()),
-        }
+    // Start the tree traversal
+    traverse(expr, target_var, &mut coefficient, &mut constant)?;
+
+    if coefficient == 0.0 {
+        return Err(format!("Coefficient of variable '{}' is zero, can't solve.", target_var));
     }
 
-    Err("Unable to solve for variable".to_string())
+    // Solve for the variable: right_val = coefficient * variable + constant
+    // Adjust the equation: variable = (right_val - constant) / coefficient
+    let result = (right_val - constant) / coefficient;
+    Ok(result)
 }
-
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -197,16 +334,17 @@ pub fn evaluate_rpn(tokens: Vec<String>, env: &Environment) -> Result<f64, Strin
 
     for token in tokens {
         if let Ok(num) = token.parse::<f64>() {
-            // Push number to stack
+            // If the token is a number, push it onto the stack
             stack.push(num);
         } else if let Some(value) = env.get(&token) {
-            // If token is a variable, resolve it and push its value to the stack
+            // If the token is a variable in the environment, retrieve its value
             stack.push(value);
         } else if "+-*/^".contains(&token) {
-            // Handle binary operators
+            // Ensure we have enough operands to apply the operator
             if stack.len() < 2 {
                 return Err(format!("Not enough operands for operator '{}'", token));
             }
+
             let right = stack.pop().unwrap();
             let left = stack.pop().unwrap();
 
@@ -216,23 +354,24 @@ pub fn evaluate_rpn(tokens: Vec<String>, env: &Environment) -> Result<f64, Strin
                 "*" => stack.push(left * right),
                 "/" => {
                     if right == 0.0 {
-                        return Err("Division by zero error.".to_string());
+                        return Err("Division by zero error".to_string());
                     }
                     stack.push(left / right);
                 }
-                "^" => stack.push(left.powf(right)),
                 _ => return Err(format!("Unexpected operator '{}'", token)),
             }
         } else {
-            // If the token is neither a number, operator, nor a known variable, return an error
-            return Err(format!("Unexpected token '{}'", token));
+            // Assume the token is a variable we're solving for and ignore it for now
+            // This lets us skip the variable until it's solved
+            continue;
         }
     }
 
-    // Check if exactly one value is left on the stack, which is the result
-    if stack.len() == 1 {
-        Ok(stack.pop().unwrap())
-    } else {
-        Err("Malformed expression: too many operands.".to_string())
+    // After processing all tokens, the stack should contain exactly one value, which is the result
+    if stack.len() != 1 {
+        return Err("The RPN expression did not resolve to a single value.".to_string());
     }
+
+    Ok(stack.pop().unwrap())
 }
+
