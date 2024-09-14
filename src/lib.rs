@@ -206,79 +206,8 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
     // Solve for the variable: right_val = coefficient * variable + constant
     // Adjust the equation: variable = (right_val - constant) / coefficient
     let result = (right_val - constant) / coefficient;
-    println!("  Solved: {} = {}", target_var, result);
     Ok(result)
 }
-
-// fn evaluate_node(node: &Node, env: &Environment, target_var: &str) -> Result<Option<f64>, String> {
-//     match node {
-//         Node::Number(num) => Ok(Some(*num)), // Return the number as a regular result
-//         Node::Variable(var_name) => {
-//             // If we encounter the target variable, we don't evaluate it but return None to indicate it's the target
-//             if var_name == target_var {
-//                 Ok(None) // Special case for the target variable
-//             } else {
-//                 // Otherwise, look it up in the environment
-//                 if let Some(value) = env.get(var_name) {
-//                     Ok(Some(value))
-//                 } else {
-//                     Err(format!("Variable '{}' not found in the environment", var_name))
-//                 }
-//             }
-//         }
-//         Node::Add(left, right) => {
-//             let left_val = evaluate_node(left, env, target_var)?;
-//             let right_val = evaluate_node(right, env, target_var)?;
-
-//             match (left_val, right_val) {
-//                 (Some(l), Some(r)) => Ok(Some(l + r)),
-//                 _ => Ok(None), // If one side is the target variable, return None
-//             }
-//         }
-//         Node::Subtract(left, right) => {
-//             let left_val = evaluate_node(left, env, target_var)?;
-//             let right_val = evaluate_node(right, env, target_var)?;
-
-//             match (left_val, right_val) {
-//                 (Some(l), Some(r)) => Ok(Some(l - r)),
-//                 _ => Ok(None),
-//             }
-//         }
-//         Node::Multiply(left, right) => {
-//             let left_val = evaluate_node(left, env, target_var)?;
-//             let right_val = evaluate_node(right, env, target_var)?;
-
-//             match (left_val, right_val) {
-//                 (Some(l), Some(r)) => Ok(Some(l * r)),
-//                 (Some(l), None) => Ok(Some(l)), // Multiplying the target variable by a coefficient
-//                 (None, Some(r)) => Ok(Some(r)),
-//                 _ => Ok(None),
-//             }
-//         }
-//         Node::Divide(left, right) => {
-//             let left_val = evaluate_node(left, env, target_var)?;
-//             let right_val = evaluate_node(right, env, target_var)?;
-
-//             if right_val == Some(0.0) {
-//                 return Err("Division by zero".to_string());
-//             }
-
-//             match (left_val, right_val) {
-//                 (Some(l), Some(r)) => Ok(Some(l / r)),
-//                 _ => Ok(None),
-//             }
-//         }
-//         Node::Power(left, right) => {
-//             let base_val = evaluate_node(left, env, target_var)?;
-//             let exp_val = evaluate_node(right, env, target_var)?;
-
-//             match (base_val, exp_val) {
-//                 (Some(base), Some(exp)) => Ok(Some(base.powf(exp))),
-//                 _ => Ok(None),
-//             }
-//         }
-//     }
-// }
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
