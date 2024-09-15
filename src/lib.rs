@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use wasm_bindgen::prelude::*;
+use serde::{Serialize, Deserialize};
 
 pub struct Environment {
     vars: HashMap<String, f64>,
@@ -64,7 +66,7 @@ impl Node {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Node {
     // Leaf nodes: numbers or variables
     Number(f64),
@@ -140,6 +142,18 @@ pub fn extract_variable(expr: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[wasm_bindgen]
+pub fn solve_for_variable_js(expr_json: &str, right_val: f64, target_var: &str) -> Result<JsValue, JsValue> {
+    // Deserialize the JSON input into a Node
+    let expr: Node = serde_json::from_str(expr_json).map_err(|e| JsValue::from_str(&format!("Failed to parse expression: {}", e)))?;
+
+    // Call the original solve_for_variable function
+    match solve_for_variable(&expr, right_val, target_var) {
+        Ok(result) => Ok(JsValue::from_f64(result)),  // Return the result as a JsValue (f64)
+        Err(e) => Err(JsValue::from_str(&e)),  // Return the error as a JsValue (String)
+    }
 }
 
 pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
