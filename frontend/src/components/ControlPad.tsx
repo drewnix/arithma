@@ -1,11 +1,11 @@
 import React from "react";
 import { Box, Button, Grid } from "@chakra-ui/react";
 
-interface MathControlPadProps {
+interface ControlPadProps {
   onInput: (value: string) => void;
 }
 
-const ControlPad: React.FC<MathControlPadProps> = ({ onInput }) => {
+const ControlPad: React.FC<ControlPadProps> = ({ onInput }) => {
   const symbols = [
     "π", "√", "^", "+", "-", "÷", "*", "(", ")", "x", "y", "z", "sin", "cos", "tan", "log", "ln", "="
   ];
