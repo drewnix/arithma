@@ -1,72 +1,46 @@
 import { useState, useEffect } from 'react';
 import './App.css';
-import init, { solve_for_variable_js } from 'cassy';
+import init, { evaluate_expression_js } from 'cassy';
 
 function App() {
-  const [equation, setEquation] = useState(""); // Equation input by the user
+  const [input, setInput] = useState(""); // User's input
   const [solution, setSolution] = useState(""); // Solution/result from WASM
   const [error, setError] = useState(""); // Error handling
+  const [environment, setEnvironment] = useState({ vars: {} }); // Environment state
 
   // Initialize WASM once when the app starts
   useEffect(() => {
     const initializeWasm = async () => {
       try {
-        // Ensure WASM module is initialized with the correct object
-        await init({ path: '/pkg/cassy_bg.wasm' }); // Pass the correct path to the WASM file
+        await init({ path: '/pkg/cassy_bg.wasm' });
       } catch (err) {
         console.error("WASM initialization failed:", err);
       }
     };
 
     initializeWasm();
-  }, []); // Empty dependency array to ensure it runs once
+  }, []);
 
-  // Helper function to parse the equation
-  const parseEquation = (equation: string) => {
-    // For now, this is very basic parsing, just to get "x + 2 = 10" working
-    const parts = equation.split("=");
-    if (parts.length !== 2) {
-      throw new Error("Equation must be in the format 'x + 2 = 10'");
-    }
-
-    const left = parts[0].trim();  // This would be "x + 2"
-    const right = parts[1].trim(); // This would be "10"
-    
-    const rightVal = parseFloat(right); // Convert right side to number
-
-    // For simplicity, assume the left is always in the form "x + Number"
-    const [variable, operator, number] = left.split(" ");
-
-    if (operator !== "+" && operator !== "-") {
-      throw new Error("Only simple addition/subtraction is supported for now");
-    }
-
-    const exprJson = JSON.stringify({
-      Add: [
-        { Variable: variable },
-        { Number: parseFloat(number) }
-      ]
-    });
-
-    return { exprJson, rightVal, variable };
-  };
-
-  // Function to handle solving the equation
-  const handleSolveEquation = async () => {
+  // Function to handle evaluating the input (for both equations and simple expressions)
+  const handleEvaluate = async () => {
     try {
-      // Parse the equation entered by the user
-      const { exprJson, rightVal, variable } = parseEquation(equation);
+      // Pass the environment as a JSON string to the WASM function
+      const envJson = JSON.stringify(environment);
 
-      // Solve the equation using the solve_for_variable_js function from WASM
-      const result = await solve_for_variable_js(exprJson, rightVal, variable);
+      // Call WASM to evaluate the input (equation or expression)
+      const result = await evaluate_expression_js(input, envJson);
 
-      // Update the solution in the state
-      setSolution(`The solution for ${variable} is: ${result}`);
-      setError(""); // Clear any previous error
+      // Update the environment with the result (if necessary)
+      const updatedEnv = { ...environment }; // Add any necessary variable updates here
+      setEnvironment(updatedEnv);
+
+      // Display the solution
+      setSolution(`Result: ${result}`);
+      setError(""); // Clear any previous errors
     } catch (err: any) {
       // If an error occurs, set the error message
       setError(`Error: ${err.message || err}`);
-      setSolution(""); // Clear previous solution
+      setSolution(""); // Clear the previous solution
     }
   };
 
@@ -74,15 +48,15 @@ function App() {
     <div className="App">
       <h1>Cassy</h1>
 
-      {/* Input field for entering equation */}
+      {/* Input field for entering equations or expressions */}
       <div className="card">
         <input
           type="text"
-          placeholder="Enter equation (e.g., x + 2 = 10)"
-          value={equation}
-          onChange={(e) => setEquation(e.target.value)}
+          placeholder="Enter equation or expression (e.g., x + 2 = 10 or x + 2)"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
         />
-        <button onClick={handleSolveEquation}>Solve Equation</button>
+        <button onClick={handleEvaluate}>Evaluate</button>
       </div>
 
       {/* Display solution or error */}

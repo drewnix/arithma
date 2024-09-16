@@ -2,8 +2,10 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use serde::{Serialize, Deserialize};
 
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Environment {
-    vars: HashMap<String, f64>,
+    pub vars: HashMap<String, f64>,
 }
 
 impl Environment {
@@ -156,6 +158,48 @@ pub fn solve_for_variable_js(expr_json: &str, right_val: f64, target_var: &str) 
     }
 }
 
+#[wasm_bindgen]
+pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsValue> {
+    let env: Environment = serde_json::from_str(env_json).map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // If expression contains '=' (e.g. "x + 2 = 5"), split into two parts.
+    if expr.contains('=') {
+        let parts: Vec<&str> = expr.split('=').map(|part| part.trim()).collect();
+        if parts.len() != 2 {
+            return Err(JsValue::from_str("Invalid equation format. Use 'left = right'."));
+        }
+
+        // Parse the left and right parts of the equation.
+        let left_tokens = tokenize(parts[0]);
+        let right_tokens = tokenize(parts[1]);
+
+        // Build expression trees for both parts.
+        let left_tree = build_expression_tree(left_tokens).map_err(|e| JsValue::from_str(&format!("Error parsing left-hand side: {}", e)))?;
+        let right_tree = build_expression_tree(right_tokens).map_err(|e| JsValue::from_str(&format!("Error parsing right-hand side: {}", e)))?;
+
+        // Evaluate the right-hand side to get its value.
+        let right_val = right_tree.evaluate(&env).map_err(|e| JsValue::from_str(&format!("Error evaluating right-hand side: {}", e)))?;
+
+        // Extract the variable on the left-hand side.
+        if let Some(var_name) = extract_variable(parts[0]) {
+            // Solve for the variable.
+            let result = solve_for_variable(&left_tree, right_val, &var_name)
+                .map_err(|e| JsValue::from_str(&format!("Error solving for variable: {}", e)))?;
+
+            // Return the formatted result as "x = 5".
+            return Ok(format!("{} = {}", var_name, result));
+        } else {
+            return Err(JsValue::from_str("No variable found on the left-hand side to solve for."));
+        }
+    }
+
+    // Handle expressions without '='
+    let tokens = tokenize(expr);
+    let tree = build_expression_tree(tokens).map_err(|e| JsValue::from_str(&format!("Error parsing expression: {}", e)))?;
+    let result = tree.evaluate(&env).map_err(|e| JsValue::from_str(&format!("Error evaluating expression: {}", e)))?;
+
+    Ok(result.to_string()) // Return result as string
+}
 pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
     let mut coefficient = 0.0; // Coefficient of the target variable
     let mut constant = 0.0;    // Constant part to move to the other side
