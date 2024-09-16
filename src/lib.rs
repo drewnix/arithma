@@ -1,7 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
-use serde::{Serialize, Deserialize};
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Environment {
@@ -82,7 +81,6 @@ pub enum Node {
     Power(Box<Node>, Box<Node>),
 }
 
-
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     let rpn = shunting_yard(tokens)?;
 
@@ -94,8 +92,12 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
         } else if token.chars().all(char::is_alphabetic) {
             stack.push(Node::Variable(token));
         } else if "+-*/^".contains(&token) {
-            let right = stack.pop().ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
-            let left = stack.pop().ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+            let right = stack
+                .pop()
+                .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+            let left = stack
+                .pop()
+                .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
 
             let node = match token.as_str() {
                 "+" => Node::Add(Box::new(left), Box::new(right)),
@@ -118,7 +120,6 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
     Ok(stack.pop().unwrap())
 }
-
 
 pub fn get_precedence(op: &str) -> i32 {
     match op {
@@ -147,26 +148,34 @@ pub fn extract_variable(expr: &str) -> Option<String> {
 }
 
 #[wasm_bindgen]
-pub fn solve_for_variable_js(expr_json: &str, right_val: f64, target_var: &str) -> Result<JsValue, JsValue> {
+pub fn solve_for_variable_js(
+    expr_json: &str,
+    right_val: f64,
+    target_var: &str,
+) -> Result<JsValue, JsValue> {
     // Deserialize the JSON input into a Node
-    let expr: Node = serde_json::from_str(expr_json).map_err(|e| JsValue::from_str(&format!("Failed to parse expression: {}", e)))?;
+    let expr: Node = serde_json::from_str(expr_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse expression: {}", e)))?;
 
     // Call the original solve_for_variable function
     match solve_for_variable(&expr, right_val, target_var) {
-        Ok(result) => Ok(JsValue::from_f64(result)),  // Return the result as a JsValue (f64)
-        Err(e) => Err(JsValue::from_str(&e)),  // Return the error as a JsValue (String)
+        Ok(result) => Ok(JsValue::from_f64(result)), // Return the result as a JsValue (f64)
+        Err(e) => Err(JsValue::from_str(&e)),        // Return the error as a JsValue (String)
     }
 }
 
 #[wasm_bindgen]
 pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsValue> {
-    let env: Environment = serde_json::from_str(env_json).map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
 
     // If expression contains '=' (e.g. "x + 2 = 5"), split into two parts.
     if expr.contains('=') {
         let parts: Vec<&str> = expr.split('=').map(|part| part.trim()).collect();
         if parts.len() != 2 {
-            return Err(JsValue::from_str("Invalid equation format. Use 'left = right'."));
+            return Err(JsValue::from_str(
+                "Invalid equation format. Use 'left = right'.",
+            ));
         }
 
         // Parse the left and right parts of the equation.
@@ -174,11 +183,15 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
         let right_tokens = tokenize(parts[1]);
 
         // Build expression trees for both parts.
-        let left_tree = build_expression_tree(left_tokens).map_err(|e| JsValue::from_str(&format!("Error parsing left-hand side: {}", e)))?;
-        let right_tree = build_expression_tree(right_tokens).map_err(|e| JsValue::from_str(&format!("Error parsing right-hand side: {}", e)))?;
+        let left_tree = build_expression_tree(left_tokens)
+            .map_err(|e| JsValue::from_str(&format!("Error parsing left-hand side: {}", e)))?;
+        let right_tree = build_expression_tree(right_tokens)
+            .map_err(|e| JsValue::from_str(&format!("Error parsing right-hand side: {}", e)))?;
 
         // Evaluate the right-hand side to get its value.
-        let right_val = right_tree.evaluate(&env).map_err(|e| JsValue::from_str(&format!("Error evaluating right-hand side: {}", e)))?;
+        let right_val = right_tree
+            .evaluate(&env)
+            .map_err(|e| JsValue::from_str(&format!("Error evaluating right-hand side: {}", e)))?;
 
         // Extract the variable on the left-hand side.
         if let Some(var_name) = extract_variable(parts[0]) {
@@ -189,27 +202,32 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
             // Return the formatted result as "x = 5".
             return Ok(format!("{} = {}", var_name, result));
         } else {
-            return Err(JsValue::from_str("No variable found on the left-hand side to solve for."));
+            return Err(JsValue::from_str(
+                "No variable found on the left-hand side to solve for.",
+            ));
         }
     }
 
     // Handle expressions without '='
     let tokens = tokenize(expr);
-    let tree = build_expression_tree(tokens).map_err(|e| JsValue::from_str(&format!("Error parsing expression: {}", e)))?;
-    let result = tree.evaluate(&env).map_err(|e| JsValue::from_str(&format!("Error evaluating expression: {}", e)))?;
+    let tree = build_expression_tree(tokens)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing expression: {}", e)))?;
+    let result = tree
+        .evaluate(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error evaluating expression: {}", e)))?;
 
     Ok(result.to_string()) // Return result as string
 }
 pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
     let mut coefficient = 0.0; // Coefficient of the target variable
-    let mut constant = 0.0;    // Constant part to move to the other side
+    let mut constant = 0.0; // Constant part to move to the other side
 
     fn traverse(
         node: &Node,
         target_var: &str,
         coefficient: &mut f64,
         constant: &mut f64,
-        multiplier: f64,  // Apply multiplier for cases like (x + 2) * 3
+        multiplier: f64, // Apply multiplier for cases like (x + 2) * 3
     ) -> Result<(), String> {
         match node {
             Node::Number(num) => {
@@ -223,12 +241,14 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
                 }
             }
             Node::Add(left, right) => {
-                traverse(left, target_var, coefficient, constant, multiplier)?;  // Traverse left side
-                traverse(right, target_var, coefficient, constant, multiplier)?; // Traverse right side
+                traverse(left, target_var, coefficient, constant, multiplier)?; // Traverse left side
+                traverse(right, target_var, coefficient, constant, multiplier)?;
+                // Traverse right side
             }
             Node::Subtract(left, right) => {
-                traverse(left, target_var, coefficient, constant, multiplier)?;   // Traverse left side
-                traverse(right, target_var, coefficient, constant, -multiplier)?; // Apply negation to the right
+                traverse(left, target_var, coefficient, constant, multiplier)?; // Traverse left side
+                traverse(right, target_var, coefficient, constant, -multiplier)?;
+                // Apply negation to the right
             }
             Node::Multiply(left, right) => {
                 if let Node::Number(num) = **left {
@@ -238,7 +258,9 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
                     // If the right node is a number, it's a multiplier for the left side
                     traverse(left, target_var, coefficient, constant, multiplier * num)?;
                 } else {
-                    return Err("Expected one operand to be a number in multiplication.".to_string());
+                    return Err(
+                        "Expected one operand to be a number in multiplication.".to_string()
+                    );
                 }
             }
             Node::Divide(left, right) => {
@@ -247,7 +269,13 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
                 if right_constant == 0.0 {
                     return Err("Division by zero".to_string());
                 }
-                traverse(left, target_var, coefficient, constant, multiplier / right_constant)?;
+                traverse(
+                    left,
+                    target_var,
+                    coefficient,
+                    constant,
+                    multiplier / right_constant,
+                )?;
             }
             _ => return Err("Unexpected node in expression.".to_string()), // Handle any other unexpected node
         }
@@ -258,7 +286,10 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
     traverse(expr, target_var, &mut coefficient, &mut constant, 1.0)?;
 
     if coefficient == 0.0 {
-        return Err(format!("Coefficient of variable '{}' is zero, can't solve.", target_var));
+        return Err(format!(
+            "Coefficient of variable '{}' is zero, can't solve.",
+            target_var
+        ));
     }
 
     // Solve for the variable: right_val = coefficient * variable + constant
@@ -270,7 +301,7 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current_token = String::new();
-    let mut last_was_operator_or_paren = true;  // Track if last token was an operator or open parenthesis
+    let mut last_was_operator_or_paren = true; // Track if last token was an operator or open parenthesis
 
     for c in expr.chars() {
         if c.is_whitespace() {
@@ -290,7 +321,7 @@ pub fn tokenize(expr: &str) -> Vec<String> {
 
             if "+*/^()=".contains(c) {
                 tokens.push(c.to_string()); // Push operator or parentheses
-                last_was_operator_or_paren = c == '(' || "+*/^=".contains(c);  // Set flag based on operator or open parenthesis
+                last_was_operator_or_paren = c == '(' || "+*/^=".contains(c); // Set flag based on operator or open parenthesis
             } else if c == '-' {
                 // If the previous token was an operator or opening parenthesis, treat '-' as unary
                 if last_was_operator_or_paren {
@@ -336,9 +367,12 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
         } else if "+-*/^".contains(&token) {
             // Token is a binary operator
             while let Some(op) = operator_stack.last() {
-                if "+-*/^".contains(op) &&
-                   ((is_right_associative(&token) && get_precedence(op) >= get_precedence(&token)) ||
-                   (!is_right_associative(&token) && get_precedence(op) > get_precedence(&token))) {
+                if "+-*/^".contains(op)
+                    && ((is_right_associative(&token)
+                        && get_precedence(op) >= get_precedence(&token))
+                        || (!is_right_associative(&token)
+                            && get_precedence(op) > get_precedence(&token)))
+                {
                     output_queue.push(operator_stack.pop().unwrap());
                 } else {
                     break;
@@ -421,4 +455,3 @@ pub fn evaluate_rpn(tokens: Vec<String>, env: &Environment) -> Result<f64, Strin
 
     Ok(stack.pop().unwrap())
 }
-

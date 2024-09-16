@@ -1,13 +1,13 @@
-use std::io::{self, Write};
 use cassy::{build_expression_tree, solve_for_variable, tokenize, Environment};
+use std::io::{self, Write};
 
 fn main() {
     println!("Cassy - Type 'exit' to quit.");
-    let mut env = Environment::new();  // Create an environment for variables
+    let mut env = Environment::new(); // Create an environment for variables
 
     loop {
         // Prompt
-        print!("> ");
+        print!(">> ");
         io::stdout().flush().unwrap();
 
         // Read input
@@ -28,7 +28,10 @@ fn main() {
                 let right_tokens = tokenize(parts[1].trim());
 
                 // Build expression trees
-                match (build_expression_tree(left_tokens), build_expression_tree(right_tokens)) {
+                match (
+                    build_expression_tree(left_tokens),
+                    build_expression_tree(right_tokens),
+                ) {
                     (Ok(left_tree), Ok(right_tree)) => {
                         // Evaluate the right-hand side expression tree
                         match right_tree.evaluate(&env) {
@@ -56,14 +59,12 @@ fn main() {
             }
         } else {
             // Handle regular expressions (without equals sign)
-            let tokens = tokenize(input);  // Tokenize the input before passing
+            let tokens = tokenize(input); // Tokenize the input before passing
             match build_expression_tree(tokens) {
-                Ok(tree) => {
-                    match tree.evaluate(&env) {
-                        Ok(result) => println!("{}", result),
-                        Err(e) => println!("Error evaluating expression: {}", e),
-                    }
-                }
+                Ok(tree) => match tree.evaluate(&env) {
+                    Ok(result) => println!("{}", result),
+                    Err(e) => println!("Error evaluating expression: {}", e),
+                },
                 Err(e) => println!("Error parsing expression: {}", e),
             }
         }

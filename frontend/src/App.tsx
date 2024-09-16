@@ -47,6 +47,7 @@ function App() {
   return (
     <div className="App">
       <h1>Cassy</h1>
+      <h2>Prototype CAS Platform</h2>
 
       {/* Input field for entering equations or expressions */}
       <div className="card">
