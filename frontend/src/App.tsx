@@ -3,9 +3,10 @@ import './App.css';
 import init, { evaluate_expression_js } from 'cassy';
 import {
   ChakraProvider,
+  Heading,
+  Text,
   VStack,
 } from "@chakra-ui/react";
-import ControlPad from './components/ControlPad'; // Import the new component
 import ExpressionInput from './components/ExpressionInput'; // Import the new component
 import HistorySection from './components/HistorySection'; // Import the new component
 
@@ -57,21 +58,16 @@ function App() {
     }
   };
 
-  const handleInput = (value) => {
-    setInput((prev) => prev + value);
-  };
-
   return (
     <ChakraProvider>
       <VStack spacing={4} align="center" p={4}>
 
         <div className="App">
-          <h1>Cassy</h1>
-          <h2>Prototype CAS Platform</h2>
+          <Heading as='h1' size='4xl'>Cassy</Heading>
+          <Text fontSize='xl'>
+            Prototype CAS Platform
+          </Text>
           <br />
-
-          {/* Math Control Pad */}
-          <ControlPad onInput={handleInput} /> {/* Using the new component */}
 
           {/* Math Expression Input */}
           <ExpressionInput
