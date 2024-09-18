@@ -1,12 +1,7 @@
 import { useState, useEffect } from 'react';
 import './App.css';
 import init, { evaluate_expression_js } from 'cassy';
-import {
-  ChakraProvider,
-  Heading,
-  Text,
-  VStack,
-} from "@chakra-ui/react";
+import { ChakraProvider, Heading, Text, VStack } from "@chakra-ui/react";
 import ExpressionInput from './components/ExpressionInput'; // Import the new component
 import HistorySection from './components/HistorySection'; // Import the new component
 
@@ -15,7 +10,6 @@ interface HistoryItem {
   input: string;
   result: string;
 }
-
 
 function App() {
   const [input, setInput] = useState(""); // User's input
@@ -37,20 +31,21 @@ function App() {
   }, []);
 
   // Function to handle evaluating the input (for both equations and simple expressions)
-  const handleEvaluate = async () => {
+  const handleEvaluate = async (mathJson: string) => {
     try {
       // Pass the environment as a JSON string to the WASM function
       const envJson = JSON.stringify(environment);
+      console.log(input);
 
-      // Call WASM to evaluate the input (equation or expression)
-      const result = await evaluate_expression_js(input, envJson);
+      // Pass MathJSON to Rust WASM for evaluation
+      const result = await evaluate_expression_js(mathJson, envJson);
 
       // Update the environment with the result (if necessary)
       const updatedEnv = { ...environment }; // Add any necessary variable updates here
       setEnvironment(updatedEnv);
 
       // Display the solution
-      setHistory([...history, { input, result }]);
+      setHistory([...history, { input: mathJson, result }]);
       setError(""); // Clear any previous errors
     } catch (err: any) {
       // If an error occurs, set the error message
@@ -63,7 +58,7 @@ function App() {
       <VStack spacing={4} align="center" p={4}>
 
         <div className="App">
-          <Heading as='h1' size='4xl'>Cassy</Heading>
+          <Heading marginBottom='5px' as='h1' size='4xl'>Cassy</Heading>
           <Text fontSize='xl'>
             Prototype CAS Platform
           </Text>
@@ -73,7 +68,7 @@ function App() {
           <ExpressionInput
             input={input}
             setInput={setInput}
-            handleEvaluate={handleEvaluate}
+            handleEvaluate={handleEvaluate}  // Pass MathJSON directly from the child component
           />
 
           {/* History Section */}

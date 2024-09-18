@@ -1,85 +1,12 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Environment {
-    pub vars: HashMap<String, f64>,
-}
+// Declare the node module
+mod node;
+pub use crate::node::Node;
 
-impl Environment {
-    pub fn new() -> Self {
-        Environment {
-            vars: HashMap::new(),
-        }
-    }
-
-    pub fn get(&self, var: &str) -> Option<f64> {
-        self.vars.get(var).cloned()
-    }
-
-    pub fn set(&mut self, var: &str, value: f64) {
-        self.vars.insert(var.to_string(), value);
-    }
-}
-
-impl Node {
-    pub fn evaluate(&self, env: &Environment) -> Result<f64, String> {
-        match self {
-            Node::Number(n) => Ok(*n),
-            Node::Variable(ref var) => {
-                if let Some(val) = env.get(var) {
-                    Ok(val)
-                } else {
-                    Err(format!("Variable '{}' is not defined.", var))
-                }
-            }
-            Node::Add(left, right) => {
-                let left_val = left.evaluate(env)?;
-                let right_val = right.evaluate(env)?;
-                Ok(left_val + right_val)
-            }
-            Node::Subtract(left, right) => {
-                let left_val = left.evaluate(env)?;
-                let right_val = right.evaluate(env)?;
-                Ok(left_val - right_val)
-            }
-            Node::Multiply(left, right) => {
-                let left_val = left.evaluate(env)?;
-                let right_val = right.evaluate(env)?;
-                Ok(left_val * right_val)
-            }
-            Node::Divide(left, right) => {
-                let left_val = left.evaluate(env)?;
-                let right_val = right.evaluate(env)?;
-                if right_val == 0.0 {
-                    Err("Division by zero.".to_string())
-                } else {
-                    Ok(left_val / right_val)
-                }
-            }
-            Node::Power(left, right) => {
-                let left_val = left.evaluate(env)?;
-                let right_val = right.evaluate(env)?;
-                Ok(left_val.powf(right_val))
-            }
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum Node {
-    // Leaf nodes: numbers or variables
-    Number(f64),
-    Variable(String),
-
-    // Internal nodes: operators with children (operands)
-    Add(Box<Node>, Box<Node>),
-    Subtract(Box<Node>, Box<Node>),
-    Multiply(Box<Node>, Box<Node>),
-    Divide(Box<Node>, Box<Node>),
-    Power(Box<Node>, Box<Node>),
-}
+// Declare the environment module and make Environment public
+mod environment;
+pub use crate::environment::Environment;
 
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     let rpn = shunting_yard(tokens)?;
@@ -164,10 +91,85 @@ pub fn solve_for_variable_js(
     }
 }
 
+// This function converts MathJSON into your Node structure (you'll need to implement this)
+fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
+    match mathjson {
+        serde_json::Value::Array(array) => {
+            if array.is_empty() {
+                return Err("Empty MathJSON array".to_string());
+            }
+
+            let operator = array[0].as_str().ok_or("Invalid MathJSON operator")?;
+
+            match operator {
+                "Rational" => {
+                    let numerator = array
+                        .get(1)
+                        .and_then(|v| v.as_i64())
+                        .ok_or("Invalid numerator")?;
+                    let denominator = array
+                        .get(2)
+                        .and_then(|v| v.as_i64())
+                        .ok_or("Invalid denominator")?;
+                    Ok(Node::Rational(numerator, denominator))
+                }
+                "Add" => Ok(Node::Add(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Subtract" => Ok(Node::Subtract(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Multiply" => Ok(Node::Multiply(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Divide" => Ok(Node::Divide(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Power" => Ok(Node::Power(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                _ => Err(format!("Unsupported operator: {}", operator)),
+            }
+        }
+        serde_json::Value::Number(num) => {
+            if let Some(n) = num.as_f64() {
+                Ok(Node::Number(n))
+            } else {
+                Err("Invalid number format in MathJSON".to_string())
+            }
+        }
+        serde_json::Value::String(var) => Ok(Node::Variable(var.clone())),
+        _ => Err("Invalid MathJSON format".to_string()),
+    }
+}
 #[wasm_bindgen]
 pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsValue> {
+    // Deserialize the environment
     let env: Environment = serde_json::from_str(env_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Check if the input is MathJSON (you can check based on its format)
+    if let Ok(mathjson_value) = serde_json::from_str::<serde_json::Value>(expr) {
+        // Handle MathJSON by converting it to a Node structure
+        let node = mathjson_to_node(&mathjson_value).map_err(|e| {
+            JsValue::from_str(&format!(
+                "Error parsing MathJSON: {}, MathJSON: {}",
+                e, expr
+            ))
+        })?;
+
+        // Evaluate the Node
+        let result = node.evaluate(&env).map_err(|e| {
+            JsValue::from_str(&format!("Error evaluating MathJSON expression: {}", e))
+        })?;
+
+        return Ok(result.to_string()); // Return result as string
+    }
 
     // If expression contains '=' (e.g. "x + 2 = 5"), split into two parts.
     if expr.contains('=') {
@@ -208,7 +210,7 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
         }
     }
 
-    // Handle expressions without '='
+    // Handle expressions without '=' (standard expression evaluation)
     let tokens = tokenize(expr);
     let tree = build_expression_tree(tokens)
         .map_err(|e| JsValue::from_str(&format!("Error parsing expression: {}", e)))?;
