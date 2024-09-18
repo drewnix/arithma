@@ -8,6 +8,11 @@ pub use crate::node::Node;
 mod environment;
 pub use crate::environment::Environment;
 
+// Declare the evaluator module
+mod evaluator; // Declare evaluator module
+pub use crate::evaluator::Evaluator; // Re-export Evaluator so it can be used elsewhere
+
+
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     let rpn = shunting_yard(tokens)?;
 
@@ -164,7 +169,7 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
         })?;
 
         // Evaluate the Node
-        let result = node.evaluate(&env).map_err(|e| {
+        let result = Evaluator::evaluate(&node, &env).map_err(|e| {
             JsValue::from_str(&format!("Error evaluating MathJSON expression: {}", e))
         })?;
 
@@ -190,16 +195,12 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
         let right_tree = build_expression_tree(right_tokens)
             .map_err(|e| JsValue::from_str(&format!("Error parsing right-hand side: {}", e)))?;
 
-        // Evaluate the right-hand side to get its value.
-        let right_val = right_tree
-            .evaluate(&env)
-            .map_err(|e| JsValue::from_str(&format!("Error evaluating right-hand side: {}", e)))?;
+        let right_val = Evaluator::evaluate(&right_tree, &env)?;  // Use ? to handle the Result
 
         // Extract the variable on the left-hand side.
         if let Some(var_name) = extract_variable(parts[0]) {
             // Solve for the variable.
-            let result = solve_for_variable(&left_tree, right_val, &var_name)
-                .map_err(|e| JsValue::from_str(&format!("Error solving for variable: {}", e)))?;
+            let result = solve_for_variable(&left_tree, right_val, &var_name)?;  // Use ? here as well
 
             // Return the formatted result as "x = 5".
             return Ok(format!("{} = {}", var_name, result));
@@ -214,12 +215,13 @@ pub fn evaluate_expression_js(expr: &str, env_json: &str) -> Result<String, JsVa
     let tokens = tokenize(expr);
     let tree = build_expression_tree(tokens)
         .map_err(|e| JsValue::from_str(&format!("Error parsing expression: {}", e)))?;
-    let result = tree
-        .evaluate(&env)
-        .map_err(|e| JsValue::from_str(&format!("Error evaluating expression: {}", e)))?;
+    let result: Result<f64, String> = Evaluator::evaluate(&tree, &env);
 
-    Ok(result.to_string()) // Return result as string
-}
+    match result {
+        Ok(val) => Ok(val.to_string()),
+        Err(e) => Err(JsValue::from_str(&e)),
+    }}
+
 pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
     let mut coefficient = 0.0; // Coefficient of the target variable
     let mut constant = 0.0; // Constant part to move to the other side

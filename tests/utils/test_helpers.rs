@@ -1,4 +1,4 @@
-use cassy::{build_expression_tree, solve_for_variable, tokenize, Environment};
+use cassy::{build_expression_tree, solve_for_variable, tokenize, Environment, Evaluator};
 
 pub fn eval_equation(equation: &str, expected: f64) {
     let env = Environment::new();  // Environment for variable resolution
@@ -14,8 +14,8 @@ pub fn eval_equation(equation: &str, expected: f64) {
     let left_tree = build_expression_tree(left_tokens).expect("Failed to build left expression tree");
     let right_tree = build_expression_tree(right_tokens).expect("Failed to build right expression tree");
 
-    // Evaluate the right-hand side tree
-    match right_tree.evaluate(&env) {
+    // Evaluate the right-hand side tree using the Evaluator
+    match Evaluator::evaluate(&right_tree, &env) {
         Ok(right_val) => {
             // Find the variable to solve for
             if let Some(variable) = cassy::extract_variable(left_expr) {
