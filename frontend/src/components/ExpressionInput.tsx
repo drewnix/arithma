@@ -16,7 +16,7 @@ import { Box, Button } from "@chakra-ui/react";
 interface ExpressionInputProps {
   input: string;
   setInput: (input: string) => void;
-  handleEvaluate: (mathJson: string) => void;  // Expect MathJSON as a parameter
+  handleEvaluate: (mathJson: string, latex: string) => void;  // Expect MathJSON as a parameter
 }
 
 const ExpressionInput: React.FC<ExpressionInputProps> = ({
@@ -32,7 +32,9 @@ const ExpressionInput: React.FC<ExpressionInputProps> = ({
     // Check if the Enter key is pressed
     if (evt.key === "Enter") {
       const mathJson = mathfield.getValue("math-json"); // Get MathJSON
-      handleEvaluate(mathJson); // Pass MathJSON to evaluate function
+      const latex = mathfield.getValue("latex-expanded"); // Get LaTeX value
+
+      handleEvaluate(mathJson, latex); // Pass MathJSON to evaluate function
     } else {
       setInput(mathfield.getValue("latex-expanded")); // Update the input when other keys are pressed
     }
@@ -62,7 +64,8 @@ const ExpressionInput: React.FC<ExpressionInputProps> = ({
         onClick={() => {
           const mathfield = document.querySelector("math-field") as MathfieldElement;
           const mathJson = mathfield?.getValue("math-json"); // Get MathJSON on button click
-          handleEvaluate(mathJson); // Pass MathJSON to evaluate function
+          const latex = mathfield.getValue("latex-expanded"); // Get LaTeX value
+          handleEvaluate(mathJson, latex); // Pass MathJSON to evaluate function
         }}
         >
         Evaluate

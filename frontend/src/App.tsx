@@ -5,7 +5,6 @@ import { ChakraProvider, Heading, Text, VStack } from "@chakra-ui/react";
 import ExpressionInput from './components/ExpressionInput'; // Import the new component
 import HistorySection from './components/HistorySection'; // Import the new component
 
-
 interface HistoryItem {
   input: string;
   result: string;
@@ -31,32 +30,34 @@ function App() {
   }, []);
 
   // Function to handle evaluating the input (for both equations and simple expressions)
-  const handleEvaluate = async (mathJson: string) => {
+  const handleEvaluate = async (mathJson: string, latex: string) => {
     try {
       // Pass the environment as a JSON string to the WASM function
       const envJson = JSON.stringify(environment);
-      console.log(input);
 
       // Pass MathJSON to Rust WASM for evaluation
       const result = await evaluate_expression_js(mathJson, envJson);
 
       // Update the environment with the result (if necessary)
-      const updatedEnv = { ...environment }; // Add any necessary variable updates here
+      const updatedEnv = { ...environment };
       setEnvironment(updatedEnv);
 
       // Display the solution
-      setHistory([...history, { input: mathJson, result }]);
+      setHistory([...history, { input: latex, result }]);
       setError(""); // Clear any previous errors
     } catch (err: any) {
-      // If an error occurs, set the error message
       setError(`Error: ${err.message || err}`);
     }
+  };
+
+  // Function to populate ExpressionInput when history item is clicked
+  const handleHistoryItemClick = (latex: string) => {
+    setInput(latex); // Set the input to the clicked LaTeX equation
   };
 
   return (
     <ChakraProvider>
       <VStack spacing={4} align="center" p={4}>
-
         <div className="App">
           <Heading marginBottom='5px' as='h1' size='4xl'>Cassy</Heading>
           <Text fontSize='xl'>
@@ -72,7 +73,10 @@ function App() {
           />
 
           {/* History Section */}
-          <HistorySection history={history} />
+          <HistorySection
+            history={history}
+            onHistoryItemClick={handleHistoryItemClick} // Pass the click handler to HistorySection
+          />
 
           {/* Display error */}
           {error && <p className="error"><strong>{error}</strong></p>}
