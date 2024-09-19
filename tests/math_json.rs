@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use cassy::*;
+    use arithma::*;
     use serde_json::json;
 
     // Helper function to evaluate a MathJSON expression and return the result.

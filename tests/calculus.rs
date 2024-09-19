@@ -1,5 +1,5 @@
 
-use cassy::*;
+use arithma::*;
 use serde_json::json;
 
 fn evaluate_mathjson(mathjson: serde_json::Value, env: &Environment) -> Result<f64, String> {

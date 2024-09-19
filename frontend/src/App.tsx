@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import './App.css';
-import init, { evaluate_expression_js } from 'cassy';
+import init, { evaluate_expression_js } from 'arithma';
 import { ChakraProvider, Heading, Text, VStack } from "@chakra-ui/react";
 import ExpressionInput from './components/ExpressionInput'; // Import the new component
 import HistorySection from './components/HistorySection'; // Import the new component
@@ -20,7 +20,7 @@ function App() {
   useEffect(() => {
     const initializeWasm = async () => {
       try {
-        await init({ path: '/pkg/cassy_bg.wasm' });
+        await init({ path: '/pkg/arithma_bg.wasm' });
       } catch (err) {
         console.error("WASM initialization failed:", err);
       }
@@ -59,7 +59,7 @@ function App() {
     <ChakraProvider>
       <VStack spacing={4} align="center" p={4}>
         <div className="App">
-          <Heading marginBottom='5px' as='h1' size='4xl'>Cassy</Heading>
+          <Heading marginBottom='5px' as='h1' size='4xl'>Arithma</Heading>
           <Text fontSize='xl'>
             Prototype CAS Platform
           </Text>

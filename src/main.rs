@@ -1,8 +1,8 @@
-use cassy::{build_expression_tree, tokenize, Environment, Evaluator};
+use arithma::{build_expression_tree, tokenize, Environment, Evaluator};
 use std::io::{self, Write};
 
 fn main() {
-    println!("Cassy - Type 'exit' to quit.");
+    println!("Arithma - Type 'exit' to quit.");
     let env = Environment::new(); // Create an environment for variables
 
     loop {

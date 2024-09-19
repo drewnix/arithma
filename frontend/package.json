@@ -16,7 +16,7 @@
     "@cortex-js/compute-engine": "^0.25.1",
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
-    "cassy": "file:../pkg",
+    "arithma": "file:../pkg",
     "framer-motion": "^11.5.4",
     "katex": "^0.16.11",
     "mathjs": "^13.1.1",
