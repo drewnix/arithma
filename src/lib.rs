@@ -99,7 +99,13 @@ pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
                 Err("Invalid number format in MathJSON".to_string())
             }
         }
-        serde_json::Value::String(var) => Ok(Node::Variable(var.clone())),
+        serde_json::Value::String(var) => {
+            match var.as_str() {
+                "ExponentialE" => Ok(Node::Number(std::f64::consts::E)),
+                "Pi" => Ok(Node::Number(std::f64::consts::PI)),
+                _ => Ok(Node::Variable(var.clone())),
+            }
+        }
         _ => Err("Invalid MathJSON format".to_string()),
     }
 }

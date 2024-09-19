@@ -14,7 +14,7 @@ fn test_division_by_zero() {
 
 
 // #[test]
-// fn test_negative_numbers_base() {
+// fn test_negative_numbers_neg_variable() {
 //     eval_equation("-x = 8", -8.0);  // Solves for x, where x = -8
 // }
 
