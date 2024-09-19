@@ -13,4 +13,5 @@ pub enum Node {
     Multiply(Box<Node>, Box<Node>),
     Divide(Box<Node>, Box<Node>),
     Power(Box<Node>, Box<Node>),
+    Sqrt(Box<Node>)
 }

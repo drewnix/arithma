@@ -52,6 +52,14 @@ impl Evaluator {
                 let right_val = Self::evaluate(right, env)?;
                 Ok(left_val.powf(right_val))
             }
+            Node::Sqrt(operand) => {
+                let value = Self::evaluate(operand, env)?;
+                if value < 0.0 {
+                    Err("Square root of negative number is not supported.".to_string())
+                } else {
+                    Ok(value.sqrt())
+                }
+            }
         }
     }
 }

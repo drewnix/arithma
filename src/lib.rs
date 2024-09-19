@@ -42,7 +42,6 @@ pub fn solve_for_variable_js(
     }
 }
 
-// This function converts MathJSON into your Node structure (you'll need to implement this)
 fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
     match mathjson {
         serde_json::Value::Array(array) => {
@@ -83,6 +82,9 @@ fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
                 "Power" => Ok(Node::Power(
                     Box::new(mathjson_to_node(&array[1])?),
                     Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Sqrt" => Ok(Node::Sqrt(
+                    Box::new(mathjson_to_node(&array[1])?)
                 )),
                 _ => Err(format!("Unsupported operator: {}", operator)),
             }
