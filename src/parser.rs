@@ -1,4 +1,4 @@
-use crate::node::Node;  // Node enum should be imported from the node module
+use crate::node::Node; // Node enum should be imported from the node module
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -163,5 +163,95 @@ pub fn is_right_associative(op: &str) -> bool {
     match op {
         "^" => true, // Exponentiation is right-associative
         _ => false,
+    }
+}
+
+pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
+    match mathjson {
+        serde_json::Value::Array(array) => {
+            if array.is_empty() {
+                return Err("Empty MathJSON array".to_string());
+            }
+
+            let operator = array[0].as_str().ok_or("Invalid MathJSON operator")?;
+
+            match operator {
+                "Rational" => {
+                    let numerator = array
+                        .get(1)
+                        .and_then(|v| v.as_i64())
+                        .ok_or("Invalid numerator")?;
+                    let denominator = array
+                        .get(2)
+                        .and_then(|v| v.as_i64())
+                        .ok_or("Invalid denominator")?;
+                    Ok(Node::Rational(numerator, denominator))
+                }
+                "Add" => Ok(Node::Add(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Subtract" => Ok(Node::Subtract(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Multiply" => Ok(Node::Multiply(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Divide" => Ok(Node::Divide(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Power" => Ok(Node::Power(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Sqrt" => Ok(Node::Sqrt(Box::new(mathjson_to_node(&array[1])?))),
+                "Abs" => Ok(Node::Abs(Box::new(mathjson_to_node(&array[1])?))),
+                "Greater" => Ok(Node::Greater(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Less" => Ok(Node::Less(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "GreaterEqual" => Ok(Node::GreaterEqual(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "LessEqual" => Ok(Node::LessEqual(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Piecewise" => {
+                    let conditions = array[1]
+                        .as_array()
+                        .ok_or("Invalid piecewise format for conditions")?;
+                    let mut nodes = Vec::new();
+                    for condition in conditions {
+                        let expr = mathjson_to_node(&condition[0])?;
+                        let cond = mathjson_to_node(&condition[1])?;
+                        nodes.push((expr, cond));
+                    }
+                    Ok(Node::Piecewise(nodes))
+                }
+                _ => Err(format!("Unsupported operator: {}", operator)),
+            }
+        }
+        serde_json::Value::Number(num) => {
+            if let Some(n) = num.as_f64() {
+                Ok(Node::Number(n))
+            } else {
+                Err("Invalid number format in MathJSON".to_string())
+            }
+        }
+        serde_json::Value::String(var) => match var.as_str() {
+            "ExponentialE" => Ok(Node::Number(std::f64::consts::E)),
+            "Pi" => Ok(Node::Number(std::f64::consts::PI)),
+            _ => Ok(Node::Variable(var.clone())),
+        },
+        _ => Err("Invalid MathJSON format".to_string()),
     }
 }

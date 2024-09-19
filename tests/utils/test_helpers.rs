@@ -1,4 +1,5 @@
 use arithma::{build_expression_tree, solve_for_variable, tokenize, Environment, Evaluator};
+use arithma::expression::extract_variable;
 
 pub fn eval_equation(equation: &str, expected: f64) {
     let env = Environment::new();  // Environment for variable resolution
@@ -18,7 +19,7 @@ pub fn eval_equation(equation: &str, expected: f64) {
     match Evaluator::evaluate(&right_tree, &env) {
         Ok(right_val) => {
             // Find the variable to solve for
-            if let Some(variable) = arithma::extract_variable(left_expr) {
+            if let Some(variable) = extract_variable(left_expr) {
                 let result = solve_for_variable(&left_tree, right_val, &variable).expect("Failed to solve for variable");
                 assert_eq!(result, expected);
             } else {
