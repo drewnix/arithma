@@ -42,7 +42,7 @@ pub fn solve_for_variable_js(
     }
 }
 
-fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
+pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
     match mathjson {
         serde_json::Value::Array(array) => {
             if array.is_empty() {
@@ -84,6 +84,9 @@ fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
                     Box::new(mathjson_to_node(&array[2])?),
                 )),
                 "Sqrt" => Ok(Node::Sqrt(
+                    Box::new(mathjson_to_node(&array[1])?)
+                )),
+                "Abs" => Ok(Node::Abs(
                     Box::new(mathjson_to_node(&array[1])?)
                 )),
                 _ => Err(format!("Unsupported operator: {}", operator)),

@@ -60,6 +60,10 @@ impl Evaluator {
                     Ok(value.sqrt())
                 }
             }
+            Node::Abs(operand) => {
+                let value = Self::evaluate(operand, env)?;
+                Ok(value.abs())
+            }
         }
     }
 }
