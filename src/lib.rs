@@ -89,6 +89,34 @@ pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
                 "Abs" => Ok(Node::Abs(
                     Box::new(mathjson_to_node(&array[1])?)
                 )),
+                "Greater" => Ok(Node::Greater(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Less" => Ok(Node::Less(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "GreaterEqual" => Ok(Node::GreaterEqual(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "LessEqual" => Ok(Node::LessEqual(
+                    Box::new(mathjson_to_node(&array[1])?),
+                    Box::new(mathjson_to_node(&array[2])?),
+                )),
+                "Piecewise" => {
+                    let conditions = array[1]
+                        .as_array()
+                        .ok_or("Invalid piecewise format for conditions")?;
+                    let mut nodes = Vec::new();
+                    for condition in conditions {
+                        let expr = mathjson_to_node(&condition[0])?;
+                        let cond = mathjson_to_node(&condition[1])?;
+                        nodes.push((expr, cond));
+                    }
+                    Ok(Node::Piecewise(nodes))
+                }
                 _ => Err(format!("Unsupported operator: {}", operator)),
             }
         }

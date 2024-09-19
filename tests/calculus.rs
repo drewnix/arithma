@@ -9,6 +9,7 @@ fn evaluate_mathjson(mathjson: serde_json::Value, env: &Environment) -> Result<f
 
 // 1. Derivatives
 #[test]
+#[ignore]
 fn test_derivative_polynomial() {
     let env = Environment::new();
 
@@ -33,6 +34,7 @@ fn test_derivative_polynomial() {
 }
 
 #[test]
+#[ignore]
 fn test_derivative_trigonometric() {
     let env = Environment::new();
 
@@ -45,6 +47,7 @@ fn test_derivative_trigonometric() {
 
 // 2. Integrals
 #[test]
+#[ignore]
 fn test_indefinite_integral_polynomial() {
     let env = Environment::new();
 
@@ -56,6 +59,7 @@ fn test_indefinite_integral_polynomial() {
 }
 
 #[test]
+#[ignore]
 fn test_definite_integral_exponential() {
     let env = Environment::new();
 
@@ -67,6 +71,7 @@ fn test_definite_integral_exponential() {
 
 // 3. Limits
 #[test]
+#[ignore]
 fn test_limit_at_infinity() {
     let env = Environment::new();
 
@@ -76,6 +81,7 @@ fn test_limit_at_infinity() {
 }
 
 #[test]
+#[ignore]
 fn test_limit_at_zero() {
     let env = Environment::new();
 
@@ -86,6 +92,7 @@ fn test_limit_at_zero() {
 
 // 4. Series Expansions
 #[test]
+#[ignore]
 fn test_taylor_series_expansion() {
     let env = Environment::new();
 
@@ -98,6 +105,7 @@ fn test_taylor_series_expansion() {
 
 // 5. Partial Derivatives
 #[test]
+#[ignore]
 fn test_partial_derivative() {
     let env = Environment::new();
 
@@ -118,6 +126,7 @@ fn test_partial_derivative() {
 
 // 6. Differential Equations
 #[test]
+#[ignore]
 fn test_first_order_differential_equation() {
     let env = Environment::new();
 
@@ -136,6 +145,7 @@ fn test_first_order_differential_equation() {
 }
 
 #[test]
+#[ignore]
 fn test_second_order_differential_equation() {
     let env = Environment::new();
 

@@ -14,5 +14,11 @@ pub enum Node {
     Divide(Box<Node>, Box<Node>),
     Power(Box<Node>, Box<Node>),
     Sqrt(Box<Node>),
-    Abs(Box<Node>)
+    Abs(Box<Node>),
+
+    Greater(Box<Node>, Box<Node>),
+    Less(Box<Node>, Box<Node>),
+    GreaterEqual(Box<Node>, Box<Node>),
+    LessEqual(Box<Node>, Box<Node>),
+    Piecewise(Vec<(Node, Node)>),
 }
