@@ -1,6 +1,17 @@
 use arithma::*;
 use arithma::mathjson_to_node;
 use serde_json::json;
+use env_logger;
+use std::sync::Once;
+
+static INIT: Once = Once::new();
+
+fn initialize() {
+    INIT.call_once(|| {
+        env_logger::init();
+    });
+}
+
 
 fn evaluate_mathjson(mathjson: serde_json::Value, env: &Environment) -> Result<f64, String> {
     let node = mathjson_to_node(&mathjson)?;
@@ -223,6 +234,28 @@ fn test_piecewise_function() {
     env_with_x.set("x", -3.0);
     assert_eq!(evaluate_mathjson(piecewise.clone(), &env_with_x).unwrap(), 3.0);
 }
+
+// 11. Negative Numbers
+#[test]
+fn test_combined_negative_numbers() {
+    initialize();
+    let env = Environment::new();
+    let expr = "5 + -3";
+    let tree = build_expression_tree(tokenize(expr)).expect("Failed to build expression tree");
+    let result = Evaluator::evaluate(&tree, &env).expect("Failed to evaluate expression");
+    assert_eq!(result, 2.0);
+}
+
+#[test]
+fn test_negative_numbers_neg_result() {
+    initialize();
+    let env = Environment::new();
+    let expr = "-5";
+    let tree = build_expression_tree(tokenize(expr)).expect("Failed to build expression tree");
+    let result = Evaluator::evaluate(&tree, &env).expect("Failed to evaluate expression");
+    assert_eq!(result, -5.0);
+}
+
 
 #[test]
 fn test_exponential_e() {

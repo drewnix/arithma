@@ -15,10 +15,14 @@ pub enum Node {
     Power(Box<Node>, Box<Node>),
     Sqrt(Box<Node>),
     Abs(Box<Node>),
+    Negate(Box<Node>),  // Add this for unary negation
 
+    // Comparators
     Greater(Box<Node>, Box<Node>),
     Less(Box<Node>, Box<Node>),
     GreaterEqual(Box<Node>, Box<Node>),
     LessEqual(Box<Node>, Box<Node>),
+
+    // Piecewise expressions
     Piecewise(Vec<(Node, Node)>),
 }

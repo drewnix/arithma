@@ -23,6 +23,10 @@ impl Evaluator {
                     Ok(*numerator as f64 / *denominator as f64)
                 }
             }
+            Node::Negate(expr) => {
+                let value = Self::evaluate(expr, env)?;
+                Ok(-value)
+            }
             Node::Add(left, right) => {
                 let left_val = Self::evaluate(left, env)?;
                 let right_val = Self::evaluate(right, env)?;

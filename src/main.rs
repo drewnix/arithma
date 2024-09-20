@@ -2,6 +2,8 @@ use arithma::{build_expression_tree, tokenize, Environment, Evaluator};
 use std::io::{self, Write};
 
 fn main() {
+    env_logger::init();
+
     println!("Arithma - Type 'exit' to quit.");
     let env = Environment::new(); // Create an environment for variables
 

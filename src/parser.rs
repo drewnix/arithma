@@ -1,9 +1,11 @@
-use crate::node::Node; // Node enum should be imported from the node module
+use crate::node::Node;
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current_token = String::new();
-    let mut last_was_operator_or_paren = true; // Track if the last token was an operator or open parenthesis
+    let mut last_was_operator_or_paren = true; // Track if the last token was an operator or opening parenthesis
+
+    log::debug!("Tokenizing expression: {}", expr);
 
     for c in expr.chars() {
         if c.is_whitespace() {
@@ -12,22 +14,35 @@ pub fn tokenize(expr: &str) -> Vec<String> {
             current_token.push(c); // Build a number token
             last_was_operator_or_paren = false;
         } else if c.is_alphabetic() {
-            current_token.push(c); // Build a variable token
+            // Add support for alphabetic variables like `x`
+            if !current_token.is_empty() {
+                log::debug!("Token: {}", current_token);
+                tokens.push(current_token.clone());
+                current_token.clear();
+            }
+            current_token.push(c); // Capture the variable
+            log::debug!("Variable detected: {}", current_token);
+            tokens.push(current_token.clone());
+            current_token.clear();
             last_was_operator_or_paren = false;
         } else {
             if !current_token.is_empty() {
+                log::debug!("Token: {}", current_token);
                 tokens.push(current_token.clone());
                 current_token.clear();
             }
 
             if "+*/^()=".contains(c) {
+                log::debug!("Operator/Paren: {}", c);
                 tokens.push(c.to_string()); // Push operators or parentheses
                 last_was_operator_or_paren = c == '(' || "+*/^=".contains(c);
             } else if c == '-' {
                 // Treat '-' as unary if the previous token was an operator or '('
                 if last_was_operator_or_paren {
-                    tokens.push("u-".to_string()); // Unary minus
+                    log::debug!("Unary Minus Detected");
+                    tokens.push("NEG".to_string()); // Unary minus
                 } else {
+                    log::debug!("Binary Minus Detected");
                     tokens.push("-".to_string()); // Binary minus
                 }
                 last_was_operator_or_paren = true;
@@ -36,43 +51,36 @@ pub fn tokenize(expr: &str) -> Vec<String> {
     }
 
     if !current_token.is_empty() {
+        log::debug!("Token: {}", current_token);
         tokens.push(current_token);
     }
 
+    log::debug!("Tokenized result: {:?}", tokens);
     tokens
 }
 
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
+    log::debug!("Starting Shunting Yard with tokens: {:?}", tokens);
+
     let mut output_queue: Vec<String> = Vec::new();
     let mut operator_stack: Vec<String> = Vec::new();
 
-    let mut iter = tokens.into_iter().peekable();
+    for token in tokens {
+        log::debug!("Processing token: {}", token);
 
-    while let Some(token) = iter.next() {
-        if token.parse::<f64>().is_ok() || token.chars().all(char::is_alphabetic) {
-            // Token is a number or a variable, push to output queue
+        if token.parse::<f64>().is_ok() {
+            // If token is a number, add it directly to the output queue
+            log::debug!("Token is a number: {}", token);
             output_queue.push(token);
-        } else if token == "u-" {
-            // Apply unary minus directly to the next number in the token stream
-            if let Some(next_token) = iter.peek() {
-                if next_token.parse::<f64>().is_ok() {
-                    let negated_value = format!("-{}", iter.next().unwrap());
-                    output_queue.push(negated_value);
-                } else {
-                    return Err("Unary minus must be followed by a number.".to_string());
-                }
-            } else {
-                return Err("Unary minus must be followed by a number.".to_string());
-            }
+        } else if token == "NEG" {
+            // Handle unary minus: push it to operator stack with precedence handling
+            log::debug!("Unary minus detected, pushing to operator stack");
+            operator_stack.push(token); // No need to pop for precedence because it's unary
         } else if "+-*/^".contains(&token) {
-            // Token is a binary operator
-            while let Some(op) = operator_stack.last() {
-                if "+-*/^".contains(op)
-                    && ((is_right_associative(&token)
-                        && get_precedence(op) >= get_precedence(&token))
-                        || (!is_right_associative(&token)
-                            && get_precedence(op) > get_precedence(&token)))
-                {
+            // Handle binary operators with precedence and associativity
+            while let Some(top) = operator_stack.last() {
+                // Ensure NEG has higher precedence than binary operators
+                if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
                 } else {
                     break;
@@ -80,47 +88,70 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             }
             operator_stack.push(token);
         } else if token == "(" {
-            // Push the opening parenthesis to the operator stack
             operator_stack.push(token);
         } else if token == ")" {
-            // Pop operators from the stack to the output queue until we find an opening parenthesis
-            let mut found_left_paren = false;
-            while let Some(op) = operator_stack.pop() {
-                if op == "(" {
-                    found_left_paren = true;
+            while let Some(top) = operator_stack.pop() {
+                if top == "(" {
                     break;
-                } else {
-                    output_queue.push(op);
                 }
+                output_queue.push(top);
             }
-            if !found_left_paren {
-                return Err("Mismatched parentheses: extra closing parenthesis found.".to_string());
-            }
+        } else {
+            return Err(format!("Unknown token '{}'", token));
         }
+
+        log::debug!("Current output queue: {:?}", output_queue);
+        log::debug!("Current operator stack: {:?}", operator_stack);
     }
 
-    // After processing all tokens, pop any remaining operators to the output queue
+    // Pop all remaining operators to the output queue
     while let Some(op) = operator_stack.pop() {
-        if op == "(" {
-            return Err("Mismatched parentheses: unclosed opening parenthesis.".to_string());
+        if op == "(" || op == ")" {
+            return Err("Mismatched parentheses".to_string());
         }
         output_queue.push(op);
     }
 
+    log::debug!("Final RPN output: {:?}", output_queue);
     Ok(output_queue)
 }
 
+
+
+pub fn get_precedence(op: &str) -> i32 {
+    match op {
+        "NEG" => 4,  // Highest precedence for unary minus
+        "^" => 3,    // Exponentiation
+        "*" | "/" => 2,    // Multiplication and Division
+        "+" | "-" => 1,    // Addition and Subtraction
+        _ => 0,
+    }
+}
+
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
+    log::debug!("Building expression tree from tokens: {:?}", tokens);
+
     let rpn = shunting_yard(tokens)?;
 
     let mut stack: Vec<Node> = Vec::new();
 
     for token in rpn {
+        log::debug!("Processing token: {}", token);
+
         if let Ok(num) = token.parse::<f64>() {
+            // Push numbers directly onto the stack
+            log::debug!("Pushing number: {}", num);
             stack.push(Node::Number(num));
-        } else if token.chars().all(char::is_alphabetic) {
+        } else if token == "NEG" {
+            // Handle unary minus by applying it to the top of the stack
+            let operand = stack.pop().ok_or_else(|| "Not enough operands for unary minus".to_string())?;
+            stack.push(Node::Negate(Box::new(operand)));
+        } else if token.chars().all(|c| c.is_alphabetic()) {
+            // Handle variables directly (e.g., `x`, `y`)
+            log::debug!("Pushing variable: {}", token);
             stack.push(Node::Variable(token));
         } else if "+-*/^".contains(&token) {
+            // Binary operators require two operands
             let right = stack
                 .pop()
                 .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
@@ -137,34 +168,29 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 _ => return Err(format!("Unknown operator '{}'", token)),
             };
 
+            log::debug!("Pushing node: {:?}", node);
             stack.push(node);
         } else {
             return Err(format!("Unknown token '{}'", token));
         }
+
+        log::debug!("Current stack state: {:?}", stack);
     }
 
+    // The final expression tree should be a single node on the stack
     if stack.len() != 1 {
         return Err("The expression did not resolve into a single tree.".to_string());
     }
 
+    log::debug!("Final expression tree: {:?}", stack[0]);
     Ok(stack.pop().unwrap())
 }
-
-pub fn get_precedence(op: &str) -> i32 {
-    match op {
-        "+" | "-" => 1,
-        "*" | "/" => 2,
-        "^" => 3, // Exponentiation
-        _ => 0,
-    }
-}
-
-pub fn is_right_associative(op: &str) -> bool {
-    match op {
-        "^" => true, // Exponentiation is right-associative
-        _ => false,
-    }
-}
+// pub fn is_right_associative(op: &str) -> bool {
+//     match op {
+//         "^" => true, // Exponentiation is right-associative
+//         _ => false,
+//     }
+// }
 
 pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
     match mathjson {

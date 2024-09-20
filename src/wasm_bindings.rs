@@ -1,7 +1,7 @@
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
-use crate::expression::{extract_variable, solve_for_variable};
 use crate::node::Node;
+use crate::expression::{extract_variable, solve_for_variable};
 use crate::parser::{build_expression_tree, mathjson_to_node, tokenize};
 use wasm_bindgen::prelude::*;
 
