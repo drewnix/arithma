@@ -1,58 +1,65 @@
 use crate::node::Node;
-
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current_token = String::new();
-    let mut last_was_operator_or_paren = true; // Track if the last token was an operator or opening parenthesis
+    let mut chars = expr.chars().peekable();
 
     log::debug!("Tokenizing expression: {}", expr);
 
-    for c in expr.chars() {
+    while let Some(c) = chars.next() {
         if c.is_whitespace() {
             continue; // Skip whitespace
-        } else if c.is_digit(10) || c == '.' {
-            current_token.push(c); // Build a number token
-            last_was_operator_or_paren = false;
-        } else if c.is_alphabetic() {
-            // Add support for alphabetic variables like `x`
-            if !current_token.is_empty() {
-                log::debug!("Token: {}", current_token);
-                tokens.push(current_token.clone());
-                current_token.clear();
+        }
+
+        // Handle numbers (digits and decimal point)
+        if c.is_digit(10) || c == '.' {
+            current_token.push(c);
+            // Consume the full number (if it's more than one character long)
+            while let Some(&next_char) = chars.peek() {
+                if next_char.is_digit(10) || next_char == '.' {
+                    current_token.push(next_char);
+                    chars.next(); // Move the iterator forward
+                } else {
+                    break;
+                }
             }
-            current_token.push(c); // Capture the variable
-            log::debug!("Variable detected: {}", current_token);
             tokens.push(current_token.clone());
             current_token.clear();
-            last_was_operator_or_paren = false;
-        } else {
-            if !current_token.is_empty() {
-                log::debug!("Token: {}", current_token);
-                tokens.push(current_token.clone());
-                current_token.clear();
-            }
-
-            if "+*/^()=".contains(c) {
-                log::debug!("Operator/Paren: {}", c);
-                tokens.push(c.to_string()); // Push operators or parentheses
-                last_was_operator_or_paren = c == '(' || "+*/^=".contains(c);
-            } else if c == '-' {
-                // Treat '-' as unary if the previous token was an operator or '('
-                if last_was_operator_or_paren {
-                    log::debug!("Unary Minus Detected");
-                    tokens.push("NEG".to_string()); // Unary minus
-                } else {
-                    log::debug!("Binary Minus Detected");
-                    tokens.push("-".to_string()); // Binary minus
-                }
-                last_was_operator_or_paren = true;
-            }
         }
-    }
-
-    if !current_token.is_empty() {
-        log::debug!("Token: {}", current_token);
-        tokens.push(current_token);
+        // Handle LaTeX commands like \sin, \log, \frac
+        else if c == '\\' {
+            current_token.push(c); // Start of a LaTeX command
+            while let Some(&next_char) = chars.peek() {
+                if next_char.is_alphabetic() {
+                    current_token.push(next_char);
+                    chars.next(); // Move the iterator forward
+                } else {
+                    break;
+                }
+            }
+            // Check if it's the LaTeX multiplication command \cdot
+            if current_token == "\\cdot" {
+                tokens.push("*".to_string()); // Treat \cdot as multiplication
+            } else {
+                tokens.push(current_token.clone()); // Add other LaTeX commands as is
+            }
+            current_token.clear();
+        }
+        // Handle alphabetic variables like x, y, etc.
+        else if c.is_alphabetic() {
+            current_token.push(c);
+            tokens.push(current_token.clone());
+            current_token.clear();
+        }
+        // Handle operators and parentheses
+        else if "+-*/^(){}".contains(c) {
+            tokens.push(c.to_string());
+        }
+        // Handle unknown characters
+        else {
+            log::debug!("Unknown token: {}", c);
+            return vec![format!("Unknown token '{}'", c)];
+        }
     }
 
     log::debug!("Tokenized result: {:?}", tokens);
@@ -87,15 +94,21 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 }
             }
             operator_stack.push(token);
-        } else if token == "(" {
+        } else if token == "(" || token == "{" {
             operator_stack.push(token);
-        } else if token == ")" {
+        } else if token == ")" || token == "}" {
+            // Handle closing parentheses or braces by popping from the operator stack
             while let Some(top) = operator_stack.pop() {
-                if top == "(" {
+                if top == "(" || top == "{" {
                     break;
                 }
                 output_queue.push(top);
             }
+        } else if token.starts_with("\\") {
+            // Handle LaTeX functions by pushing them onto the operator stack
+            // LaTeX functions like \log, \sin, \cos are treated as "operators" with higher precedence
+            log::debug!("LaTeX function detected: {}", token);
+            operator_stack.push(token);
         } else {
             return Err(format!("Unknown token '{}'", token));
         }
@@ -106,8 +119,8 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
 
     // Pop all remaining operators to the output queue
     while let Some(op) = operator_stack.pop() {
-        if op == "(" || op == ")" {
-            return Err("Mismatched parentheses".to_string());
+        if op == "(" || op == ")" || op == "{" || op == "}" {
+            return Err("Mismatched parentheses or braces".to_string());
         }
         output_queue.push(op);
     }
@@ -116,14 +129,12 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     Ok(output_queue)
 }
 
-
-
 pub fn get_precedence(op: &str) -> i32 {
     match op {
-        "NEG" => 4,  // Highest precedence for unary minus
-        "^" => 3,    // Exponentiation
-        "*" | "/" => 2,    // Multiplication and Division
-        "+" | "-" => 1,    // Addition and Subtraction
+        "NEG" => 4,     // Highest precedence for unary minus
+        "^" => 3,       // Exponentiation
+        "*" | "/" => 2, // Multiplication and Division
+        "+" | "-" => 1, // Addition and Subtraction
         _ => 0,
     }
 }
@@ -144,12 +155,16 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             stack.push(Node::Number(num));
         } else if token == "NEG" {
             // Handle unary minus by applying it to the top of the stack
-            let operand = stack.pop().ok_or_else(|| "Not enough operands for unary minus".to_string())?;
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for unary minus".to_string())?;
             stack.push(Node::Negate(Box::new(operand)));
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)
             log::debug!("Pushing variable: {}", token);
             stack.push(Node::Variable(token));
+        } else if token == "\\pi" {
+            stack.push(Node::Number(std::f64::consts::PI));
         } else if "+-*/^".contains(&token) {
             // Binary operators require two operands
             let right = stack
@@ -170,6 +185,44 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
             log::debug!("Pushing node: {:?}", node);
             stack.push(node);
+        } else if token.starts_with("\\") {
+            // Handle LaTeX functions
+            match token.as_str() {
+                "\\sin" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\sin".to_string())?;
+                    stack.push(Node::Function("sin".to_string(), vec![operand]));
+                }
+                "\\cos" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\cos".to_string())?;
+                    stack.push(Node::Function("cos".to_string(), vec![operand]));
+                }
+                "\\log" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\log".to_string())?;
+                    stack.push(Node::Function("log".to_string(), vec![operand]));
+                }
+                "\\sqrt" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\sqrt".to_string())?;
+                    stack.push(Node::Function("sqrt".to_string(), vec![operand]));
+                }
+                "\\frac" => {
+                    let denominator = stack.pop().ok_or_else(|| {
+                        "Not enough operands for \\frac (denominator)".to_string()
+                    })?;
+                    let numerator = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\frac (numerator)".to_string())?;
+                    stack.push(Node::Divide(Box::new(numerator), Box::new(denominator)));
+                }
+                _ => return Err(format!("Unknown LaTeX function '{}'", token)),
+            }
         } else {
             return Err(format!("Unknown token '{}'", token));
         }
@@ -185,12 +238,6 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     log::debug!("Final expression tree: {:?}", stack[0]);
     Ok(stack.pop().unwrap())
 }
-// pub fn is_right_associative(op: &str) -> bool {
-//     match op {
-//         "^" => true, // Exponentiation is right-associative
-//         _ => false,
-//     }
-// }
 
 pub fn mathjson_to_node(mathjson: &serde_json::Value) -> Result<Node, String> {
     match mathjson {

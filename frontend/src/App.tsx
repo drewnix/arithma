@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import './App.css';
-import init, { evaluate_expression_js } from 'arithma';
+import init, { evaluate_latex_expression_js } from 'arithma';
 import { ChakraProvider, Heading, Text, VStack } from "@chakra-ui/react";
 import ExpressionInput from './components/ExpressionInput'; // Import the new component
 import HistorySection from './components/HistorySection'; // Import the new component
@@ -36,7 +36,7 @@ function App() {
       const envJson = JSON.stringify(environment);
 
       // Pass MathJSON to Rust WASM for evaluation
-      const result = await evaluate_expression_js(mathJson, envJson);
+      const result = await evaluate_latex_expression_js(latex, envJson);
 
       // Update the environment with the result (if necessary)
       const updatedEnv = { ...environment };

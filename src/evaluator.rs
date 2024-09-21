@@ -1,6 +1,6 @@
 // src/evaluator.rs
-use crate::node::Node;
 use crate::environment::Environment;
+use crate::node::Node;
 
 pub struct Evaluator;
 
@@ -96,6 +96,28 @@ impl Evaluator {
                     }
                 }
                 Err("No condition in Piecewise expression evaluated to true.".to_string())
+            }
+            Node::Function(ref name, ref args) => {
+                // Assuming unary functions for now (single argument)
+                if args.len() != 1 {
+                    return Err(format!("Function '{}' requires exactly one argument", name));
+                }
+
+                let arg_value = Self::evaluate(&args[0], env)?;
+                match name.as_str() {
+                    "sin" => Ok(arg_value.sin()),
+                    "cos" => Ok(arg_value.cos()),
+                    "log" => Ok(arg_value.ln()),  // Natural logarithm
+                    "exp" => Ok(arg_value.exp()), // e^x
+                    "sqrt" => {
+                        if arg_value < 0.0 {
+                            Err("Square root of a negative number is not supported.".to_string())
+                        } else {
+                            Ok(arg_value.sqrt())
+                        }
+                    }
+                    _ => Err(format!("Unsupported function '{}'", name)),
+                }
             }
         }
     }

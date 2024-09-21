@@ -15,7 +15,7 @@ pub enum Node {
     Power(Box<Node>, Box<Node>),
     Sqrt(Box<Node>),
     Abs(Box<Node>),
-    Negate(Box<Node>),  // Add this for unary negation
+    Negate(Box<Node>), // Add this for unary negation
 
     // Comparators
     Greater(Box<Node>, Box<Node>),
@@ -25,4 +25,7 @@ pub enum Node {
 
     // Piecewise expressions
     Piecewise(Vec<(Node, Node)>),
+
+    // Function calls
+    Function(String, Vec<Node>), // For functions like sin, cos
 }
