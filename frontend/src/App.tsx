@@ -30,12 +30,12 @@ function App() {
   }, []);
 
   // Function to handle evaluating the input (for both equations and simple expressions)
-  const handleEvaluate = async (mathJson: string, latex: string) => {
+  const handleEvaluate = async (latex: string) => {
     try {
       // Pass the environment as a JSON string to the WASM function
       const envJson = JSON.stringify(environment);
 
-      // Pass MathJSON to Rust WASM for evaluation
+      // Pass LaTeX to Rust WASM for evaluation
       const result = await evaluate_latex_expression_js(latex, envJson);
 
       // Update the environment with the result (if necessary)
@@ -69,7 +69,7 @@ function App() {
           <ExpressionInput
             input={input}
             setInput={setInput}
-            handleEvaluate={handleEvaluate}  // Pass MathJSON directly from the child component
+            handleEvaluate={handleEvaluate}
           />
 
           {/* History Section */}

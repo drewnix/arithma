@@ -2,12 +2,16 @@
 mod latex_parser_tests {
     use arithma::{build_expression_tree, tokenize, Environment, Evaluator};
 
-    // Helper function to evaluate LaTeX expression and return the result
-    fn eval_latex_expression(latex: &str) -> Result<f64, String> {
+    fn eval_latex_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
         let tokens = tokenize(latex);
         let parsed_expr = build_expression_tree(tokens)?;
-        let env = Environment::new(); // Create an empty environment
-        Evaluator::evaluate(&parsed_expr, &env)
+        Evaluator::evaluate(&parsed_expr, &env) 
+    }
+
+    // Helper function to evaluate LaTeX expression and return the result
+    fn eval_latex_expression(latex: &str) -> Result<f64, String> {
+        let env = Environment::new();
+        eval_latex_expression_with_env(latex, &env)
     }
 
     fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
@@ -98,5 +102,13 @@ mod latex_parser_tests {
     fn test_negative_unary() {
         let result = eval_latex_expression("-5").unwrap();
         assert_eq!(result, -5.0);
+    }
+
+    #[test]
+    fn test_variable_expression() {
+        let mut env = Environment::new();
+        env.set("x", 5.0);
+        let result = eval_latex_expression_with_env("2 * x + 3", &env).unwrap();
+        assert_eq!(result, 13.0); // 2 * 5 + 3 = 13
     }
 }

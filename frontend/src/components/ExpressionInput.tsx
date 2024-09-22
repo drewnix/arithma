@@ -1,7 +1,5 @@
 import { MathfieldElement } from "mathlive";
 import "//unpkg.com/mathlive";
-import { ComputeEngine } from "@cortex-js/compute-engine";
-
 
 declare global {
   namespace JSX {
@@ -16,7 +14,7 @@ import { Box, Button } from "@chakra-ui/react";
 interface ExpressionInputProps {
   input: string;
   setInput: (input: string) => void;
-  handleEvaluate: (mathJson: string, latex: string) => void;  // Expect MathJSON as a parameter
+  handleEvaluate: (latex: string) => void;
 }
 
 const ExpressionInput: React.FC<ExpressionInputProps> = ({
@@ -24,17 +22,14 @@ const ExpressionInput: React.FC<ExpressionInputProps> = ({
   setInput,
   handleEvaluate,
 }) => {
-  const ce = new ComputeEngine(); // Create an instance of the ComputeEngine
-
   const handleKeyDown = (evt: React.KeyboardEvent<MathfieldElement>) => {
     const mathfield = evt.target as MathfieldElement; // Cast target to MathfieldElement
 
     // Check if the Enter key is pressed
     if (evt.key === "Enter") {
-      const mathJson = mathfield.getValue("math-json"); // Get MathJSON
       const latex = mathfield.getValue("latex-expanded"); // Get LaTeX value
 
-      handleEvaluate(mathJson, latex); // Pass MathJSON to evaluate function
+      handleEvaluate(latex);
     } else {
       setInput(mathfield.getValue("latex-expanded")); // Update the input when other keys are pressed
     }
@@ -63,9 +58,8 @@ const ExpressionInput: React.FC<ExpressionInputProps> = ({
       <Button ml={3} style={{height: "63px"}} colorScheme="teal"
         onClick={() => {
           const mathfield = document.querySelector("math-field") as MathfieldElement;
-          const mathJson = mathfield?.getValue("math-json"); // Get MathJSON on button click
           const latex = mathfield.getValue("latex-expanded"); // Get LaTeX value
-          handleEvaluate(mathJson, latex); // Pass MathJSON to evaluate function
+          handleEvaluate(latex);
         }}
         >
         Evaluate
