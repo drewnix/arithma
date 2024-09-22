@@ -36,7 +36,24 @@ pub fn tokenize(expr: &str) -> Vec<String> {
                     break;
                 }
             }
-            if current_token == "\\cdot" {
+            if current_token == "\\mathrm" {
+                if chars.peek() == Some(&'{') {
+                    chars.next(); // Consume the '{'
+                    current_token.clear();
+                    while let Some(&next_char) = chars.peek() {
+                        if next_char == 'e' {
+                            current_token.push(next_char);
+                            chars.next();
+                            if chars.peek() == Some(&'}') {
+                                chars.next(); // Consume the closing '}'
+                                tokens.push("EULER".to_string());  // Tokenize \mathrm{e} as EULER
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            } else if current_token == "\\cdot" {
                 tokens.push("*".to_string());
             } else if current_token == "\\left" {
                 tokens.push("(".to_string());  // Treat \left as (
@@ -171,8 +188,12 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             stack.push(Node::Negate(Box::new(operand)));
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)
-            log::debug!("Pushing variable: {}", token);
-            stack.push(Node::Variable(token));
+            if token == "e" || token == "EULER" {
+                stack.push(Node::Number(std::f64::consts::E));  // Euler's number
+            } else {
+                log::debug!("Pushing variable: {}", token);
+                stack.push(Node::Variable(token));
+            }
         } else if token == "\\pi" {
             stack.push(Node::Number(std::f64::consts::PI));
         } else if "+-*/^".contains(&token) {

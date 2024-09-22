@@ -1,3 +1,122 @@
+#[cfg(test)]
+mod algebra_tests {
+    use arithma::{build_expression_tree, solve_for_variable, tokenize, Environment, Evaluator};
+
+    fn eval_latex_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
+        let tokens: Vec<String> = tokenize(latex);
+        let parsed_expr = build_expression_tree(tokens)?;
+        Evaluator::evaluate(&parsed_expr, &env)
+    }
+
+    // Helper function to evaluate LaTeX expression and return the result
+    fn eval_latex_expression(latex: &str) -> Result<f64, String> {
+        let env = Environment::new();
+        eval_latex_expression_with_env(latex, &env)
+    }
+
+    // 1. Basic Arithmetic and Operations
+    #[test]
+    fn test_basic_operations() {
+        // Addition: 3 + 7
+        let result = eval_latex_expression("3 + 7").unwrap();
+        assert_eq!(result, 10.0);
+
+        // Subtraction: 10 - 4
+        let result = eval_latex_expression("10 - 4").unwrap();
+        assert_eq!(result, 6.0);
+
+        // Multiplication: 5 * 6
+        let result = eval_latex_expression("5 * 6").unwrap();
+        assert_eq!(result, 30.0);
+
+        // Division: 12 / 4
+        let result = eval_latex_expression("12 / 4").unwrap();
+        assert_eq!(result, 3.0);
+
+        // Power: 2^3
+        let result = eval_latex_expression("2^{3}").unwrap();
+        assert_eq!(result, 8.0);
+
+        // Square Root: sqrt(16)
+        let result = eval_latex_expression("\\sqrt{16}").unwrap();
+        assert_eq!(result, 4.0);
+    }
+
+    // 2. Polynomials
+    #[test]
+    fn test_polynomials() {
+        let mut env = Environment::new();
+
+        // Polynomial: x^2 + 5x + 6
+        env.set("x", 2.0); // Set x = 2
+        let result = eval_latex_expression_with_env("x^{2} + 5 * x + 6", &env).unwrap();
+        assert_eq!(result, 20.0);
+    }
+
+    // 3. Rational Expressions
+    #[test]
+    fn test_rational_expression() {
+        let mut env = Environment::new();
+
+        // Rational Expression: (x^2 - 1) / (x - 1)
+        env.set("x", 2.0); // Set x = 2
+        let result = eval_latex_expression_with_env("(x^{2} -1) / (x - 1)", &env).unwrap();
+        assert_eq!(result, 3.0);
+    }
+
+    // 4. Linear Equations and Systems
+    #[test]
+    #[ignore]
+    fn test_linear_equation() -> Result<(), Box<dyn std::error::Error>> {
+        let tokens: Vec<String> = tokenize("2 * x + 5 = 11");
+        let parsed_expr = build_expression_tree(tokens)?;
+        let solution = solve_for_variable(&parsed_expr, 0.0, "x").unwrap();
+        assert_eq!(solution, 3.0);
+
+        Ok(())
+    }
+
+    // 5. Quadratic Equations
+    #[test]
+    #[ignore]
+    fn test_quadratic_equation() {
+        let mut env = Environment::new();
+
+        // Quadratic Equation: x^2 - 4 = 0
+        env.set("x", 2.0); // Set x = 2
+        let result = eval_latex_expression_with_env("x^{2} - 4 = 0", &env).unwrap();
+        assert_eq!(result, 0.0);
+    }
+
+    // 6. Exponential and Logarithmic Functions
+    // #[test]
+    // fn test_exponential_function() {
+    //     let env = Environment::new();
+
+    //     // Exponential: e^x (approximation, using e ≈ 2.718)
+    //     // let result = eval_latex_expression_with_env("x^{2} - 4 = 0", &env).unwrap();
+
+    //     // let exponential = json!(["Power", 2.718, "x"]);
+    //     // let mut env_with_x = env.clone();
+    //     // env_with_x.set("x", 1.0); // Set x = 1
+    //     // assert_eq!(evaluate_mathjson(exponential, &env_with_x).unwrap(), 2.718);
+    // }
+
+    #[test]
+    fn test_eulers_number() {
+        let latex_expr_1 = "e^2"; // Plain 'e'
+        let latex_expr_2 = "\\mathrm{e}^2"; // LaTeX \mathrm{e}
+
+        let env = Environment::new();
+
+        let result_1 = eval_latex_expression_with_env(latex_expr_1, &env).unwrap();
+        let result_2 = eval_latex_expression_with_env(latex_expr_2, &env).unwrap();
+
+        assert_eq!(result_1, std::f64::consts::E.powf(2.0)); // e^2
+        assert_eq!(result_2, std::f64::consts::E.powf(2.0)); // e^2
+    }
+}
+
 // use arithma::*;
 // use arithma::mathjson_to_node;
 // use serde_json::json;
@@ -143,11 +262,10 @@
 //     assert_eq!(evaluate_mathjson(inequality, &env_with_x).unwrap(), 1.0); // 1.0 for true
 // }
 
-
 // #[test]
 // fn test_greater_than() {
 //     let env = Environment::new();
-    
+
 //     // 5 > 3
 //     let greater_than = json!(["Greater", 5, 3]);
 //     assert_eq!(evaluate_mathjson(greater_than, &env).unwrap(), 1.0); // True
@@ -156,7 +274,7 @@
 // #[test]
 // fn test_less_than() {
 //     let env = Environment::new();
-    
+
 //     // 2 < 4
 //     let less_than = json!(["Less", 2, 4]);
 //     assert_eq!(evaluate_mathjson(less_than, &env).unwrap(), 1.0); // True
@@ -165,7 +283,7 @@
 // #[test]
 // fn test_greater_equal() {
 //     let env = Environment::new();
-    
+
 //     // 5 >= 5
 //     let greater_equal = json!(["GreaterEqual", 5, 5]);
 //     assert_eq!(evaluate_mathjson(greater_equal, &env).unwrap(), 1.0); // True
@@ -174,7 +292,7 @@
 // #[test]
 // fn test_less_equal() {
 //     let env = Environment::new();
-    
+
 //     // 3 <= 3
 //     let less_equal = json!(["LessEqual", 3, 3]);
 //     assert_eq!(evaluate_mathjson(less_equal, &env).unwrap(), 1.0); // True
@@ -183,7 +301,7 @@
 // #[test]
 // fn test_false_inequality() {
 //     let env = Environment::new();
-    
+
 //     // 10 < 5
 //     let false_inequality = json!(["Less", 10, 5]);
 //     assert_eq!(evaluate_mathjson(false_inequality, &env).unwrap(), 0.0); // False
@@ -218,8 +336,8 @@
 //     let env = Environment::new();
 
 //     // Piecewise function: f(x) = x^2 if x >= 0, -x if x < 0
-//     let piecewise = json!(["Piecewise", 
-//         [["Power", "x", 2], ["GreaterEqual", "x", 0]], 
+//     let piecewise = json!(["Piecewise",
+//         [["Power", "x", 2], ["GreaterEqual", "x", 0]],
 //         [["Subtract", 0, "x"], ["Less", "x", 0]]
 //     ]);
 
@@ -256,7 +374,6 @@
 //     let result = Evaluator::evaluate(&tree, &env).expect("Failed to evaluate expression");
 //     assert_eq!(result, -5.0);
 // }
-
 
 // #[test]
 // fn test_exponential_e() {
