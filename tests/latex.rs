@@ -91,14 +91,12 @@ mod latex_parser_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_negative_expr() {
         let result = eval_latex_expression("5 + -3").unwrap();
         assert_eq!(result, 2.0);
     }
 
     #[test]
-    #[ignore]
     fn test_negative_unary() {
         let result = eval_latex_expression("-5").unwrap();
         assert_eq!(result, -5.0);

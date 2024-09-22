@@ -1,10 +1,10 @@
 use crate::node::Node;
+
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
     let mut current_token = String::new();
     let mut chars = expr.chars().peekable();
-
-    log::debug!("Tokenizing expression: {}", expr);
+    let mut last_token: Option<String> = None;
 
     while let Some(c) = chars.next() {
         if c.is_whitespace() {
@@ -14,7 +14,6 @@ pub fn tokenize(expr: &str) -> Vec<String> {
         // Handle numbers (digits and decimal point)
         if c.is_digit(10) || c == '.' {
             current_token.push(c);
-            // Consume the full number (if it's more than one character long)
             while let Some(&next_char) = chars.peek() {
                 if next_char.is_digit(10) || next_char == '.' {
                     current_token.push(next_char);
@@ -28,20 +27,19 @@ pub fn tokenize(expr: &str) -> Vec<String> {
         }
         // Handle LaTeX commands like \sin, \log, \frac
         else if c == '\\' {
-            current_token.push(c); // Start of a LaTeX command
+            current_token.push(c);
             while let Some(&next_char) = chars.peek() {
                 if next_char.is_alphabetic() {
                     current_token.push(next_char);
-                    chars.next(); // Move the iterator forward
+                    chars.next();
                 } else {
                     break;
                 }
             }
-            // Check if it's the LaTeX multiplication command \cdot
             if current_token == "\\cdot" {
-                tokens.push("*".to_string()); // Treat \cdot as multiplication
+                tokens.push("*".to_string());
             } else {
-                tokens.push(current_token.clone()); // Add other LaTeX commands as is
+                tokens.push(current_token.clone());
             }
             current_token.clear();
         }
@@ -52,17 +50,21 @@ pub fn tokenize(expr: &str) -> Vec<String> {
             current_token.clear();
         }
         // Handle operators and parentheses
-        else if "+-*/^(){}".contains(c) {
+        else if "+*/^(){}".contains(c) {
             tokens.push(c.to_string());
         }
-        // Handle unknown characters
-        else {
-            log::debug!("Unknown token: {}", c);
-            return vec![format!("Unknown token '{}'", c)];
+        // Special handling for minus '-' to distinguish unary and binary
+        else if c == '-' {
+            let is_unary = last_token.is_none() || "+-*/^({".contains(last_token.as_deref().unwrap_or(""));
+            if is_unary {
+                tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
+            } else {
+                tokens.push("-".to_string()); // Tokenize binary minus as "-"
+            }
         }
+        last_token = tokens.last().cloned(); // Update last_token for next iteration
     }
 
-    log::debug!("Tokenized result: {:?}", tokens);
     tokens
 }
 
