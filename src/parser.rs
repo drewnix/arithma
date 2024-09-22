@@ -38,6 +38,10 @@ pub fn tokenize(expr: &str) -> Vec<String> {
             }
             if current_token == "\\cdot" {
                 tokens.push("*".to_string());
+            } else if current_token == "\\left" {
+                tokens.push("(".to_string());  // Treat \left as (
+            } else if current_token == "\\right" {
+                tokens.push(")".to_string());  // Treat \right as )
             } else {
                 tokens.push(current_token.clone());
             }
