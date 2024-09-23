@@ -15,7 +15,7 @@ pub enum Node {
     Power(Box<Node>, Box<Node>),
     Sqrt(Box<Node>),
     Abs(Box<Node>),
-    Negate(Box<Node>), // Add this for unary negation
+    Negate(Box<Node>),
 
     // Comparators
     Greater(Box<Node>, Box<Node>),

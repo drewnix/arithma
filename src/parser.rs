@@ -36,7 +36,13 @@ pub fn tokenize(expr: &str) -> Vec<String> {
                     break;
                 }
             }
-            if current_token == "\\mathrm" {
+            if current_token.starts_with("\\left") && chars.peek() == Some(&'|') {
+                tokens.push("ABS_START".to_string());
+                chars.next(); // Consume the '|'
+            } else if current_token.starts_with("\\right") && chars.peek() == Some(&'|') {
+                tokens.push("ABS_END".to_string());
+                chars.next(); // Consume the '|'
+            } else if current_token == "\\mathrm" {
                 if chars.peek() == Some(&'{') {
                     chars.next(); // Consume the '{'
                     current_token.clear();
@@ -76,7 +82,7 @@ pub fn tokenize(expr: &str) -> Vec<String> {
         }
         // Special handling for minus '-' to distinguish unary and binary
         else if c == '-' {
-            let is_unary = last_token.is_none() || "+-*/^({".contains(last_token.as_deref().unwrap_or(""));
+            let is_unary = last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
             if is_unary {
                 tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
             } else {
@@ -106,6 +112,16 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             // Handle unary minus: push it to operator stack with precedence handling
             log::debug!("Unary minus detected, pushing to operator stack");
             operator_stack.push(token); // No need to pop for precedence because it's unary
+        } else if token == "ABS_START" {
+            operator_stack.push(token);  // Treat absolute value as a grouping operation
+        } else if token == "ABS_END" {
+            while let Some(op) = operator_stack.pop() {
+                if op == "ABS_START" {
+                    break;  // Close the absolute value group
+                }
+                output_queue.push(op);
+            }
+            output_queue.push("ABS".to_string());  // Add ABS function to the output
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables like 'x', 'y', 't' directly
             log::debug!("Variable detected: {}", token);
@@ -186,6 +202,11 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 .pop()
                 .ok_or_else(|| "Not enough operands for unary minus".to_string())?;
             stack.push(Node::Negate(Box::new(operand)));
+        } else if token == "ABS" {
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for ABS".to_string())?;
+            stack.push(Node::Abs(Box::new(operand)));  // Handle absolute value
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)
             if token == "e" || token == "EULER" {

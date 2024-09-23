@@ -14,6 +14,10 @@ mod algebra_tests {
         eval_latex_expression_with_env(latex, &env)
     }
 
+    fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
+        (a - b).abs() < epsilon
+    }
+
     // 1. Basic Arithmetic and Operations
     #[test]
     fn test_basic_operations() {
@@ -89,18 +93,28 @@ mod algebra_tests {
     }
 
     // 6. Exponential and Logarithmic Functions
-    // #[test]
-    // fn test_exponential_function() {
-    //     let env = Environment::new();
+    #[test]
+    fn test_exponential_function() {
+        let mut env = Environment::new();
 
-    //     // Exponential: e^x (approximation, using e ≈ 2.718)
-    //     // let result = eval_latex_expression_with_env("x^{2} - 4 = 0", &env).unwrap();
+        // Exponential: e^x (approximation, using e ≈ 2.718)
+        env.set("x", 2.0); // Set x = 2
+        let result: f64 = eval_latex_expression_with_env("e^{x}", &env).unwrap();
+        let expected = std::f64::consts::E.powf(2.0); // e^2
+        assert!(
+            approx_eq(result, expected, 1e-9),
+            "Expected approximately {}, got {}",
+            expected,
+            result
+        );
+    }
 
-    //     // let exponential = json!(["Power", 2.718, "x"]);
-    //     // let mut env_with_x = env.clone();
-    //     // env_with_x.set("x", 1.0); // Set x = 1
-    //     // assert_eq!(evaluate_mathjson(exponential, &env_with_x).unwrap(), 2.718);
-    // }
+    #[test]
+    fn test_logarithmic_function() {
+        let env = Environment::new();
+        let result: f64 = eval_latex_expression_with_env("\\log{20.08553692318767}", &env).unwrap();
+        assert_eq!(result, 3.0);
+    }
 
     #[test]
     fn test_eulers_number() {
@@ -115,6 +129,77 @@ mod algebra_tests {
         assert_eq!(result_1, std::f64::consts::E.powf(2.0)); // e^2
         assert_eq!(result_2, std::f64::consts::E.powf(2.0)); // e^2
     }
+
+    // 7. Radicals and Rational Exponents
+    #[test]
+    fn test_rational_exponent() {
+        let mut env = Environment::new();
+
+        // Rational Exponent: x^(1/2) = sqrt(x)
+        env.set("x", 9.0);
+        let result: f64 = eval_latex_expression_with_env("x^{1/2}", &env).unwrap();
+        assert_eq!(result, 3.0);
+    }
+
+    #[test]
+    fn test_inequality() {
+        let mut env = Environment::new();
+
+        // Inequality: x + 2 > 5
+        env.set("x", 4.0);
+        let result: f64 = eval_latex_expression_with_env("x + 2 > 5", &env).unwrap();
+        assert_eq!(result, 1.0);  // 1.0 for true
+    }
+
+    #[test]
+    fn test_greater_than() {
+        // 5 > 3
+        let result: f64 = eval_latex_expression("5 > 3").unwrap();
+        assert_eq!(result, 1.0);  // 1.0 for true
+    }
+
+    #[test]
+    fn test_lesser_than() {
+        // 2 < 4
+        let result: f64 = eval_latex_expression("2 < 4").unwrap();
+        assert_eq!(result, 1.0);  // 1.0 for true
+    }
+
+    #[test]
+    fn test_absolute_value() {
+        let mut env = Environment::new();
+        env.set("x", -5.0); // Set x = -5
+
+        let result = eval_latex_expression_with_env("\\left|x + 2\\right|", &env).unwrap();
+        assert_eq!(result, 3.0);  // | -5 + 2 | = | -3 | = 3
+
+        let result = eval_latex_expression_with_env("\\left|-5\\right|", &env).unwrap();
+        assert_eq!(result, 5.0);  // | -5 | = 5
+    }
+
+    // 9. Absolute Value
+    // #[test]
+    // fn test_absolute_value() {
+        // let env = Environment::new();
+
+        // Absolute Value: |x - 5|
+
+
+        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
+        // let mut env_with_x = env.clone();
+        // env_with_x.set("x", 2.0); // Set x = 2
+        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 3.0);
+
+        // Absolute Value: |x - 5| for x = 7
+        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
+        // env_with_x.set("x", 7.0); // Set x = 7
+        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 2.0);
+
+        // Absolute Value: |x - 5| for x = -3
+        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
+        // env_with_x.set("x", -3.0); // Set x = -3
+        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 8.0);
+    // }
 }
 
 // use arithma::*;
