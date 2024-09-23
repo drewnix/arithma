@@ -107,7 +107,9 @@ impl Evaluator {
                 match name.as_str() {
                     "sin" => Ok(arg_value.sin()),
                     "cos" => Ok(arg_value.cos()),
-                    "log" => Ok(arg_value.ln()),  // Natural logarithm
+                    "ln" => Ok(arg_value.ln()),     // Natural logarithm (base 'e')
+                    "log" => Ok(arg_value.log10()), // Common logarithm (base 10)
+                    "lg" => Ok(arg_value.log2()),   // Binary logarithm (base 2)
                     "exp" => Ok(arg_value.exp()), // e^x
                     "sqrt" => {
                         if arg_value < 0.0 {

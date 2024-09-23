@@ -258,6 +258,18 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                         .ok_or_else(|| "Not enough operands for \\log".to_string())?;
                     stack.push(Node::Function("log".to_string(), vec![operand]));
                 }
+                "\\ln" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\ln".to_string())?;
+                    stack.push(Node::Function("ln".to_string(), vec![operand]));
+                }
+                "\\lg" => {
+                    let operand = stack
+                        .pop()
+                        .ok_or_else(|| "Not enough operands for \\lg".to_string())?;
+                    stack.push(Node::Function("lg".to_string(), vec![operand]));
+                }
                 "\\sqrt" => {
                     let operand = stack
                         .pop()

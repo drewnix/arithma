@@ -112,8 +112,14 @@ mod algebra_tests {
     #[test]
     fn test_logarithmic_function() {
         let env = Environment::new();
-        let result: f64 = eval_latex_expression_with_env("\\log{20.08553692318767}", &env).unwrap();
+        let result: f64 = eval_latex_expression_with_env("\\ln{20.08553692318767}", &env).unwrap();
         assert_eq!(result, 3.0);
+
+        let result = eval_latex_expression("\\log{100}").unwrap();
+        assert_eq!(result, 2.0); // log10(100) = 2
+
+        let result = eval_latex_expression("\\lg{8}").unwrap();
+        assert_eq!(result, 3.0); // log2(8) = 3
     }
 
     #[test]
