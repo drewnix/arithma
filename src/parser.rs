@@ -1,4 +1,7 @@
+use std::iter::Peekable;
+use std::str::Chars;
 use crate::node::Node;
+
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -8,67 +11,28 @@ pub fn tokenize(expr: &str) -> Vec<String> {
 
     while let Some(c) = chars.next() {
         if c.is_whitespace() {
-            continue; // Skip whitespace
+            continue;  // Skip whitespace
         }
 
         // Handle numbers (digits and decimal point)
         if c.is_digit(10) || c == '.' {
-            current_token.push(c);
-            while let Some(&next_char) = chars.peek() {
-                if next_char.is_digit(10) || next_char == '.' {
-                    current_token.push(next_char);
-                    chars.next(); // Move the iterator forward
-                } else {
-                    break;
-                }
-            }
-            tokens.push(current_token.clone());
-            current_token.clear();
+            tokenize_numbers(&mut tokens, &mut current_token, &mut chars, c);
         }
         // Handle LaTeX commands like \sin, \log, \frac
         else if c == '\\' {
-            current_token.push(c);
-            while let Some(&next_char) = chars.peek() {
-                if next_char.is_alphabetic() {
-                    current_token.push(next_char);
-                    chars.next();
-                } else {
-                    break;
+            tokenize_latex_commands(&mut tokens, &mut current_token, &mut chars, c);
+        } else if c == '>' || c == '<' {
+            let mut op = c.to_string();
+            if let Some(&next_char) = chars.peek() {
+                if next_char == '=' {
+                    op.push(next_char);  // Combine >= or <=
+                    chars.next();  // Move the iterator forward
                 }
             }
-            if current_token.starts_with("\\left") && chars.peek() == Some(&'|') {
-                tokens.push("ABS_START".to_string());
-                chars.next(); // Consume the '|'
-            } else if current_token.starts_with("\\right") && chars.peek() == Some(&'|') {
-                tokens.push("ABS_END".to_string());
-                chars.next(); // Consume the '|'
-            } else if current_token == "\\mathrm" {
-                if chars.peek() == Some(&'{') {
-                    chars.next(); // Consume the '{'
-                    current_token.clear();
-                    while let Some(&next_char) = chars.peek() {
-                        if next_char == 'e' {
-                            current_token.push(next_char);
-                            chars.next();
-                            if chars.peek() == Some(&'}') {
-                                chars.next(); // Consume the closing '}'
-                                tokens.push("EULER".to_string());  // Tokenize \mathrm{e} as EULER
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            } else if current_token == "\\cdot" {
-                tokens.push("*".to_string());
-            } else if current_token == "\\left" {
-                tokens.push("(".to_string());  // Treat \left as (
-            } else if current_token == "\\right" {
-                tokens.push(")".to_string());  // Treat \right as )
-            } else {
-                tokens.push(current_token.clone());
-            }
-            current_token.clear();
+            tokens.push(op);
+        } else if c == '=' && chars.peek() == Some(&'=') {
+            tokens.push("==".to_string());
+            chars.next();
         }
         // Handle alphabetic variables like x, y, etc.
         else if c.is_alphabetic() {
@@ -82,17 +46,80 @@ pub fn tokenize(expr: &str) -> Vec<String> {
         }
         // Special handling for minus '-' to distinguish unary and binary
         else if c == '-' {
-            let is_unary = last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
-            if is_unary {
-                tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
-            } else {
-                tokens.push("-".to_string()); // Tokenize binary minus as "-"
-            }
+            tokenize_minus(&mut tokens, &last_token);
         }
         last_token = tokens.last().cloned(); // Update last_token for next iteration
     }
 
     tokens
+}
+
+fn tokenize_minus(tokens: &mut Vec<String>, last_token: &Option<String>) {
+    let is_unary = last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
+    if is_unary {
+        tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
+    } else {
+        tokens.push("-".to_string()); // Tokenize binary minus as "-"
+    }
+}
+
+fn tokenize_numbers(tokens: &mut Vec<String>, current_token: &mut String, chars: &mut Peekable<Chars>, c: char) {
+    current_token.push(c);
+    while let Some(&next_char) = chars.peek() {
+        if next_char.is_digit(10) || next_char == '.' {
+            current_token.push(next_char);
+            chars.next(); // Move the iterator forward
+        } else {
+            break;
+        }
+    }
+    tokens.push(current_token.clone());
+    current_token.clear();
+}
+
+fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String, chars: &mut Peekable<Chars>, c: char) {
+    current_token.push(c);
+    while let Some(&next_char) = chars.peek() {
+        if next_char.is_alphabetic() {
+            current_token.push(next_char);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if current_token.starts_with("\\left") && chars.peek() == Some(&'|') {
+        tokens.push("ABS_START".to_string());
+        chars.next(); // Consume the '|'
+    } else if current_token.starts_with("\\right") && chars.peek() == Some(&'|') {
+        tokens.push("ABS_END".to_string());
+        chars.next(); // Consume the '|'
+    } else if current_token == "\\mathrm" {
+        if chars.peek() == Some(&'{') {
+            chars.next(); // Consume the '{'
+            current_token.clear();
+            while let Some(&next_char) = chars.peek() {
+                if next_char == 'e' {
+                    current_token.push(next_char);
+                    chars.next();
+                    if chars.peek() == Some(&'}') {
+                        chars.next(); // Consume the closing '}'
+                        tokens.push("EULER".to_string());  // Tokenize \mathrm{e} as EULER
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+    } else if current_token == "\\cdot" {
+        tokens.push("*".to_string());
+    } else if current_token == "\\left" {
+        tokens.push("(".to_string());  // Treat \left as (
+    } else if current_token == "\\right" {
+        tokens.push(")".to_string());  // Treat \right as )
+    } else {
+        tokens.push(current_token.clone());
+    }
+    current_token.clear();
 }
 
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
@@ -126,6 +153,15 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             // Handle variables like 'x', 'y', 't' directly
             log::debug!("Variable detected: {}", token);
             output_queue.push(token);
+        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" {
+            while let Some(top) = operator_stack.last() {
+                if get_precedence(top) >= get_precedence(&token) {
+                    output_queue.push(operator_stack.pop().unwrap());
+                } else {
+                    break;
+                }
+            }
+            operator_stack.push(token);
         } else if "+-*/^".contains(&token) {
             // Handle binary operators with precedence and associativity
             while let Some(top) = operator_stack.last() {
@@ -178,10 +214,10 @@ pub fn get_precedence(op: &str) -> i32 {
         "^" => 3,       // Exponentiation
         "*" | "/" => 2, // Multiplication and Division
         "+" | "-" => 1, // Addition and Subtraction
+        ">" | "<" | ">=" | "<=" | "==" => 0,  // Inequality operators
         _ => 0,
     }
 }
-
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     log::debug!("Building expression tree from tokens: {:?}", tokens);
 
@@ -236,6 +272,24 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             };
 
             log::debug!("Pushing node: {:?}", node);
+            stack.push(node);
+        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" {
+            let right = stack
+                .pop()
+                .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+            let left = stack
+                .pop()
+                .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
+
+            let node = match token.as_str() {
+                ">" => Node::Greater(Box::new(left), Box::new(right)),
+                "<" => Node::Less(Box::new(left), Box::new(right)),
+                ">=" => Node::GreaterEqual(Box::new(left), Box::new(right)),
+                "<=" => Node::LessEqual(Box::new(left), Box::new(right)),
+                "==" => Node::Equal(Box::new(left), Box::new(right)),  // Optional for equality
+                _ => return Err(format!("Unknown operator '{}'", token)),
+            };
+
             stack.push(node);
         } else if token.starts_with("\\") {
             // Handle LaTeX functions

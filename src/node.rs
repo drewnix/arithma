@@ -22,6 +22,7 @@ pub enum Node {
     Less(Box<Node>, Box<Node>),
     GreaterEqual(Box<Node>, Box<Node>),
     LessEqual(Box<Node>, Box<Node>),
+    Equal(Box<Node>, Box<Node>),
 
     // Piecewise expressions
     Piecewise(Vec<(Node, Node)>),

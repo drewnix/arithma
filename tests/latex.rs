@@ -68,7 +68,7 @@ mod latex_parser_tests {
 
     #[test]
     fn test_logarithm() {
-        let result = eval_latex_expression("\\log{2.718}").unwrap();
+        let result = eval_latex_expression("\\ln{2.718}").unwrap();
         assert!(approx_eq(result, 1.0, 1e-3)); // Allowing for a small epsilon
     }
 
