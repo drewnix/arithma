@@ -182,30 +182,6 @@ mod algebra_tests {
         let result = eval_latex_expression_with_env("\\left|-5\\right|", &env).unwrap();
         assert_eq!(result, 5.0);  // | -5 | = 5
     }
-
-    // 9. Absolute Value
-    // #[test]
-    // fn test_absolute_value() {
-        // let env = Environment::new();
-
-        // Absolute Value: |x - 5|
-
-
-        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
-        // let mut env_with_x = env.clone();
-        // env_with_x.set("x", 2.0); // Set x = 2
-        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 3.0);
-
-        // Absolute Value: |x - 5| for x = 7
-        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
-        // env_with_x.set("x", 7.0); // Set x = 7
-        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 2.0);
-
-        // Absolute Value: |x - 5| for x = -3
-        // let abs_expr = json!(["Abs", ["Subtract", "x", 5]]);
-        // env_with_x.set("x", -3.0); // Set x = -3
-        // assert_eq!(evaluate_mathjson(abs_expr, &env_with_x).unwrap(), 8.0);
-    // }
 }
 
 // use arithma::*;
