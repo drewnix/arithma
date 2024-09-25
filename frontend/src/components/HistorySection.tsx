@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import {Card} from "@/components/ui/card";
-import {Tooltip} from "@/components/ui/tooltip";
-import {TooltipProvider} from "@radix-ui/react-tooltip";
+import { Card } from "@/components/ui/card";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { Separator } from "@/components/ui/separator";
 
 interface HistoryItem {
     input: string;
     result: string;
+    errorMessage?: string;
 }
 
 interface HistorySectionProps {
@@ -15,36 +16,56 @@ interface HistorySectionProps {
     onHistoryItemClick: (latex: string) => void;
 }
 
-const HistorySection: React.FC<HistorySectionProps> = ({history, onHistoryItemClick}) => {
+const HistorySection: React.FC<HistorySectionProps> = ({ history }) => {
+    const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+
+    const toggleExpand = (index: number) => {
+        setExpandedIndex(expandedIndex === index ? null : index);
+    };
+
     return (
         <TooltipProvider>
-            <Card className="w-full max-w-2xl p-4  border-none shadow-none" style={{paddingBottom: "30px"}}>
+            <Card className="w-full max-w-2xl p-4 border-none shadow-none" style={{ paddingBottom: "30px" }}>
                 <div className="space-y-4">
                     {/* Reverse the history list to show the most recent at the top */}
                     {history.slice(0).reverse().map((item, index) => (
-                        <Tooltip key={index} delayDuration={0}>
+                        <div key={index}>
                             <div
-                                className="p-2 bg-white rounded-md shadow-md flex justify-between items-center cursor-pointer"
-                                 style={{marginRight: "10px"}}
-                                onClick={() => onHistoryItemClick(item.input)} // Handle click on history item
+                                className={`p-2 bg-white rounded-md shadow-md flex flex-col justify-between cursor-pointer transition-all duration-300 ${
+                                    expandedIndex === index ? 'expanded' : ''
+                                }`}
+                                style={{ marginRight: "10px" }}
+                                onClick={() => toggleExpand(index)} // Toggle expansion on click
                             >
-                                {/* Left aligned LaTeX input */}
-                                <div
-                                    className="flex-grow text-left"
-                                    dangerouslySetInnerHTML={{
-                                        __html: katex.renderToString(item.input, {
-                                            throwOnError: false,
-                                        }),
-                                    }}
-                                ></div>
+                                <div className="flex justify-between items-center">
+                                    {/* Left aligned LaTeX input */}
+                                    <div
+                                        className="flex-grow text-left"
+                                        dangerouslySetInnerHTML={{
+                                            __html: katex.renderToString(item.input, {
+                                                throwOnError: false,
+                                            }),
+                                        }}
+                                    ></div>
 
-                                {/* Right aligned result */}
-                                <span className="ml-4 font-bold text-teal-500">
-                {item.result}
-              </span>
+                                    {/* Right aligned result */}
+                                    <span className={`ml-4 font-bold ${item.result === 'Error' ? 'text-red-500' : 'text-teal-500'}`}>
+                                        {item.result}
+                                    </span>
+                                </div>
 
+                                {/* Error details: Visible when expanded */}
+                                {expandedIndex === index && item.result === 'Error' && (
+                                    <>
+                                        <Separator className="my-2" /> {/* Light separator */}
+                                        <div className="text-sm text-gray-600">
+                                            <p className="text-red-500 font-bold">Error Details:</p>
+                                            <p>{item.errorMessage}</p>
+                                        </div>
+                                    </>
+                                )}
                             </div>
-                        </Tooltip>
+                        </div>
                     ))}
                 </div>
             </Card>

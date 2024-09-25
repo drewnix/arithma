@@ -68,6 +68,10 @@ button:focus-visible {
   }
 }
 
+.expanded {
+  transition: all 0.3s ease;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

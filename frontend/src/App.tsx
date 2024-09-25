@@ -28,10 +28,11 @@ function cn(...inputs: ClassValue[]) {
 interface HistoryItem {
     input: string;
     result: string;
+    errorMessage?: string;
 }
 
 
-interface NewAppProps {
+interface AppProps {
     defaultLayout: number[] | undefined
     defaultCollapsed?: boolean
     navCollapsedSize: number
@@ -42,10 +43,9 @@ export default function NewApp({
                                    navCollapsedSize = 4,
                                    defaultLayout = [4, 32, 48]
 
-                               }: NewAppProps) {
+                               }: AppProps) {
     const [isCollapsed, setIsCollapsed] = React.useState(defaultCollapsed);
     const [input, setInput] = useState(""); // User's input
-    const [error, setError] = useState(""); // Error handling
     const [environment, setEnvironment] = useState({vars: {}}); // Environment state
     const [history, setHistory] = useState<HistoryItem[]>([]); // Explicit type for history
 
@@ -77,9 +77,8 @@ export default function NewApp({
 
             // Display the solution
             setHistory([...history, {input: latex, result}]);
-            setError(""); // Clear any previous errors
         } catch (err: any) {
-            setError(`Error: ${err.message || err}`);
+            setHistory([...history, { input: latex, result: 'Error', errorMessage: err.message || err.toString() }]);
         }
     };
 
@@ -153,15 +152,8 @@ export default function NewApp({
                             history={history}
                             onHistoryItemClick={handleHistoryItemClick} // Pass the click handler to HistorySection
                         />
-
-                        {/* Display error */}
-                        {error && <p className="error"><strong>{error}</strong></p>}
                 </ResizablePanel>
-
-
             </ResizablePanelGroup>
-
         </TooltipProvider>
-    )
-        ;
+    );
 }
