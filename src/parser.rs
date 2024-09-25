@@ -116,10 +116,40 @@ fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String,
         tokens.push("(".to_string());  // Treat \left as (
     } else if current_token == "\\right" {
         tokens.push(")".to_string());  // Treat \right as )
+    } else if current_token == "\\frac" {
+        if let Some(&next_char) = chars.peek() {
+            // Check if next char is a digit, indicating shorthand fraction \frac23
+            if next_char.is_digit(10) {
+                current_token.clear();
+                tokenize_shorthand_fraction(tokens, chars);
+            } else {
+                tokens.push(current_token.clone());
+                current_token.clear();
+            }
+        }
     } else {
         tokens.push(current_token.clone());
     }
     current_token.clear();
+}
+
+fn tokenize_shorthand_fraction(tokens: &mut Vec<String>, chars: &mut Peekable<Chars>) {
+    if let Some(numerator_char) = chars.next() {
+        if numerator_char.is_digit(10) {
+            tokens.push(numerator_char.to_string()); // Push numerator (e.g., '2')
+        } else {
+            return; // Invalid syntax if no digit found
+        }
+
+        if let Some(denominator_char) = chars.next() {
+            if denominator_char.is_digit(10) {
+                tokens.push("/".to_string()); // Insert division operator
+                tokens.push(denominator_char.to_string()); // Push denominator (e.g., '3')
+            } else {
+                return; // Invalid syntax if no digit found
+            }
+        }
+    }
 }
 
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {

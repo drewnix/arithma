@@ -44,7 +44,10 @@ mod algebra_tests {
         // Square Root: sqrt(16)
         let result = eval_latex_expression("\\sqrt{16}").unwrap();
         assert_eq!(result, 4.0);
+    }
 
+    #[test]
+    fn test_fractions() {
         // Addition with fraction
         let result: f64 = eval_latex_expression("1+\\frac{2}{3}").unwrap();
         assert!(
@@ -54,6 +57,14 @@ mod algebra_tests {
             result
         );
 
+        // Abbreviated fraction syntax
+        let result: f64 = eval_latex_expression("1+\\frac23").unwrap();
+        assert!(
+            approx_eq(result, 1.6666666666, 1e-9),
+            "Expected approximately {}, got {}",
+            1.6666666666,
+            result
+        );
     }
 
     // 2. Polynomials
