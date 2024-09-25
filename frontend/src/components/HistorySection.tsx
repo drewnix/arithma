@@ -35,10 +35,11 @@ const HistorySection: React.FC<HistorySectionProps> = ({ history }) => {
                                     expandedIndex === index ? 'expanded' : ''
                                 }`}
                                 style={{ marginRight: "10px" }}
-                                onClick={() => toggleExpand(index)} // Toggle expansion on click
                             >
-                                <div className="flex justify-between items-center">
-                                    {/* Left aligned LaTeX input */}
+                            <div
+                                className="flex justify-between items-center cursor-pointer"
+                                onClick={() => toggleExpand(index)} // Toggle expansion only when clicking the top part
+                            >                                    {/* Left aligned LaTeX input */}
                                     <div
                                         className="flex-grow text-left"
                                         dangerouslySetInnerHTML={{
@@ -59,8 +60,9 @@ const HistorySection: React.FC<HistorySectionProps> = ({ history }) => {
                                     <>
                                         <Separator className="my-2" /> {/* Light separator */}
                                         <div className="text-sm text-gray-600">
-                                            <p className="text-red-500 font-bold">Error Details:</p>
-                                            <p>{item.errorMessage}</p>
+                                            <p className="text-red-500 font-bold">Error Details</p>
+                                            <p>{item.errorMessage}.</p>
+                                            <p><b>LaTeX:</b> {item.input}</p>
                                         </div>
                                     </>
                                 )}
