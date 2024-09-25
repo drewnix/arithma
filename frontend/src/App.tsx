@@ -12,7 +12,7 @@ import {
     ResizablePanel,
     ResizablePanelGroup,
 } from "@/components/ui/resizable"
-import {Calculator, Infinity} from "lucide-react";
+import {Calculator, Infinity, Sigma, Box, Database} from "lucide-react";
 import {twMerge} from "tailwind-merge"
 import {clsx, type ClassValue} from "clsx"
 import {useEffect, useState} from "react";
@@ -135,6 +135,24 @@ export default function NewApp({
                                 label: "",
                                 icon: Calculator,
                                 variant: "default",
+                            },
+                            {
+                                title: "Equations",
+                                label: "",
+                                icon: Sigma,
+                                variant: "ghost",
+                            },
+                            {
+                                title: "Model",
+                                label: "",
+                                icon: Box,
+                                variant: "ghost",
+                            },
+                            {
+                                title: "Data Sources",
+                                label: "",
+                                icon: Database,
+                                variant: "ghost",
                             },
                         ]}
                     />
