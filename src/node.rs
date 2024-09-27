@@ -54,7 +54,7 @@ impl fmt::Display for Node {
                 } else if let (Node::Number(l), Node::Variable(r)) = (&**left, &**right) {
                     write!(f, "{}{}", l, r)
                 } else {
-                    write!(f, "{} * {}", left, right)
+                    write!(f, "{} \\cdot {}", left, right)
                 }
             }
             Node::Subtract(left, right) => write!(f, "{} - {}", left, right),

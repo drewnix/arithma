@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use crate::environment::Environment;
 use crate::node::Node;
 
@@ -8,65 +9,14 @@ pub trait Simplifiable {
 impl Simplifiable for Node {
     fn simplify(&self, env: &Environment) -> Result<Node, String> {
         match self {
-            Node::Add(left, right) => {
-                let left_simplified = left.simplify(env)?;
-                let right_simplified = right.simplify(env)?;
+            Node::Add(_, _) => {
+                let mut term_map: HashMap<String, f64> = HashMap::new();
+                // Collect all terms from the addition node
+                collect_terms(self, &mut term_map, env)?;
 
-                // If both sides are numbers, return the result of the addition
-                if let (Node::Number(l), Node::Number(r)) = (&left_simplified, &right_simplified) {
-                    return Ok(Node::Number(l + r));
-                }
-
-                // Combine like terms if both sides are the same variable multiplied by coefficients (e.g., 2x + 3x)
-                if let (Node::Multiply(l_boxed_left, l_boxed_right), Node::Multiply(r_boxed_left, r_boxed_right)) =
-                    (&left_simplified, &right_simplified)
-                {
-                    if let (Node::Number(l_coef), Node::Variable(ref l_var)) = (&**l_boxed_left, &**l_boxed_right) {
-                        if let (Node::Number(r_coef), Node::Variable(ref r_var)) = (&**r_boxed_left, &**r_boxed_right) {
-                            if l_var == r_var {
-                                let new_coef = l_coef + r_coef;
-                                return Ok(Node::Multiply(
-                                    Box::new(Node::Number(new_coef)),
-                                    Box::new(Node::Variable(l_var.clone())),
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                // Handle adding a variable and a term with a coefficient (e.g., x + 2x)
-                if let (Node::Variable(ref l_var), Node::Multiply(r_boxed_left, r_boxed_right)) =
-                    (&left_simplified, &right_simplified)
-                {
-                    if let (Node::Number(r_coef), Node::Variable(ref r_var)) = (&**r_boxed_left, &**r_boxed_right) {
-                        if l_var == r_var {
-                            return Ok(Node::Multiply(
-                                Box::new(Node::Number(1.0 + r_coef)), // Combine coefficients
-                                Box::new(Node::Variable(l_var.clone())),
-                            ));
-                        }
-                    }
-                }
-
-                // Handle the reverse case: 2x + x
-                if let (Node::Multiply(l_boxed_left, l_boxed_right), Node::Variable(ref r_var)) =
-                    (&left_simplified, &right_simplified)
-                {
-                    if let (Node::Number(l_coef), Node::Variable(ref l_var)) = (&**l_boxed_left, &**l_boxed_right) {
-                        if l_var == r_var {
-                            return Ok(Node::Multiply(
-                                Box::new(Node::Number(l_coef + 1.0)), // Combine coefficients
-                                Box::new(Node::Variable(l_var.clone())),
-                            ));
-                        }
-                    }
-                }
-
-                // Otherwise, return the simplified addition node
-                Ok(Node::Add(
-                    Box::new(left_simplified),
-                    Box::new(right_simplified),
-                ))
+                // Rebuild the expression by combining like terms
+                let simplified_expr = rebuild_expression(term_map);
+                Ok(simplified_expr)
             }
             Node::Rational(numerator, denominator) => {
                 if *denominator == 0 {
@@ -133,6 +83,31 @@ impl Simplifiable for Node {
                     Box::new(right_simplified),
                 ))
             }
+            Node::Power(base, exponent) => {
+                let base_simplified = base.simplify(env)?;
+                let exponent_simplified = exponent.simplify(env)?;
+
+                // Exponentiation by zero
+                if let Node::Number(0.0) = exponent_simplified {
+                    return Ok(Node::Number(1.0)); // Anything raised to 0 is 1
+                }
+
+                // Exponentiation by one
+                if let Node::Number(1.0) = exponent_simplified {
+                    return Ok(base_simplified);
+                }
+
+                // If both the base and exponent are numbers, evaluate the power
+                if let (Node::Number(b), Node::Number(e)) = (&base_simplified, &exponent_simplified) {
+                    return Ok(Node::Number(b.powf(*e))); // Use powf for floating-point exponents
+                }
+
+                // If no special simplifications apply, return simplified Power
+                Ok(Node::Power(
+                    Box::new(base_simplified),
+                    Box::new(exponent_simplified),
+                ))
+            }
             Node::Divide(left, right) => {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
@@ -148,27 +123,7 @@ impl Simplifiable for Node {
                     Box::new(right_simplified),
                 ))
             }
-            // Simplify exponentiation
-            Node::Power(base, exponent) => {
-                let base_simplified = base.simplify(env)?;
-                let exponent_simplified = exponent.simplify(env)?;
 
-                // Exponentiation by zero
-                if let Node::Number(0.0) = exponent_simplified {
-                    return Ok(Node::Number(1.0));
-                }
-
-                // Exponentiation by one
-                if let Node::Number(1.0) = exponent_simplified {
-                    return Ok(base_simplified);
-                }
-
-                // If no special simplifications apply, return simplified Power
-                Ok(Node::Power(
-                    Box::new(base_simplified),
-                    Box::new(exponent_simplified),
-                ))
-            }
             _ => Ok(self.clone()),
         }
     }
@@ -185,4 +140,61 @@ fn gcd(a: i64, b: i64) -> i64 {
 fn simplify_fraction(numerator: i64, denominator: i64) -> (i64, i64) {
     let gcd_value = gcd(numerator, denominator);
     (numerator / gcd_value, denominator / gcd_value)
+}
+
+fn collect_terms(node: &Node, term_map: &mut HashMap<String, f64>, env: &Environment) -> Result<(), String> {
+    match node {
+        Node::Add(left, right) => {
+            collect_terms(left, term_map, env)?;
+            collect_terms(right, term_map, env)?;
+        }
+        Node::Multiply(left, right) => {
+            if let (Node::Number(coef), Node::Variable(var)) = (&**left, &**right) {
+                let entry = term_map.entry(var.clone()).or_insert(0.0);
+                *entry += coef;
+            }
+        }
+        Node::Variable(var) => {
+            let entry = term_map.entry(var.clone()).or_insert(0.0);
+            *entry += 1.0;
+        }
+        Node::Number(num) => {
+            // For constants without variables (like `+10`), store them in the `""` key
+            let entry = term_map.entry("".to_string()).or_insert(0.0);
+            *entry += num;
+        }
+        _ => return Err("Unsupported node type in collect_terms".to_string()),
+    }
+    Ok(())
+}
+
+fn rebuild_expression(term_map: HashMap<String, f64>) -> Node {
+    let mut terms: Vec<(String, f64)> = term_map.into_iter().collect();
+
+    // Sort terms by the variable name (lexicographically)
+    terms.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut result_terms: Vec<Node> = vec![];
+
+    for (var, coef) in terms {
+        if var.is_empty() {
+            if coef != 0.0 {
+                result_terms.push(Node::Number(coef));
+            }
+        } else if coef != 0.0 {
+            if coef == 1.0 {
+                result_terms.push(Node::Variable(var));
+            } else {
+                result_terms.push(Node::Multiply(Box::new(Node::Number(coef)), Box::new(Node::Variable(var))));
+            }
+        }
+    }
+
+    // Combine all terms into a single expression (iterate from start to end)
+    let mut simplified_expr = result_terms.remove(0);
+    for term in result_terms {
+        simplified_expr = Node::Add(Box::new(simplified_expr), Box::new(term));
+    }
+
+    simplified_expr
 }

@@ -98,4 +98,51 @@ mod test_simplify {
         let simplified = expr.simplify(&Environment::new()).unwrap();
         assert_eq!(simplified.to_string(), "5x");
     }
+
+    #[test]
+    fn test_simplify_like_terms_multiple() {
+        let env = Environment::new();
+        // Expression: 5x + 3x + 10y + 15y + 10x
+        let expr = Node::Add(
+            Box::new(Node::Add(
+                Box::new(Node::Add(
+                    Box::new(Node::Multiply(Box::new(Node::Number(5.0)), Box::new(Node::Variable("x".to_string())))),
+                    Box::new(Node::Multiply(Box::new(Node::Number(3.0)), Box::new(Node::Variable("x".to_string()))))
+                )),
+                Box::new(Node::Add(
+                    Box::new(Node::Multiply(Box::new(Node::Number(10.0)), Box::new(Node::Variable("y".to_string())))),
+                    Box::new(Node::Multiply(Box::new(Node::Number(15.0)), Box::new(Node::Variable("y".to_string()))))
+                ))
+            )),
+            Box::new(Node::Multiply(Box::new(Node::Number(10.0)), Box::new(Node::Variable("x".to_string()))))
+        );
+
+        let simplified = expr.simplify(&env).unwrap();
+
+        // Sort the terms in both simplified and expected expressions for consistent comparison
+        fn sorted_expr(node: &Node) -> Node {
+            match node {
+                Node::Add(left, right) => {
+                    let mut left = sorted_expr(left);
+                    let mut right = sorted_expr(right);
+
+                    // Sort the terms by their structure to ensure deterministic ordering
+                    if format!("{:?}", left) > format!("{:?}", right) {
+                        std::mem::swap(&mut left, &mut right);
+                    }
+
+                    Node::Add(Box::new(left), Box::new(right))
+                }
+                _ => node.clone(),
+            }
+        }
+
+        // Expected: 18x + 25y
+        let expected = Node::Add(
+            Box::new(Node::Multiply(Box::new(Node::Number(18.0)), Box::new(Node::Variable("x".to_string())))),
+            Box::new(Node::Multiply(Box::new(Node::Number(25.0)), Box::new(Node::Variable("y".to_string()))))
+        );
+
+        assert_eq!(sorted_expr(&simplified), sorted_expr(&expected));
+    }
 }
