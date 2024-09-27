@@ -1,7 +1,7 @@
+use crate::functions::LATEX_FUNCTIONS;
+use crate::node::Node;
 use std::iter::Peekable;
 use std::str::Chars;
-use crate::node::Node;
-
 
 pub fn tokenize(expr: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -11,7 +11,7 @@ pub fn tokenize(expr: &str) -> Vec<String> {
 
     while let Some(c) = chars.next() {
         if c.is_whitespace() {
-            continue;  // Skip whitespace
+            continue; // Skip whitespace
         }
 
         // Handle numbers (digits and decimal point)
@@ -25,8 +25,8 @@ pub fn tokenize(expr: &str) -> Vec<String> {
             let mut op = c.to_string();
             if let Some(&next_char) = chars.peek() {
                 if next_char == '=' {
-                    op.push(next_char);  // Combine >= or <=
-                    chars.next();  // Move the iterator forward
+                    op.push(next_char); // Combine >= or <=
+                    chars.next(); // Move the iterator forward
                 }
             }
             tokens.push(op);
@@ -55,7 +55,8 @@ pub fn tokenize(expr: &str) -> Vec<String> {
 }
 
 fn tokenize_minus(tokens: &mut Vec<String>, last_token: &Option<String>) {
-    let is_unary = last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
+    let is_unary =
+        last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
     if is_unary {
         tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
     } else {
@@ -63,7 +64,12 @@ fn tokenize_minus(tokens: &mut Vec<String>, last_token: &Option<String>) {
     }
 }
 
-fn tokenize_numbers(tokens: &mut Vec<String>, current_token: &mut String, chars: &mut Peekable<Chars>, c: char) {
+fn tokenize_numbers(
+    tokens: &mut Vec<String>,
+    current_token: &mut String,
+    chars: &mut Peekable<Chars>,
+    c: char,
+) {
     current_token.push(c);
     while let Some(&next_char) = chars.peek() {
         if next_char.is_digit(10) || next_char == '.' {
@@ -77,7 +83,12 @@ fn tokenize_numbers(tokens: &mut Vec<String>, current_token: &mut String, chars:
     current_token.clear();
 }
 
-fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String, chars: &mut Peekable<Chars>, c: char) {
+fn tokenize_latex_commands(
+    tokens: &mut Vec<String>,
+    current_token: &mut String,
+    chars: &mut Peekable<Chars>,
+    c: char,
+) {
     current_token.push(c);
     while let Some(&next_char) = chars.peek() {
         if next_char.is_alphabetic() {
@@ -93,6 +104,8 @@ fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String,
     } else if current_token.starts_with("\\right") && chars.peek() == Some(&'|') {
         tokens.push("ABS_END".to_string());
         chars.next(); // Consume the '|'
+    } else if current_token == "\\pi" {
+        tokens.push("PI".to_string());
     } else if current_token == "\\mathrm" {
         if chars.peek() == Some(&'{') {
             chars.next(); // Consume the '{'
@@ -103,7 +116,7 @@ fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String,
                     chars.next();
                     if chars.peek() == Some(&'}') {
                         chars.next(); // Consume the closing '}'
-                        tokens.push("EULER".to_string());  // Tokenize \mathrm{e} as EULER
+                        tokens.push("EULER".to_string()); // Tokenize \mathrm{e} as EULER
                     }
                 } else {
                     break;
@@ -113,9 +126,9 @@ fn tokenize_latex_commands(tokens: &mut Vec<String>, current_token: &mut String,
     } else if current_token == "\\cdot" {
         tokens.push("*".to_string());
     } else if current_token == "\\left" {
-        tokens.push("(".to_string());  // Treat \left as (
+        tokens.push("(".to_string()); // Treat \left as (
     } else if current_token == "\\right" {
-        tokens.push(")".to_string());  // Treat \right as )
+        tokens.push(")".to_string()); // Treat \right as )
     } else if current_token == "\\frac" {
         if let Some(&next_char) = chars.peek() {
             // Check if next char is a digit, indicating shorthand fraction \frac23
@@ -170,15 +183,15 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             log::debug!("Unary minus detected, pushing to operator stack");
             operator_stack.push(token); // No need to pop for precedence because it's unary
         } else if token == "ABS_START" {
-            operator_stack.push(token);  // Treat absolute value as a grouping operation
+            operator_stack.push(token); // Treat absolute value as a grouping operation
         } else if token == "ABS_END" {
             while let Some(op) = operator_stack.pop() {
                 if op == "ABS_START" {
-                    break;  // Close the absolute value group
+                    break; // Close the absolute value group
                 }
                 output_queue.push(op);
             }
-            output_queue.push("ABS".to_string());  // Add ABS function to the output
+            output_queue.push("ABS".to_string()); // Add ABS function to the output
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables like 'x', 'y', 't' directly
             log::debug!("Variable detected: {}", token);
@@ -240,11 +253,11 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
 
 pub fn get_precedence(op: &str) -> i32 {
     match op {
-        "NEG" => 4,     // Highest precedence for unary minus
-        "^" => 3,       // Exponentiation
-        "*" | "/" => 2, // Multiplication and Division
-        "+" | "-" => 1, // Addition and Subtraction
-        ">" | "<" | ">=" | "<=" | "==" => 0,  // Inequality operators
+        "NEG" => 4,                          // Highest precedence for unary minus
+        "^" => 3,                            // Exponentiation
+        "*" | "/" => 2,                      // Multiplication and Division
+        "+" | "-" => 1,                      // Addition and Subtraction
+        ">" | "<" | ">=" | "<=" | "==" => 0, // Inequality operators
         _ => 0,
     }
 }
@@ -262,27 +275,17 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             // Push numbers directly onto the stack
             log::debug!("Pushing number: {}", num);
             stack.push(Node::Number(num));
+        } else if token == "ABS" {
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for ABS".to_string())?;
+            stack.push(Node::Abs(Box::new(operand))); // Handle absolute value
         } else if token == "NEG" {
             // Handle unary minus by applying it to the top of the stack
             let operand = stack
                 .pop()
                 .ok_or_else(|| "Not enough operands for unary minus".to_string())?;
             stack.push(Node::Negate(Box::new(operand)));
-        } else if token == "ABS" {
-            let operand = stack
-                .pop()
-                .ok_or_else(|| "Not enough operands for ABS".to_string())?;
-            stack.push(Node::Abs(Box::new(operand)));  // Handle absolute value
-        } else if token.chars().all(|c| c.is_alphabetic()) {
-            // Handle variables directly (e.g., `x`, `y`)
-            if token == "e" || token == "EULER" {
-                stack.push(Node::Number(std::f64::consts::E));  // Euler's number
-            } else {
-                log::debug!("Pushing variable: {}", token);
-                stack.push(Node::Variable(token));
-            }
-        } else if token == "\\pi" {
-            stack.push(Node::Number(std::f64::consts::PI));
         } else if "+-*/^".contains(&token) {
             // Binary operators require two operands
             let right = stack
@@ -316,60 +319,38 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 "<" => Node::Less(Box::new(left), Box::new(right)),
                 ">=" => Node::GreaterEqual(Box::new(left), Box::new(right)),
                 "<=" => Node::LessEqual(Box::new(left), Box::new(right)),
-                "==" => Node::Equal(Box::new(left), Box::new(right)),  // Optional for equality
+                "==" => Node::Equal(Box::new(left), Box::new(right)), // Optional for equality
                 _ => return Err(format!("Unknown operator '{}'", token)),
             };
 
             stack.push(node);
         } else if token.starts_with("\\") {
             // Handle LaTeX functions
-            match token.as_str() {
-                "\\sin" => {
-                    let operand = stack
+            // Dynamically get the function and its expected number of arguments
+            if let Some((_, arg_count)) = LATEX_FUNCTIONS.get(token.as_str()) {
+                // Pop the correct number of arguments off the stack
+                let mut args = Vec::new();
+                for _ in 0..*arg_count {
+                    let arg = stack
                         .pop()
-                        .ok_or_else(|| "Not enough operands for \\sin".to_string())?;
-                    stack.push(Node::Function("sin".to_string(), vec![operand]));
+                        .ok_or(format!("Not enough operands for function {}", token))?;
+                    args.push(arg);
                 }
-                "\\cos" => {
-                    let operand = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\cos".to_string())?;
-                    stack.push(Node::Function("cos".to_string(), vec![operand]));
-                }
-                "\\log" => {
-                    let operand = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\log".to_string())?;
-                    stack.push(Node::Function("log".to_string(), vec![operand]));
-                }
-                "\\ln" => {
-                    let operand = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\ln".to_string())?;
-                    stack.push(Node::Function("ln".to_string(), vec![operand]));
-                }
-                "\\lg" => {
-                    let operand = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\lg".to_string())?;
-                    stack.push(Node::Function("lg".to_string(), vec![operand]));
-                }
-                "\\sqrt" => {
-                    let operand = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\sqrt".to_string())?;
-                    stack.push(Node::Function("sqrt".to_string(), vec![operand]));
-                }
-                "\\frac" => {
-                    let denominator = stack.pop().ok_or_else(|| {
-                        "Not enough operands for \\frac (denominator)".to_string()
-                    })?;
-                    let numerator = stack
-                        .pop()
-                        .ok_or_else(|| "Not enough operands for \\frac (numerator)".to_string())?;
-                    stack.push(Node::Divide(Box::new(numerator), Box::new(denominator)));
-                }
-                _ => return Err(format!("Unknown LaTeX function '{}'", token)),
+
+                // Reverse arguments to maintain correct order (since popping reverses it)
+                args.reverse();
+
+                stack.push(Node::Function(token, args));
+            }
+        } else if token.chars().all(|c| c.is_alphabetic()) {
+            // Handle variables directly (e.g., `x`, `y`)
+            if token == "e" || token == "EULER" {
+                stack.push(Node::Number(std::f64::consts::E)); // Euler's number
+            } else if token == "\\pi" || token == "PI" {
+                stack.push(Node::Number(std::f64::consts::PI));
+            } else {
+                log::debug!("Pushing variable: {}", token);
+                stack.push(Node::Variable(token));
             }
         } else {
             return Err(format!("Unknown token '{}'", token));

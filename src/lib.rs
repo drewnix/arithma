@@ -18,3 +18,8 @@ pub use crate::expression::{evaluate_rpn, solve_for_variable};
 
 mod wasm_bindings;
 pub use crate::wasm_bindings::evaluate_latex_expression_js;
+
+mod functions;
+pub use crate::functions::LATEX_FUNCTIONS;
+
+mod simplify;

@@ -2,7 +2,6 @@ use crate::environment::Environment;
 use crate::node::Node;
 use crate::parser::tokenize;
 
-
 pub fn extract_variable(expr: &str) -> Option<String> {
     let tokens = tokenize(expr);
     for token in tokens {

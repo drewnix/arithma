@@ -1,6 +1,8 @@
 // src/evaluator.rs
 use crate::environment::Environment;
+use crate::functions::LATEX_FUNCTIONS;
 use crate::node::Node;
+use crate::simplify::Simplifiable;
 
 pub struct Evaluator;
 
@@ -103,29 +105,23 @@ impl Evaluator {
                 Err("No condition in Piecewise expression evaluated to true.".to_string())
             }
             Node::Function(ref name, ref args) => {
-                // Assuming unary functions for now (single argument)
-                if args.len() != 1 {
-                    return Err(format!("Function '{}' requires exactly one argument", name));
+                // Evaluate the arguments first
+                let mut evaluated_args = Vec::new();
+                for arg in args {
+                    evaluated_args.push(Self::evaluate(arg, env)?);
                 }
 
-                let arg_value = Self::evaluate(&args[0], env)?;
-                match name.as_str() {
-                    "sin" => Ok(arg_value.sin()),
-                    "cos" => Ok(arg_value.cos()),
-                    "ln" => Ok(arg_value.ln()),     // Natural logarithm (base 'e')
-                    "log" => Ok(arg_value.log10()), // Common logarithm (base 10)
-                    "lg" => Ok(arg_value.log2()),   // Binary logarithm (base 2)
-                    "exp" => Ok(arg_value.exp()), // e^x
-                    "sqrt" => {
-                        if arg_value < 0.0 {
-                            Err("Square root of a negative number is not supported.".to_string())
-                        } else {
-                            Ok(arg_value.sqrt())
-                        }
-                    }
-                    _ => Err(format!("Unsupported function '{}'", name)),
+                // Lookup the function in the registry
+                if let Some((func, _)) = LATEX_FUNCTIONS.get(name.as_str()) {
+                    Ok(func(evaluated_args)) // Apply the function with evaluated arguments
+                } else {
+                    Err(format!("Unknown function '{}'", name))
                 }
             }
         }
+    }
+
+    pub fn simplify(node: &Node, env: &Environment) -> Result<Node, String> {
+        node.simplify(env) // Delegate simplification to the node
     }
 }
