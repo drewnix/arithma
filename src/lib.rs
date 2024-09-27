@@ -22,4 +22,4 @@ pub use crate::wasm_bindings::evaluate_latex_expression_js;
 mod functions;
 pub use crate::functions::LATEX_FUNCTIONS;
 
-mod simplify;
+pub mod simplify;

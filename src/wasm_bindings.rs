@@ -1,6 +1,7 @@
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::parser::{build_expression_tree, tokenize};
+use crate::simplify::Simplifiable;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -14,9 +15,13 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     let parsed_expr = build_expression_tree(tokens)
         .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
 
-    // Evaluate the expression using the existing evaluator
-    let result = Evaluator::evaluate(&parsed_expr, &env)
-        .map_err(|e| JsValue::from_str(&format!("Error evaluating expression: {}", e)))?;
+    // Always simplify the expression first
+    let simplified_expr = parsed_expr.simplify(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error simplifying expression: {}", e)))?;
 
-    Ok(result.to_string())
+    // Try to evaluate the simplified expression
+    match Evaluator::evaluate(&simplified_expr, &env) {
+        Ok(result) => Ok(result.to_string()), // Return fully evaluated result if possible
+        Err(_) => Ok(simplified_expr.to_string()) // If evaluation fails, return the simplified expression
+    }
 }

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Node {
@@ -29,4 +30,59 @@ pub enum Node {
 
     // Function calls
     Function(String, Vec<Node>), // For functions like sin, cos
+}
+
+impl fmt::Display for Node {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Node::Number(n) => write!(f, "{}", n),
+            Node::Variable(v) => write!(f, "{}", v),
+            Node::Rational(numerator, denominator) => write!(f, "\\frac{{{}}}{{{}}}", numerator, denominator),
+            Node::Add(left, right) => {
+                // Ensure simple addition is presented clearly
+                if let Node::Number(0.0) = **right {
+                    write!(f, "{}", left) // Eliminate unnecessary + 0
+                } else {
+                    write!(f, "{} + {}", left, right)
+                }
+            }
+            Node::Multiply(left, right) => {
+                if let Node::Number(1.0) = **left {
+                    write!(f, "{}", right) // Eliminate unnecessary 1 * x
+                } else if let Node::Number(0.0) = **left {
+                    write!(f, "0") // Return 0 for 0 * x
+                } else if let (Node::Number(l), Node::Variable(r)) = (&**left, &**right) {
+                    write!(f, "{}{}", l, r)
+                } else {
+                    write!(f, "{} * {}", left, right)
+                }
+            }
+            Node::Subtract(left, right) => write!(f, "{} - {}", left, right),
+            Node::Divide(left, right) => write!(f, "{} / {}", left, right),
+            Node::Power(left, right) => write!(f, "{}^{}", left, right),
+            Node::Sqrt(operand) => write!(f, "\\sqrt{{{}}}", operand),
+            Node::Abs(operand) => write!(f, "|{}|", operand),
+            Node::Negate(operand) => write!(f, "-{}", operand),
+            Node::Greater(left, right) => write!(f, "({} > {})", left, right),
+            Node::Less(left, right) => write!(f, "({} < {})", left, right),
+            Node::GreaterEqual(left, right) => write!(f, "({} >= {})", left, right),
+            Node::LessEqual(left, right) => write!(f, "({} <= {})", left, right),
+            Node::Equal(left, right) => write!(f, "({} == {})", left, right),
+            Node::Piecewise(conditions) => {
+                let mut formatted_conditions = String::new();
+                for (expr, cond) in conditions {
+                    formatted_conditions.push_str(&format!("{} if {}, ", expr, cond));
+                }
+                write!(f, "piecewise({})", formatted_conditions)
+            }
+            Node::Function(name, args) => {
+                let formatted_args = args
+                    .iter()
+                    .map(|arg| format!("{}", arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{}({})", name, formatted_args)
+            }
+        }
+    }
 }

@@ -36,6 +36,13 @@ pub fn tokenize(expr: &str) -> Vec<String> {
         }
         // Handle alphabetic variables like x, y, etc.
         else if c.is_alphabetic() {
+            // If the previous token was a number, insert an implicit multiplication
+            if let Some(last_token) = last_token.as_ref() {
+                if last_token.chars().all(char::is_numeric) {
+                    tokens.push("*".to_string()); // Insert an implicit multiplication operator
+                }
+            }
+
             current_token.push(c);
             tokens.push(current_token.clone());
             current_token.clear();
