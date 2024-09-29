@@ -37,7 +37,9 @@ impl fmt::Display for Node {
         match self {
             Node::Number(n) => write!(f, "{}", n),
             Node::Variable(v) => write!(f, "{}", v),
-            Node::Rational(numerator, denominator) => write!(f, "\\frac{{{}}}{{{}}}", numerator, denominator),
+            Node::Rational(numerator, denominator) => {
+                write!(f, "\\frac{{{}}}{{{}}}", numerator, denominator)
+            }
             Node::Add(left, right) => {
                 // Ensure simple addition is presented clearly
                 if let Node::Number(0.0) = **right {

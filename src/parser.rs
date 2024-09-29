@@ -1,4 +1,4 @@
-use crate::functions::LATEX_FUNCTIONS;
+use crate::functions::FUNCTION_REGISTRY;
 use crate::node::Node;
 use std::iter::Peekable;
 use std::str::Chars;
@@ -332,22 +332,28 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
             stack.push(node);
         } else if token.starts_with("\\") {
-            // Handle LaTeX functions
-            // Dynamically get the function and its expected number of arguments
-            if let Some((_, arg_count)) = LATEX_FUNCTIONS.get(token.as_str()) {
-                // Pop the correct number of arguments off the stack
+            // Handle LaTeX functions by using the function registry
+            let function_name = token.clone();
+
+            // Look up the function in the function registry
+            if let Some(function) = FUNCTION_REGISTRY.get(&function_name) {
+                // The number of arguments is known at runtime from the registry
+                let arg_count = function.get_arg_count(); // New method to be implemented in FunctionHandler trait
                 let mut args = Vec::new();
-                for _ in 0..*arg_count {
+
+                for _ in 0..arg_count {
                     let arg = stack
                         .pop()
-                        .ok_or(format!("Not enough operands for function {}", token))?;
+                        .ok_or_else(|| format!("Not enough operands for function {}", token))?;
                     args.push(arg);
                 }
 
                 // Reverse arguments to maintain correct order (since popping reverses it)
                 args.reverse();
 
-                stack.push(Node::Function(token, args));
+                stack.push(Node::Function(function_name, args));
+            } else {
+                return Err(format!("Unknown function: {}", function_name));
             }
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)

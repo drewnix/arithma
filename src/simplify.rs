@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::environment::Environment;
 use crate::node::Node;
+use std::collections::HashMap;
 
 pub trait Simplifiable {
     fn simplify(&self, env: &Environment) -> Result<Node, String>;
@@ -56,7 +56,9 @@ impl Simplifiable for Node {
                 }
 
                 // If both are rational numbers, multiply them directly
-                if let (Node::Rational(l_num, l_den), Node::Rational(r_num, r_den)) = (&left_simplified, &right_simplified) {
+                if let (Node::Rational(l_num, l_den), Node::Rational(r_num, r_den)) =
+                    (&left_simplified, &right_simplified)
+                {
                     let new_num = l_num * r_num;
                     let new_den = l_den * r_den;
                     let (simplified_num, simplified_den) = simplify_fraction(new_num, new_den);
@@ -64,13 +66,17 @@ impl Simplifiable for Node {
                 }
 
                 // **Handle implicit multiplication of number and variable (e.g., 5 * x -> 5x)**
-                if let (Node::Number(l_coef), Node::Variable(ref var)) = (&left_simplified, &right_simplified) {
+                if let (Node::Number(l_coef), Node::Variable(ref var)) =
+                    (&left_simplified, &right_simplified)
+                {
                     return Ok(Node::Multiply(
                         Box::new(Node::Number(*l_coef)),
                         Box::new(Node::Variable(var.clone())),
                     ));
                 }
-                if let (Node::Variable(ref var), Node::Number(r_coef)) = (&left_simplified, &right_simplified) {
+                if let (Node::Variable(ref var), Node::Number(r_coef)) =
+                    (&left_simplified, &right_simplified)
+                {
                     return Ok(Node::Multiply(
                         Box::new(Node::Number(*r_coef)),
                         Box::new(Node::Variable(var.clone())),
@@ -98,7 +104,8 @@ impl Simplifiable for Node {
                 }
 
                 // If both the base and exponent are numbers, evaluate the power
-                if let (Node::Number(b), Node::Number(e)) = (&base_simplified, &exponent_simplified) {
+                if let (Node::Number(b), Node::Number(e)) = (&base_simplified, &exponent_simplified)
+                {
                     return Ok(Node::Number(b.powf(*e))); // Use powf for floating-point exponents
                 }
 
@@ -142,7 +149,11 @@ fn simplify_fraction(numerator: i64, denominator: i64) -> (i64, i64) {
     (numerator / gcd_value, denominator / gcd_value)
 }
 
-fn collect_terms(node: &Node, term_map: &mut HashMap<String, f64>, env: &Environment) -> Result<(), String> {
+fn collect_terms(
+    node: &Node,
+    term_map: &mut HashMap<String, f64>,
+    env: &Environment,
+) -> Result<(), String> {
     match node {
         Node::Add(left, right) => {
             collect_terms(left, term_map, env)?;
@@ -185,7 +196,10 @@ fn rebuild_expression(term_map: HashMap<String, f64>) -> Node {
             if coef == 1.0 {
                 result_terms.push(Node::Variable(var));
             } else {
-                result_terms.push(Node::Multiply(Box::new(Node::Number(coef)), Box::new(Node::Variable(var))));
+                result_terms.push(Node::Multiply(
+                    Box::new(Node::Number(coef)),
+                    Box::new(Node::Variable(var)),
+                ));
             }
         }
     }

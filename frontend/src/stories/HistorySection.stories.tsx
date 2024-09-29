@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { ChakraProvider } from '@chakra-ui/react';
 import HistorySection from '../components/HistorySection';
 
 const meta = {
@@ -31,9 +30,7 @@ export const Default: Story = {
   },
   decorators: [
     (Story) => (
-      <ChakraProvider>
         <Story />
-      </ChakraProvider>
     ),
   ],
 };

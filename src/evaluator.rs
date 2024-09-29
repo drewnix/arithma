@@ -1,6 +1,6 @@
 // src/evaluator.rs
 use crate::environment::Environment;
-use crate::functions::LATEX_FUNCTIONS;
+use crate::functions::call_function;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
 
@@ -20,7 +20,7 @@ impl Evaluator {
             }
             Node::Rational(numerator, denominator) => {
                 if *denominator == 0 {
-                    Err("Division by zero in Rational".to_string())
+                    Ok(f64::NAN) // Return NaN for division by zero
                 } else {
                     Ok(*numerator as f64 / *denominator as f64)
                 }
@@ -48,7 +48,7 @@ impl Evaluator {
                 let left_val = Self::evaluate(left, env)?;
                 let right_val = Self::evaluate(right, env)?;
                 if right_val == 0.0 {
-                    Err("Division by zero.".to_string())
+                    Ok(f64::NAN) // Return NaN for division by zero
                 } else {
                     Ok(left_val / right_val)
                 }
@@ -111,12 +111,8 @@ impl Evaluator {
                     evaluated_args.push(Self::evaluate(arg, env)?);
                 }
 
-                // Lookup the function in the registry
-                if let Some((func, _)) = LATEX_FUNCTIONS.get(name.as_str()) {
-                    Ok(func(evaluated_args)) // Apply the function with evaluated arguments
-                } else {
-                    Err(format!("Unknown function '{}'", name))
-                }
+                // Call the function using the centralized registry
+                call_function(name, evaluated_args)
             }
         }
     }

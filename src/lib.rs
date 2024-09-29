@@ -20,6 +20,6 @@ mod wasm_bindings;
 pub use crate::wasm_bindings::evaluate_latex_expression_js;
 
 mod functions;
-pub use crate::functions::LATEX_FUNCTIONS;
+pub use crate::functions::FUNCTION_REGISTRY;
 
 pub mod simplify;

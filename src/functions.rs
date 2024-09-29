@@ -1,259 +1,378 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-type FunctionHandler = Box<dyn Fn(Vec<f64>) -> f64 + Send + Sync + 'static>;
+
+// Define a trait for function handlers
+pub trait FunctionHandler {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String>;
+
+    // New method to return the number of arguments the function requires
+    fn get_arg_count(&self) -> usize;
+}
+
+// Example implementation for a sine function
+pub struct SinFunction;
+impl FunctionHandler for SinFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("Sin function requires exactly one argument.".to_string());
+        }
+        Ok(args[0].sin())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1 // \sin expects 1 argument
+    }
+}
+
+// Example implementation for a cosine function
+pub struct CosFunction;
+impl FunctionHandler for CosFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("Cos function requires exactly one argument.".to_string());
+        }
+        Ok(args[0].cos())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1 // \cos expects 1 argument
+    }
+}
+
+pub struct TanFunction;
+impl FunctionHandler for TanFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\tan requires exactly one argument.".to_string());
+        }
+        Ok(args[0].tan())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Hyperbolic functions
+pub struct SinhFunction;
+impl FunctionHandler for SinhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\sinh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].sinh())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct CoshFunction;
+impl FunctionHandler for CoshFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\cosh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].cosh())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct TanhFunction;
+impl FunctionHandler for TanhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\tanh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].tanh())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Inverse trigonometric functions
+pub struct ArcsinFunction;
+impl FunctionHandler for ArcsinFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arcsin requires exactly one argument.".to_string());
+        }
+        Ok(args[0].asin())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct ArccosFunction;
+impl FunctionHandler for ArccosFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arccos requires exactly one argument.".to_string());
+        }
+        Ok(args[0].acos())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct ArctanFunction;
+impl FunctionHandler for ArctanFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arctan requires exactly one argument.".to_string());
+        }
+        Ok(args[0].atan())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Secant, cosecant, and cotangent functions
+pub struct SecFunction;
+impl FunctionHandler for SecFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\sec requires exactly one argument.".to_string());
+        }
+        if args[0].cos() == 0.0 {
+            return Ok(f64::NAN); // Return NaN for undefined result
+        }
+        Ok(1.0 / args[0].cos())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct CscFunction;
+impl FunctionHandler for CscFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\csc requires exactly one argument.".to_string());
+        }
+        if args[0].sin() == 0.0 {
+            return Ok(f64::NAN); // Return NaN for undefined result
+        }
+        Ok(1.0 / args[0].sin())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct CothFunction;
+impl FunctionHandler for CothFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\coth requires exactly one argument.".to_string());
+        }
+        let tanh_val = args[0].tanh();
+        if tanh_val == 0.0 {
+            return Ok(f64::NAN); // Return NaN for undefined result
+        }
+        Ok(1.0 / tanh_val)
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Binary functions (like \frac)
+pub struct FracFunction;
+impl FunctionHandler for FracFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 2 {
+            return Err("\\frac requires exactly two arguments.".to_string());
+        }
+        if args[1] == 0.0 {
+            return Ok(f64::NAN); // Return NaN instead of panicking
+        }
+        Ok(args[0] / args[1])
+    }
+
+    fn get_arg_count(&self) -> usize {
+        2 // \frac expects 2 arguments
+    }
+}
+
+// Logarithmic functions
+pub struct LogFunction;
+impl FunctionHandler for LogFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\log requires exactly one argument.".to_string());
+        }
+        Ok(args[0].log10())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct LnFunction;
+impl FunctionHandler for LnFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\ln requires exactly one argument.".to_string());
+        }
+        Ok(args[0].ln())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+pub struct LgFunction;
+impl FunctionHandler for LgFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\lg requires exactly one argument.".to_string());
+        }
+        Ok(args[0].log2())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Square root
+pub struct SqrtFunction;
+impl FunctionHandler for SqrtFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\sqrt requires exactly one argument.".to_string());
+        }
+        Ok(args[0].sqrt())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        1
+    }
+}
+
+// Min and Max
+pub struct MinFunction;
+impl FunctionHandler for MinFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.is_empty() {
+            return Err("\\min requires at least one argument.".to_string());
+        }
+        Ok(args.into_iter().fold(f64::INFINITY, |a, b| a.min(b)))
+    }
+
+    fn get_arg_count(&self) -> usize {
+        0 // Variable number of arguments
+    }
+}
+
+pub struct MaxFunction;
+impl FunctionHandler for MaxFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.is_empty() {
+            return Err("\\max requires at least one argument.".to_string());
+        }
+        Ok(args.into_iter().fold(f64::NEG_INFINITY, |a, b| a.max(b)))
+    }
+
+    fn get_arg_count(&self) -> usize {
+        0 // Variable number of arguments
+    }
+}
+
+// Determinant (currently treated as product)
+pub struct DetFunction;
+impl FunctionHandler for DetFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.is_empty() {
+            return Err("\\det requires at least one argument.".to_string());
+        }
+        Ok(args.into_iter().product())
+    }
+
+    fn get_arg_count(&self) -> usize {
+        0 // Variable number of arguments
+    }
+}
+
+// Define the function registry that holds all functions
+pub struct FunctionRegistry {
+    functions: HashMap<String, Box<dyn FunctionHandler + Send + Sync>>,
+}
+
+impl FunctionRegistry {
+    // Create a new function registry (using lazy_static to ensure it's a singleton)
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+        }
+    }
+
+    // Store the function in the registry
+    pub fn register_function(
+        &mut self,
+        name: &str,
+        function: Box<dyn FunctionHandler + Send + Sync>,
+    ) {
+        self.functions.insert(name.to_string(), function);
+    } // Retrieve a function from the registry
+    pub fn get(&self, name: &str) -> Option<&Box<dyn FunctionHandler + Send + Sync>> {
+        self.functions.get(name)
+    }
+}
+
+// Function to retrieve and call a function from the registry
+pub fn call_function(name: &str, args: Vec<f64>) -> Result<f64, String> {
+    if let Some(function) = FUNCTION_REGISTRY.get(name) {
+        function.call(args)
+    } else {
+        Err(format!("Unknown function: {}", name))
+    }
+}
 
 lazy_static! {
-    pub static ref LATEX_FUNCTIONS: HashMap<&'static str, (FunctionHandler, usize)> = {
-        let mut map = HashMap::new();
+    pub static ref FUNCTION_REGISTRY: FunctionRegistry = {
+        let mut registry = FunctionRegistry::new(); // Make sure registry is mutable
 
-        // Unary functions
-        map.insert("\\sin", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\sin requires exactly one argument");
-            }
-            args[0].sin()
-        }) as FunctionHandler, 1));  // Explicitly cast to FunctionHandler
+        // Register built-in functions
+        registry.register_function("\\sin", Box::new(SinFunction));
+        registry.register_function("\\cos", Box::new(CosFunction));
+        registry.register_function("\\tan", Box::new(TanFunction));
+        registry.register_function("\\sinh", Box::new(SinhFunction));
+        registry.register_function("\\cosh", Box::new(CoshFunction));
+        registry.register_function("\\tanh", Box::new(TanhFunction));
+        registry.register_function("\\arcsin", Box::new(ArcsinFunction));
+        registry.register_function("\\arccos", Box::new(ArccosFunction));
+        registry.register_function("\\arctan", Box::new(ArctanFunction));
+        registry.register_function("\\sec", Box::new(SecFunction));
+        registry.register_function("\\csc", Box::new(CscFunction));
+        registry.register_function("\\coth", Box::new(CothFunction));
+        registry.register_function("\\frac", Box::new(FracFunction));
+        registry.register_function("\\log", Box::new(LogFunction));
+        registry.register_function("\\ln", Box::new(LnFunction));
+        registry.register_function("\\lg", Box::new(LgFunction));
+        registry.register_function("\\sqrt", Box::new(SqrtFunction));
+        registry.register_function("\\min", Box::new(MinFunction));
+        registry.register_function("\\max", Box::new(MaxFunction));
+        registry.register_function("\\det", Box::new(DetFunction));
 
-        map.insert("\\cos", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\cos requires exactly one argument");
-            }
-            args[0].cos()
-        }) as FunctionHandler, 1));  // Explicitly cast to FunctionHandler
-
-                map.insert("\\tan", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\tan requires exactly one argument");
-            }
-            args[0].tan()
-        }) as FunctionHandler, 1));
-
-        // Hyperbolic functions
-        map.insert("\\sinh", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\sinh requires exactly one argument");
-            }
-            args[0].sinh()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\cosh", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\cosh requires exactly one argument");
-            }
-            args[0].cosh()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\tanh", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\tanh requires exactly one argument");
-            }
-            args[0].tanh()
-        }) as FunctionHandler, 1));
-
-        // Inverse trigonometric functions
-        map.insert("\\arcsin", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\arcsin requires exactly one argument");
-            }
-            args[0].asin()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\arccos", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\arccos requires exactly one argument");
-            }
-            args[0].acos()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\arctan", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\arctan requires exactly one argument");
-            }
-            args[0].atan()
-        }) as FunctionHandler, 1));
-
-        // Secant: sec(x) = 1 / cos(x)
-        map.insert("\\sec", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\sec requires exactly one argument");
-            }
-            if args[0].cos() == 0.0 {
-                return f64::NAN;  // Return NaN for undefined result (cos(x) = 0)
-            }
-            1.0 / args[0].cos()
-        }) as FunctionHandler, 1));
-
-        // Cosecant: csc(x) = 1 / sin(x)
-        map.insert("\\csc", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\csc requires exactly one argument");
-            }
-            if args[0].sin() == 0.0 {
-                return f64::NAN;  // Return NaN for undefined result (sin(x) = 0)
-            }
-            1.0 / args[0].sin()
-        }) as FunctionHandler, 1));
-
-        // Hyperbolic Cotangent: coth(x) = 1 / tanh(x)
-        map.insert("\\coth", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\coth requires exactly one argument");
-            }
-            let tanh_val = args[0].tanh();
-            if tanh_val == 0.0 {
-                return f64::NAN;  // Return NaN for undefined result
-            }
-            1.0 / tanh_val
-        }), 1));
-
-        // Binary functions like \frac
-        map.insert("\\frac", (Box::new(|args: Vec<f64>| {
-            if args.len() != 2 {
-                panic!("\\frac requires exactly two arguments");
-            }
-            if args[1] == 0.0 {
-                panic!("Division by zero in \\frac");
-            }
-            args[0] / args[1]
-        }) as FunctionHandler, 2));  // Explicitly cast to FunctionHandler
-
-        // More functions like \log, \ln, etc.
-        map.insert("\\log", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\log requires exactly one argument");
-            }
-            args[0].log10()
-        }) as FunctionHandler, 1));
-
-        // More functions like \log, \ln, etc.
-        map.insert("\\ln", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\log requires exactly one argument");
-            }
-            args[0].ln()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\lg", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\log requires exactly one argument");
-            }
-            args[0].log2()
-        }) as FunctionHandler, 1));
-
-        map.insert("\\sqrt", (Box::new(|args: Vec<f64>| {
-            if args.len() != 1 {
-                panic!("\\sqrt requires exactly one argument");
-            }
-            args[0].sqrt()
-        }) as FunctionHandler, 1));
-
-        // Min: min(x1, x2, ..., xn)
-        map.insert("\\min", (Box::new(|args: Vec<f64>| {
-            if args.is_empty() {
-                panic!("\\min requires at least one argument");
-            }
-            args.into_iter().fold(f64::INFINITY, |a, b| a.min(b))
-        }) as FunctionHandler, 0));  // 0 means variable number of arguments
-
-        // Max: max(x1, x2, ..., xn)
-        map.insert("\\max", (Box::new(|args: Vec<f64>| {
-            if args.is_empty() {
-                panic!("\\max requires at least one argument");
-            }
-            args.into_iter().fold(f64::NEG_INFINITY, |a, b| a.max(b))
-        }) as FunctionHandler, 0));  // 0 means variable number of arguments
-
-        // Determinant: det(x1, x2, ..., xn) (currently treated as product)
-        map.insert("\\det", (Box::new(|args: Vec<f64>| {
-            if args.is_empty() {
-                panic!("\\det requires at least one argument");
-            }
-            args.into_iter().product()
-        }) as FunctionHandler, 0));  // 0 means variable number of arguments
-
-        map
+        registry
     };
 }
-// fn handle_sin(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("sin function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     Ok(arg_value.sin())
-// }
-//
-// fn handle_cos(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("cos function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     Ok(arg_value.cos())
-// }
-//
-// fn handle_solve(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 2 {
-//         return Err("solve function requires exactly two arguments.".to_string());
-//     }
-//
-//     let variable_node = &args[0];  // The variable to solve for
-//     let equation = &args[1];  // The equation to solve
-//
-//     // Evaluate the right-hand side of the equation to get the 'right_val'
-//     let right_val = Evaluator::evaluate(equation, env)?;  // This evaluates the equation (e.g., 10)
-//
-//     // Check that the variable is indeed a Variable node
-//     let variable_name = if let Node::Variable(var_name) = variable_node {
-//         var_name
-//     } else {
-//         return Err("First argument to solve must be a variable.".to_string());
-//     };
-//
-//     // Now call the solve_for_variable function with all three arguments
-//     let solution = solve_for_variable(equation, right_val, variable_name)?;
-//
-//     Ok(solution)
-// }
-//
-// fn handle_log(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("log function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     if arg_value <= 0.0 {
-//         return Err("logarithm is undefined for non-positive numbers.".to_string());
-//     }
-//     Ok(arg_value.log10())  // Base 10 logarithm
-// }
-//
-// fn handle_ln(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("ln function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     if arg_value <= 0.0 {
-//         return Err("natural logarithm is undefined for non-positive numbers.".to_string());
-//     }
-//     Ok(arg_value.ln())  // Natural logarithm (base e)
-// }
-//
-// fn handle_sqrt(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("sqrt function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     if arg_value < 0.0 {
-//         return Err("square root is undefined for negative numbers.".to_string());
-//     }
-//     Ok(arg_value.sqrt())  // Square root
-// }
-//
-// fn handle_lg(args: Vec<Node>, env: &Environment) -> Result<f64, String> {
-//     if args.len() != 1 {
-//         return Err("lg function requires exactly one argument.".to_string());
-//     }
-//     let arg_value = Evaluator::evaluate(&args[0], env)?;  // Evaluate the argument
-//     if arg_value <= 0.0 {
-//         return Err("binary logarithm is undefined for non-positive numbers.".to_string());
-//     }
-//     Ok(arg_value.log2())  // Binary logarithm (base 2)
-// }

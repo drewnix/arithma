@@ -37,6 +37,10 @@ mod algebra_tests {
         let result = evaluate_expression("12 / 4").unwrap();
         assert_eq!(result, 3.0);
 
+        // Division: 12 / 0
+        let result = evaluate_expression("12 / 0").unwrap();
+        assert!(result.is_nan(), "Expected NaN for division by zero (12 / 0), got {:?}", result);
+
         // Power: 2^3
         let result = evaluate_expression("2^{3}").unwrap();
         assert_eq!(result, 8.0);

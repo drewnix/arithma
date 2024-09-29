@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { ChakraProvider } from '@chakra-ui/react';
 import ExpressionInput from '../components/ExpressionInput';
 
 // Define meta for the story
@@ -28,9 +27,7 @@ export const Default: Story = {
   },
   decorators: [
     (Story) => (
-      <ChakraProvider>
         <Story />
-      </ChakraProvider>
     ),
   ],
 };
