@@ -6,7 +6,7 @@ pub trait FunctionHandler {
     fn call(&self, args: Vec<f64>) -> Result<f64, String>;
 
     // New method to return the number of arguments the function requires
-    fn get_arg_count(&self) -> usize;
+    fn get_arg_count(&self) -> Option<usize>; // None for variable arguments
 }
 
 // Example implementation for a sine function
@@ -19,8 +19,8 @@ impl FunctionHandler for SinFunction {
         Ok(args[0].sin())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1 // \sin expects 1 argument
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -34,8 +34,8 @@ impl FunctionHandler for CosFunction {
         Ok(args[0].cos())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1 // \cos expects 1 argument
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -48,8 +48,8 @@ impl FunctionHandler for TanFunction {
         Ok(args[0].tan())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -63,8 +63,8 @@ impl FunctionHandler for SinhFunction {
         Ok(args[0].sinh())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -77,8 +77,8 @@ impl FunctionHandler for CoshFunction {
         Ok(args[0].cosh())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -91,8 +91,8 @@ impl FunctionHandler for TanhFunction {
         Ok(args[0].tanh())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -106,8 +106,8 @@ impl FunctionHandler for ArcsinFunction {
         Ok(args[0].asin())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -120,8 +120,8 @@ impl FunctionHandler for ArccosFunction {
         Ok(args[0].acos())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -134,8 +134,8 @@ impl FunctionHandler for ArctanFunction {
         Ok(args[0].atan())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -152,8 +152,8 @@ impl FunctionHandler for SecFunction {
         Ok(1.0 / args[0].cos())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -169,8 +169,8 @@ impl FunctionHandler for CscFunction {
         Ok(1.0 / args[0].sin())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -187,8 +187,8 @@ impl FunctionHandler for CothFunction {
         Ok(1.0 / tanh_val)
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -200,13 +200,13 @@ impl FunctionHandler for FracFunction {
             return Err("\\frac requires exactly two arguments.".to_string());
         }
         if args[1] == 0.0 {
-            return Ok(f64::NAN); // Return NaN instead of panicking
+            return Ok(f64::NAN); // Return NaN for division by zero
         }
         Ok(args[0] / args[1])
     }
 
-    fn get_arg_count(&self) -> usize {
-        2 // \frac expects 2 arguments
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(2) // \frac requires exactly two arguments
     }
 }
 
@@ -220,8 +220,8 @@ impl FunctionHandler for LogFunction {
         Ok(args[0].log10())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -234,8 +234,8 @@ impl FunctionHandler for LnFunction {
         Ok(args[0].ln())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -248,8 +248,8 @@ impl FunctionHandler for LgFunction {
         Ok(args[0].log2())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -263,8 +263,8 @@ impl FunctionHandler for SqrtFunction {
         Ok(args[0].sqrt())
     }
 
-    fn get_arg_count(&self) -> usize {
-        1
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
@@ -278,8 +278,8 @@ impl FunctionHandler for MinFunction {
         Ok(args.into_iter().fold(f64::INFINITY, |a, b| a.min(b)))
     }
 
-    fn get_arg_count(&self) -> usize {
-        0 // Variable number of arguments
+    fn get_arg_count(&self) -> Option<usize> {
+        None // Variable number of arguments
     }
 }
 
@@ -292,8 +292,8 @@ impl FunctionHandler for MaxFunction {
         Ok(args.into_iter().fold(f64::NEG_INFINITY, |a, b| a.max(b)))
     }
 
-    fn get_arg_count(&self) -> usize {
-        0 // Variable number of arguments
+    fn get_arg_count(&self) -> Option<usize> {
+        None // Variable number of arguments
     }
 }
 
@@ -307,8 +307,8 @@ impl FunctionHandler for DetFunction {
         Ok(args.into_iter().product())
     }
 
-    fn get_arg_count(&self) -> usize {
-        0 // Variable number of arguments
+    fn get_arg_count(&self) -> Option<usize> {
+        None // Variable number of arguments
     }
 }
 
@@ -325,14 +325,14 @@ impl FunctionRegistry {
         }
     }
 
-    // Store the function in the registry
     pub fn register_function(
         &mut self,
         name: &str,
         function: Box<dyn FunctionHandler + Send + Sync>,
     ) {
         self.functions.insert(name.to_string(), function);
-    } // Retrieve a function from the registry
+    }
+
     pub fn get(&self, name: &str) -> Option<&Box<dyn FunctionHandler + Send + Sync>> {
         self.functions.get(name)
     }
@@ -352,26 +352,26 @@ lazy_static! {
         let mut registry = FunctionRegistry::new(); // Make sure registry is mutable
 
         // Register built-in functions
-        registry.register_function("\\sin", Box::new(SinFunction));
-        registry.register_function("\\cos", Box::new(CosFunction));
-        registry.register_function("\\tan", Box::new(TanFunction));
-        registry.register_function("\\sinh", Box::new(SinhFunction));
-        registry.register_function("\\cosh", Box::new(CoshFunction));
-        registry.register_function("\\tanh", Box::new(TanhFunction));
-        registry.register_function("\\arcsin", Box::new(ArcsinFunction));
-        registry.register_function("\\arccos", Box::new(ArccosFunction));
-        registry.register_function("\\arctan", Box::new(ArctanFunction));
-        registry.register_function("\\sec", Box::new(SecFunction));
-        registry.register_function("\\csc", Box::new(CscFunction));
-        registry.register_function("\\coth", Box::new(CothFunction));
-        registry.register_function("\\frac", Box::new(FracFunction));
-        registry.register_function("\\log", Box::new(LogFunction));
-        registry.register_function("\\ln", Box::new(LnFunction));
-        registry.register_function("\\lg", Box::new(LgFunction));
-        registry.register_function("\\sqrt", Box::new(SqrtFunction));
-        registry.register_function("\\min", Box::new(MinFunction));
-        registry.register_function("\\max", Box::new(MaxFunction));
-        registry.register_function("\\det", Box::new(DetFunction));
+        registry.register_function("sin", Box::new(SinFunction));
+        registry.register_function("cos", Box::new(CosFunction));
+        registry.register_function("tan", Box::new(TanFunction));
+        registry.register_function("sinh", Box::new(SinhFunction));
+        registry.register_function("cosh", Box::new(CoshFunction));
+        registry.register_function("tanh", Box::new(TanhFunction));
+        registry.register_function("arcsin", Box::new(ArcsinFunction));
+        registry.register_function("arccos", Box::new(ArccosFunction));
+        registry.register_function("arctan", Box::new(ArctanFunction));
+        registry.register_function("sec", Box::new(SecFunction));
+        registry.register_function("csc", Box::new(CscFunction));
+        registry.register_function("coth", Box::new(CothFunction));
+        registry.register_function("frac", Box::new(FracFunction));
+        registry.register_function("log", Box::new(LogFunction));
+        registry.register_function("ln", Box::new(LnFunction));
+        registry.register_function("lg", Box::new(LgFunction));
+        registry.register_function("sqrt", Box::new(SqrtFunction));
+        registry.register_function("min", Box::new(MinFunction));
+        registry.register_function("max", Box::new(MaxFunction));
+        registry.register_function("det", Box::new(DetFunction));
 
         registry
     };

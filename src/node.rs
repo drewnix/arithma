@@ -7,6 +7,8 @@ pub enum Node {
     Number(f64),
     Variable(String),
     Rational(i64, i64), // Numerator and denominator
+    ClosingParen,       // Add this to handle ')'
+    ClosingBrace,       // Add this to handle '}'
 
     // Internal nodes: operators with children (operands)
     Add(Box<Node>, Box<Node>),
@@ -70,6 +72,7 @@ impl fmt::Display for Node {
             Node::GreaterEqual(left, right) => write!(f, "({} >= {})", left, right),
             Node::LessEqual(left, right) => write!(f, "({} <= {})", left, right),
             Node::Equal(left, right) => write!(f, "({} == {})", left, right),
+            Node::ClosingParen | Node::ClosingBrace => Ok(()), // Add this to ignore them in formatting
             Node::Piecewise(conditions) => {
                 let mut formatted_conditions = String::new();
                 for (expr, cond) in conditions {

@@ -44,7 +44,7 @@ pub fn tokenize(expr: &str) -> Vec<String> {
             }
 
             current_token.push(c);
-            tokens.push(current_token.clone());
+            tokenize_function_or_variable(&mut tokens, &mut current_token, &mut chars);
             current_token.clear();
         }
         // Handle operators and parentheses
@@ -59,6 +59,35 @@ pub fn tokenize(expr: &str) -> Vec<String> {
     }
 
     tokens
+}
+
+fn tokenize_function_or_variable(
+    tokens: &mut Vec<String>,
+    current_token: &mut String,
+    chars: &mut Peekable<Chars>,
+) {
+    while let Some(&next_char) = chars.peek() {
+        if next_char.is_alphanumeric() {
+            current_token.push(next_char);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    // Check if the token is a registered function name
+    if FUNCTION_REGISTRY.get(&current_token).is_some() {
+        // If the function is followed by a parenthesis or brace, treat it as a function call
+        if chars.peek() == Some(&'(') || chars.peek() == Some(&'{') {
+            tokens.push(current_token.clone()); // Push function name
+        } else {
+            tokens.push(current_token.clone()); // Handle as variable
+        }
+    } else {
+        // Handle as a variable if not a function
+        tokens.push(current_token.clone());
+    }
+    current_token.clear();
 }
 
 fn tokenize_minus(tokens: &mut Vec<String>, last_token: &Option<String>) {
@@ -94,9 +123,9 @@ fn tokenize_latex_commands(
     tokens: &mut Vec<String>,
     current_token: &mut String,
     chars: &mut Peekable<Chars>,
-    c: char,
+    _c: char,
 ) {
-    current_token.push(c);
+    current_token.push('\\');
     while let Some(&next_char) = chars.peek() {
         if next_char.is_alphabetic() {
             current_token.push(next_char);
@@ -105,15 +134,19 @@ fn tokenize_latex_commands(
             break;
         }
     }
-    if current_token.starts_with("\\left") && chars.peek() == Some(&'|') {
+
+    // Strip backslash for LaTeX commands
+    let stripped_token = current_token.trim_start_matches('\\').to_string();
+
+    if stripped_token.starts_with("left") && chars.peek() == Some(&'|') {
         tokens.push("ABS_START".to_string());
         chars.next(); // Consume the '|'
-    } else if current_token.starts_with("\\right") && chars.peek() == Some(&'|') {
+    } else if stripped_token.starts_with("right") && chars.peek() == Some(&'|') {
         tokens.push("ABS_END".to_string());
         chars.next(); // Consume the '|'
-    } else if current_token == "\\pi" {
+    } else if stripped_token == "pi" {
         tokens.push("PI".to_string());
-    } else if current_token == "\\mathrm" {
+    } else if stripped_token == "mathrm" {
         if chars.peek() == Some(&'{') {
             chars.next(); // Consume the '{'
             current_token.clear();
@@ -130,26 +163,27 @@ fn tokenize_latex_commands(
                 }
             }
         }
-    } else if current_token == "\\cdot" {
+    } else if stripped_token == "cdot" {
         tokens.push("*".to_string());
-    } else if current_token == "\\left" {
+    } else if stripped_token == "left" {
         tokens.push("(".to_string()); // Treat \left as (
-    } else if current_token == "\\right" {
+    } else if stripped_token == "right" {
         tokens.push(")".to_string()); // Treat \right as )
-    } else if current_token == "\\frac" {
+    } else if stripped_token == "frac" {
         if let Some(&next_char) = chars.peek() {
             // Check if next char is a digit, indicating shorthand fraction \frac23
             if next_char.is_digit(10) {
                 current_token.clear();
                 tokenize_shorthand_fraction(tokens, chars);
             } else {
-                tokens.push(current_token.clone());
-                current_token.clear();
+                tokens.push(stripped_token);
             }
         }
     } else {
-        tokens.push(current_token.clone());
+        // General LaTeX function case
+        tokens.push(stripped_token);
     }
+
     current_token.clear();
 }
 
@@ -171,12 +205,12 @@ fn tokenize_shorthand_fraction(tokens: &mut Vec<String>, chars: &mut Peekable<Ch
         }
     }
 }
-
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     log::debug!("Starting Shunting Yard with tokens: {:?}", tokens);
 
     let mut output_queue: Vec<String> = Vec::new();
     let mut operator_stack: Vec<String> = Vec::new();
+    let mut function_brace_stack: Vec<String> = Vec::new(); // Stack to track function-specific braces
 
     for token in tokens {
         log::debug!("Processing token: {}", token);
@@ -199,10 +233,6 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 output_queue.push(op);
             }
             output_queue.push("ABS".to_string()); // Add ABS function to the output
-        } else if token.chars().all(|c| c.is_alphabetic()) {
-            // Handle variables like 'x', 'y', 't' directly
-            log::debug!("Variable detected: {}", token);
-            output_queue.push(token);
         } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" {
             while let Some(top) = operator_stack.last() {
                 if get_precedence(top) >= get_precedence(&token) {
@@ -215,7 +245,6 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
         } else if "+-*/^".contains(&token) {
             // Handle binary operators with precedence and associativity
             while let Some(top) = operator_stack.last() {
-                // Ensure NEG has higher precedence than binary operators
                 if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
                 } else {
@@ -224,7 +253,12 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             }
             operator_stack.push(token);
         } else if token == "(" || token == "{" {
-            operator_stack.push(token);
+            operator_stack.push(token); // Push opening braces/parentheses onto the stack
+            if let Some(function) = operator_stack.last() {
+                if FUNCTION_REGISTRY.get(function).is_some() {
+                    function_brace_stack.push(function.clone()); // Track function opening
+                }
+            }
         } else if token == ")" || token == "}" {
             // Handle closing parentheses or braces by popping from the operator stack
             while let Some(top) = operator_stack.pop() {
@@ -233,17 +267,31 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 }
                 output_queue.push(top);
             }
-        } else if token.starts_with("\\") {
-            // Handle LaTeX functions by pushing them onto the operator stack
-            // LaTeX functions like \log, \sin, \cos are treated as "operators" with higher precedence
-            log::debug!("LaTeX function detected: {}", token);
+
+            // Check if we're closing a function argument brace
+            if let Some(function) = function_brace_stack.last() {
+                if FUNCTION_REGISTRY.get(function).is_some() {
+                    // Check if we've finished processing both arguments for functions like frac
+                    if function_brace_stack.len() == 1 {
+                        output_queue.push(function_brace_stack.pop().unwrap()); // Push function to output queue
+                    }
+                }
+            }
+        } else if let Some(_function) = FUNCTION_REGISTRY.get(&token) {
+            // If it's a function, push to the operator stack
+            log::debug!("Function detected: {}", token);
             operator_stack.push(token);
+        } else if token.chars().all(|c| c.is_alphabetic()) {
+            // Handle variables like 'x', 'y', 't' directly
+            log::debug!("Variable detected: {}", token);
+            output_queue.push(token);
         } else {
             return Err(format!("Unknown token '{}'", token));
         }
 
         log::debug!("Current output queue: {:?}", output_queue);
         log::debug!("Current operator stack: {:?}", operator_stack);
+        log::debug!("Current function brace stack: {:?}", function_brace_stack);
     }
 
     // Pop all remaining operators to the output queue
@@ -268,6 +316,11 @@ pub fn get_precedence(op: &str) -> i32 {
         _ => 0,
     }
 }
+
+fn is_argument_terminator(arg: &Node) -> bool {
+    matches!(arg, Node::ClosingParen | Node::ClosingBrace)
+}
+
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     log::debug!("Building expression tree from tokens: {:?}", tokens);
 
@@ -331,29 +384,31 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             };
 
             stack.push(node);
-        } else if token.starts_with("\\") {
-            // Handle LaTeX functions by using the function registry
-            let function_name = token.clone();
+        } else if let Some(function) = FUNCTION_REGISTRY.get(&token) {
+            let arg_count = function.get_arg_count();
 
-            // Look up the function in the function registry
-            if let Some(function) = FUNCTION_REGISTRY.get(&function_name) {
-                // The number of arguments is known at runtime from the registry
-                let arg_count = function.get_arg_count(); // New method to be implemented in FunctionHandler trait
+            if let Some(count) = arg_count {
+                // Fixed-argument function
                 let mut args = Vec::new();
-
-                for _ in 0..arg_count {
+                for _ in 0..count {
                     let arg = stack
                         .pop()
                         .ok_or_else(|| format!("Not enough operands for function {}", token))?;
                     args.push(arg);
                 }
-
-                // Reverse arguments to maintain correct order (since popping reverses it)
-                args.reverse();
-
-                stack.push(Node::Function(function_name, args));
+                args.reverse(); // Reverse to maintain order
+                stack.push(Node::Function(token.clone(), args)); // Use the token as function name
             } else {
-                return Err(format!("Unknown function: {}", function_name));
+                // Variable-argument function (pop until we find a closing delimiter or hit an error)
+                let mut args = Vec::new();
+                while let Some(arg) = stack.pop() {
+                    if is_argument_terminator(&arg) {
+                        break;
+                    }
+                    args.push(arg);
+                }
+                args.reverse();
+                stack.push(Node::Function(token.clone(), args)); // Use the token as function name
             }
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)

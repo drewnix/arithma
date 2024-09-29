@@ -114,6 +114,9 @@ impl Evaluator {
                 // Call the function using the centralized registry
                 call_function(name, evaluated_args)
             }
+            Node::ClosingParen | Node::ClosingBrace => {
+                Err("Unexpected closing delimiter.".to_string())
+            } // Add this match arm to return error
         }
     }
 
