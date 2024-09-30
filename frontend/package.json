@@ -19,6 +19,8 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.0",
     "@radix-ui/react-tooltip": "^1.1.2",
+    "@visx/grid": "^3.5.0",
+    "@visx/visx": "^3.11.0",
     "arithma": "file:../pkg",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
