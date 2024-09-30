@@ -71,6 +71,16 @@ mod algebra_tests {
         );
     }
 
+    #[test]
+    fn test_frac_function_incorrect_args() {
+        let result = evaluate_expression("\\frac{3}").unwrap_err();
+        assert_eq!(result, "Not enough operands for function frac");
+
+        // TODO: improve error message for this case
+        // let result = evaluate_expression("\\frac{3}{4}{5}").unwrap_err();
+        // assert!(result.contains("too many arguments"));
+    }
+
     // 2. Polynomials
     #[test]
     fn test_polynomials() {
@@ -275,8 +285,7 @@ mod algebra_tests {
     }
 
     #[test]
-    #[ignore]
-    fn test_min_function() {
+    fn test_min_and_max_functions() {
         let env = Environment::new();
 
         // min(3, 1, 4, 2) = 1
@@ -289,6 +298,14 @@ mod algebra_tests {
 
         // min() should panic or return an error
         assert!(evaluate_expression_with_env("\\min{}", &env).is_err());
+
+        // Test max with no arguments
+        let result = evaluate_expression("\\max{}").unwrap_err();
+        assert!(result.contains("max requires at least one argument"));
+
+        // max(3, 1, 4, 2) = 4
+        let result = evaluate_expression("\\max{3, 1, 4, 2}").unwrap();
+        assert_eq!(result, 4.0);
     }
 
     #[test]
