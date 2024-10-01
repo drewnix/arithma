@@ -1,9 +1,12 @@
-use crate::environment::Environment;
 use crate::node::Node;
-use crate::parser::tokenize;
+use crate::Tokenizer;
 
 pub fn extract_variable(expr: &str) -> Option<String> {
-    let tokens = tokenize(expr);
+    // Create an instance of the Tokenizer
+    let mut tokenizer = Tokenizer::new(expr);  // Pass input as a reference
+
+    // Tokenize and parse the input
+    let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
     for token in tokens {
         if token.chars().all(char::is_alphabetic) {
             return Some(token);
@@ -90,50 +93,4 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
     // Adjust the equation: variable = (right_val - constant) / coefficient
     let result = (right_val - constant) / coefficient;
     Ok(result)
-}
-
-pub fn evaluate_rpn(tokens: Vec<String>, env: &Environment) -> Result<f64, String> {
-    let mut stack: Vec<f64> = Vec::new();
-
-    for token in tokens {
-        if let Ok(num) = token.parse::<f64>() {
-            // If the token is a number, push it onto the stack
-            stack.push(num);
-        } else if let Some(value) = env.get(&token) {
-            // If the token is a variable in the environment, retrieve its value
-            stack.push(value);
-        } else if "+-*/^".contains(&token) {
-            // Ensure we have enough operands to apply the operator
-            if stack.len() < 2 {
-                return Err(format!("Not enough operands for operator '{}'", token));
-            }
-
-            let right = stack.pop().unwrap();
-            let left = stack.pop().unwrap();
-
-            match token.as_str() {
-                "+" => stack.push(left + right),
-                "-" => stack.push(left - right),
-                "*" => stack.push(left * right),
-                "/" => {
-                    if right == 0.0 {
-                        return Err("Division by zero error".to_string());
-                    }
-                    stack.push(left / right);
-                }
-                _ => return Err(format!("Unexpected operator '{}'", token)),
-            }
-        } else {
-            // Assume the token is a variable we're solving for and ignore it for now
-            // This lets us skip the variable until it's solved
-            continue;
-        }
-    }
-
-    // After processing all tokens, the stack should contain exactly one value, which is the result
-    if stack.len() != 1 {
-        return Err("The RPN expression did not resolve to a single value.".to_string());
-    }
-
-    Ok(stack.pop().unwrap())
 }

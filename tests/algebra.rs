@@ -1,9 +1,13 @@
 #[cfg(test)]
 mod algebra_tests {
-    use arithma::{build_expression_tree, solve_for_variable, tokenize, Environment, Evaluator};
+    use arithma::{build_expression_tree, solve_for_variable, Tokenizer, Environment, Evaluator};
 
     fn evaluate_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
-        let tokens: Vec<String> = tokenize(latex);
+        // Create an instance of the Tokenizer
+        let mut tokenizer = Tokenizer::new(latex);  // Pass input as a reference
+
+        // Tokenize and parse the input
+        let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
         Evaluator::evaluate(&parsed_expr, &env)
     }
@@ -74,7 +78,7 @@ mod algebra_tests {
     #[test]
     fn test_frac_function_incorrect_args() {
         let result = evaluate_expression("\\frac{3}").unwrap_err();
-        assert_eq!(result, "Not enough operands for function frac");
+        assert_eq!(result, "Not enough operands for operator '/'");
 
         // TODO: improve error message for this case
         // let result = evaluate_expression("\\frac{3}{4}{5}").unwrap_err();
@@ -107,7 +111,11 @@ mod algebra_tests {
     #[test]
     #[ignore]
     fn test_linear_equation() -> Result<(), Box<dyn std::error::Error>> {
-        let tokens: Vec<String> = tokenize("2 * x + 5 = 11");
+        // Create an instance of the Tokenizer
+        let mut tokenizer = Tokenizer::new("2 * x + 5 = 11");  // Pass input as a reference
+
+        // Tokenize and parse the input
+        let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
         let solution = solve_for_variable(&parsed_expr, 0.0, "x").unwrap();
         assert_eq!(solution, 3.0);

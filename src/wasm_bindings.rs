@@ -1,6 +1,7 @@
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
-use crate::parser::{build_expression_tree, tokenize};
+use crate::parser::{build_expression_tree};
+use crate::tokenizer::Tokenizer;
 use crate::simplify::Simplifiable;
 use wasm_bindgen::prelude::*;
 
@@ -10,8 +11,11 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     let env: Environment = serde_json::from_str(env_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
 
-    // Tokenize and parse the LaTeX expression
-    let tokens = tokenize(latex_expr);
+    // Create an instance of the Tokenizer
+    let mut tokenizer = Tokenizer::new(latex_expr);  // Pass input as a reference
+
+    // Tokenize and parse the input
+    let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
     let parsed_expr = build_expression_tree(tokens)
         .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
 

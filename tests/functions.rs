@@ -1,10 +1,14 @@
 
 #[cfg(test)]
 mod function_tests {
-    use arithma::{build_expression_tree, tokenize, Environment, Evaluator};
+    use arithma::{build_expression_tree, Tokenizer, Environment, Evaluator};
 
     fn evaluate_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
-        let tokens: Vec<String> = tokenize(latex);
+        // Create an instance of the Tokenizer
+        let mut tokenizer = Tokenizer::new(latex);  // Pass input as a reference
+
+        // Tokenize and parse the input
+        let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
         Evaluator::evaluate(&parsed_expr, &env)
     }
