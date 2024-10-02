@@ -115,16 +115,7 @@ impl<'a> Tokenizer<'a> {
                         current_token.clear();
                         self.tokenize_shorthand_fraction(tokens);
                     } else {
-                        self.chars.next(); // Consume '{'
-                        let numerator = self.tokenize_group();
-                        tokens.push(numerator);
-                        tokens.push("/".to_string());
-
-                        if self.chars.peek() == Some(&'{') {
-                            self.chars.next(); // Consume '{'
-                            let denominator = self.tokenize_group();
-                            tokens.push(denominator);
-                        }
+                        tokens.push(stripped_token);
                     }
                 }
             }
@@ -210,19 +201,6 @@ impl<'a> Tokenizer<'a> {
             tokens.push("-".to_string()); // Tokenize binary minus as "-"
         }
     }
-
-    fn tokenize_group(&mut self) -> String {
-        let mut group = String::new();
-        while let Some(&next_char) = self.chars.peek() {
-            if next_char == '}' {
-                self.chars.next(); // Consume '}'
-                break;
-            }
-            group.push(next_char);
-            self.chars.next();
-        }
-        group
-    }
 }
 
 #[cfg(test)]
@@ -268,7 +246,7 @@ mod tests {
     fn test_tokenize_latex_fraction() {
         let mut tokenizer = Tokenizer::new("\\frac{3}{4}");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["3", "/", "4"]);
+        assert_eq!(tokens, vec!["frac", "{", "3", "}","{","4","}"]);
     }
 
     #[test]

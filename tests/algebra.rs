@@ -78,7 +78,7 @@ mod algebra_tests {
     #[test]
     fn test_frac_function_incorrect_args() {
         let result = evaluate_expression("\\frac{3}").unwrap_err();
-        assert_eq!(result, "Not enough operands for operator '/'");
+        assert_eq!(result, "Not enough operands for function frac");
 
         // TODO: improve error message for this case
         // let result = evaluate_expression("\\frac{3}{4}{5}").unwrap_err();
