@@ -1,9 +1,7 @@
-
-
 #[cfg(test)]
 mod test_simplify {
-    use arithma::{Environment, Evaluator, Node};
-    use arithma::simplify::Simplifiable; // Import the trait
+    use arithma::simplify::Simplifiable;
+    use arithma::{Environment, Evaluator, Node}; // Import the trait
 
     #[test]
     fn test_simplify_addition() {
@@ -43,7 +41,10 @@ mod test_simplify {
     #[test]
     fn test_multiply_by_zero() {
         let env = Environment::new();
-        let expr = Node::Multiply(Box::new(Node::Variable("x".to_string())), Box::new(Node::Number(0.0)));
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Number(0.0)),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Number(0.0));
     }
@@ -51,7 +52,10 @@ mod test_simplify {
     #[test]
     fn test_multiply_by_one() {
         let env = Environment::new();
-        let expr = Node::Multiply(Box::new(Node::Variable("x".to_string())), Box::new(Node::Number(1.0)));
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Number(1.0)),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
     }
@@ -59,7 +63,10 @@ mod test_simplify {
     #[test]
     fn test_divide_by_one() {
         let env = Environment::new();
-        let expr = Node::Divide(Box::new(Node::Variable("x".to_string())), Box::new(Node::Number(1.0)));
+        let expr = Node::Divide(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Number(1.0)),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
     }
@@ -67,7 +74,10 @@ mod test_simplify {
     #[test]
     fn test_exponentiation_by_zero() {
         let env = Environment::new();
-        let expr = Node::Power(Box::new(Node::Variable("x".to_string())), Box::new(Node::Number(0.0)));
+        let expr = Node::Power(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Number(0.0)),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Number(1.0));
     }
@@ -75,7 +85,10 @@ mod test_simplify {
     #[test]
     fn test_exponentiation_by_one() {
         let env = Environment::new();
-        let expr = Node::Power(Box::new(Node::Variable("x".to_string())), Box::new(Node::Number(1.0)));
+        let expr = Node::Power(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Number(1.0)),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
     }
@@ -91,8 +104,14 @@ mod test_simplify {
     #[test]
     fn test_simplify_like_terms() {
         let expr = Node::Add(
-            Box::new(Node::Multiply(Box::new(Node::Number(2.0)), Box::new(Node::Variable("x".to_string())))),
-            Box::new(Node::Multiply(Box::new(Node::Number(3.0)), Box::new(Node::Variable("x".to_string())))),
+            Box::new(Node::Multiply(
+                Box::new(Node::Number(2.0)),
+                Box::new(Node::Variable("x".to_string())),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(Node::Number(3.0)),
+                Box::new(Node::Variable("x".to_string())),
+            )),
         );
 
         let simplified = expr.simplify(&Environment::new()).unwrap();
@@ -106,15 +125,30 @@ mod test_simplify {
         let expr = Node::Add(
             Box::new(Node::Add(
                 Box::new(Node::Add(
-                    Box::new(Node::Multiply(Box::new(Node::Number(5.0)), Box::new(Node::Variable("x".to_string())))),
-                    Box::new(Node::Multiply(Box::new(Node::Number(3.0)), Box::new(Node::Variable("x".to_string()))))
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Number(5.0)),
+                        Box::new(Node::Variable("x".to_string())),
+                    )),
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Number(3.0)),
+                        Box::new(Node::Variable("x".to_string())),
+                    )),
                 )),
                 Box::new(Node::Add(
-                    Box::new(Node::Multiply(Box::new(Node::Number(10.0)), Box::new(Node::Variable("y".to_string())))),
-                    Box::new(Node::Multiply(Box::new(Node::Number(15.0)), Box::new(Node::Variable("y".to_string()))))
-                ))
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Number(10.0)),
+                        Box::new(Node::Variable("y".to_string())),
+                    )),
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Number(15.0)),
+                        Box::new(Node::Variable("y".to_string())),
+                    )),
+                )),
             )),
-            Box::new(Node::Multiply(Box::new(Node::Number(10.0)), Box::new(Node::Variable("x".to_string()))))
+            Box::new(Node::Multiply(
+                Box::new(Node::Number(10.0)),
+                Box::new(Node::Variable("x".to_string())),
+            )),
         );
 
         let simplified = expr.simplify(&env).unwrap();
@@ -139,8 +173,14 @@ mod test_simplify {
 
         // Expected: 18x + 25y
         let expected = Node::Add(
-            Box::new(Node::Multiply(Box::new(Node::Number(18.0)), Box::new(Node::Variable("x".to_string())))),
-            Box::new(Node::Multiply(Box::new(Node::Number(25.0)), Box::new(Node::Variable("y".to_string()))))
+            Box::new(Node::Multiply(
+                Box::new(Node::Number(18.0)),
+                Box::new(Node::Variable("x".to_string())),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(Node::Number(25.0)),
+                Box::new(Node::Variable("y".to_string())),
+            )),
         );
 
         assert_eq!(sorted_expr(&simplified), sorted_expr(&expected));

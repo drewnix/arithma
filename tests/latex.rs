@@ -1,15 +1,15 @@
 #[cfg(test)]
 mod latex_parser_tests {
-    use arithma::{build_expression_tree, Tokenizer, Environment, Evaluator};
+    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
 
     fn eval_latex_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
         // Create an instance of the Tokenizer
-        let mut tokenizer = Tokenizer::new(latex);  // Pass input as a reference
+        let mut tokenizer = Tokenizer::new(latex); // Pass input as a reference
         let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
 
         // Tokenize and parse the input
         let parsed_expr = build_expression_tree(tokens)?;
-        Evaluator::evaluate(&parsed_expr, &env) 
+        Evaluator::evaluate(&parsed_expr, &env)
     }
 
     // Helper function to evaluate LaTeX expression and return the result
