@@ -1,5 +1,5 @@
 use arithma::simplify::Simplifiable;
-use arithma::{build_expression_tree, Tokenizer, Environment, Evaluator};
+use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
 use std::io::{self, Write};
 
 fn main() {
@@ -24,7 +24,7 @@ fn main() {
         }
 
         // Create an instance of the Tokenizer
-        let mut tokenizer = Tokenizer::new(input);  // Pass input as a reference
+        let mut tokenizer = Tokenizer::new(input); // Pass input as a reference
 
         // Tokenize and parse the input
         let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer

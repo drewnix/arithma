@@ -158,7 +158,11 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Handle variables or function names like x, sin, cos
-    fn tokenize_variable_or_function(&mut self, tokens: &mut Vec<String>, current_token: &mut String) {
+    fn tokenize_variable_or_function(
+        &mut self,
+        tokens: &mut Vec<String>,
+        current_token: &mut String,
+    ) {
         while let Some(&next_char) = self.chars.peek() {
             if next_char.is_alphanumeric() {
                 current_token.push(next_char);
@@ -171,7 +175,12 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Handle operators and parentheses
-    fn tokenize_operator_or_paren(&self, tokens: &mut Vec<String>, current_token: &mut String, c: char) {
+    fn tokenize_operator_or_paren(
+        &self,
+        tokens: &mut Vec<String>,
+        current_token: &mut String,
+        c: char,
+    ) {
         if !current_token.is_empty() {
             tokens.push(current_token.clone());
             current_token.clear();
@@ -183,7 +192,8 @@ impl<'a> Tokenizer<'a> {
     fn tokenize_comparisons(&mut self, tokens: &mut Vec<String>, c: char) {
         let mut op = c.to_string();
         if let Some(&next_char) = self.chars.peek() {
-            if next_char == '=' || (c == '&' && next_char == '&') || (c == '|' && next_char == '|') {
+            if next_char == '=' || (c == '&' && next_char == '&') || (c == '|' && next_char == '|')
+            {
                 op.push(next_char);
                 self.chars.next();
             }
@@ -193,8 +203,8 @@ impl<'a> Tokenizer<'a> {
 
     /// Handle the minus '-' sign, distinguishing between unary and binary usage
     fn tokenize_minus(&mut self, tokens: &mut Vec<String>, last_token: &Option<String>) {
-        let is_unary =
-            last_token.is_none() || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
+        let is_unary = last_token.is_none()
+            || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
         if is_unary {
             tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
         } else {
@@ -232,21 +242,35 @@ mod tests {
     fn test_tokenize_latex_pi() {
         let mut tokenizer = Tokenizer::new("\\pi * 2");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec![std::f64::consts::PI.to_string(), "*".to_string(), "2".to_string()]);
+        assert_eq!(
+            tokens,
+            vec![
+                std::f64::consts::PI.to_string(),
+                "*".to_string(),
+                "2".to_string()
+            ]
+        );
     }
 
     #[test]
     fn test_tokenize_latex_euler() {
         let mut tokenizer = Tokenizer::new("\\mathrm{e} * 2");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec![std::f64::consts::E.to_string(), "*".to_string(), "2".to_string()]);
+        assert_eq!(
+            tokens,
+            vec![
+                std::f64::consts::E.to_string(),
+                "*".to_string(),
+                "2".to_string()
+            ]
+        );
     }
 
     #[test]
     fn test_tokenize_latex_fraction() {
         let mut tokenizer = Tokenizer::new("\\frac{3}{4}");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["frac", "{", "3", "}","{","4","}"]);
+        assert_eq!(tokens, vec!["frac", "{", "3", "}", "{", "4", "}"]);
     }
 
     #[test]
@@ -288,6 +312,9 @@ mod tests {
     fn test_tokenize_nested_parentheses() {
         let mut tokenizer = Tokenizer::new("(3 + (2 * (4 / 2)))");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["(", "3", "+", "(", "2", "*", "(", "4", "/", "2", ")", ")", ")"]);
+        assert_eq!(
+            tokens,
+            vec!["(", "3", "+", "(", "2", "*", "(", "4", "/", "2", ")", ")", ")"]
+        );
     }
 }

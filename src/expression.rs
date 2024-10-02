@@ -3,7 +3,7 @@ use crate::Tokenizer;
 
 pub fn extract_variable(expr: &str) -> Option<String> {
     // Create an instance of the Tokenizer
-    let mut tokenizer = Tokenizer::new(expr);  // Pass input as a reference
+    let mut tokenizer = Tokenizer::new(expr); // Pass input as a reference
 
     // Tokenize and parse the input
     let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
