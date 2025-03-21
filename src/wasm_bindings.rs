@@ -6,7 +6,36 @@ use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
+use crate::composition::{compose_latex};
+use crate::integration::{integrate_latex, definite_integral_latex};
 use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn compose_functions_js(f_latex: &str, f_var: &str, g_latex: &str) -> Result<String, JsValue> {
+    // Compose the functions
+    match compose_latex(f_latex, f_var, g_latex) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error in function composition: {}", e)))
+    }
+}
+
+#[wasm_bindgen]
+pub fn integrate_expression_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
+    // Calculate the indefinite integral
+    match integrate_latex(latex_expr, var_name) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error in integration: {}", e)))
+    }
+}
+
+#[wasm_bindgen]
+pub fn definite_integral_js(latex_expr: &str, var_name: &str, lower: f64, upper: f64) -> Result<String, JsValue> {
+    // Calculate the definite integral
+    match definite_integral_latex(latex_expr, var_name, lower, upper) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error in definite integration: {}", e)))
+    }
+}
 
 #[wasm_bindgen]
 pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {

@@ -23,7 +23,7 @@ This roadmap outlines the planned development path for transforming Arithma into
   - [ ] Polynomial division
 - [ ] Expression canonicalization
 - [x] Variable substitution 
-- [ ] Function composition
+- [x] Function composition
 - [ ] Pattern matching for algebraic manipulation
 
 ## Calculus
@@ -44,12 +44,12 @@ This roadmap outlines the planned development path for transforming Arithma into
 - [ ] Directional derivatives and gradients
 
 ### Integration
-- [ ] Basic integration techniques
-  - [ ] Direct integration of elementary functions
+- [x] Basic integration techniques
+  - [x] Direct integration of elementary functions
   - [ ] Integration by substitution
   - [ ] Integration by parts
 - [ ] Special function integration
-- [ ] Definite integrals
+- [x] Definite integrals
 - [ ] Improper integrals
 - [ ] Numerical integration methods
 - [ ] Multiple integrals

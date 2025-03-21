@@ -30,3 +30,15 @@ pub mod simplify;
 // Declare the substitution module
 pub mod substitute;
 pub use crate::substitute::{substitute, substitute_latex};
+
+// Declare the derivative module
+pub mod derivative;
+pub use crate::derivative::{differentiate, differentiate_latex, partial_derivative};
+
+// Declare the composition module
+pub mod composition;
+pub use crate::composition::{compose, compose_latex, compose_multiple};
+
+// Declare the integration module
+pub mod integration;
+pub use crate::integration::{integrate, integrate_latex, definite_integral, definite_integral_latex};
