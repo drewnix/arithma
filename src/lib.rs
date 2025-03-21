@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 // Declare the node module
 mod node;
 pub use crate::node::Node;

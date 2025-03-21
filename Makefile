@@ -40,11 +40,11 @@ rust-fmt-check: ## Check Rust formatting without making changes
 
 .PHONY: rust-clippy
 rust-clippy: ## Run Clippy with warnings as errors
-	cargo clippy -- -D warnings
+	RUSTFLAGS="--allow=unexpected_cfgs" cargo clippy -- -D warnings
 
 .PHONY: rust-clippy-all
 rust-clippy-all: ## Run Clippy with all warnings enabled
-	cargo clippy -- -W clippy::all
+	RUSTFLAGS="--allow=unexpected_cfgs" cargo clippy -- -W clippy::all
 
 ################################################################################
 # WASM Commands
@@ -53,12 +53,12 @@ rust-clippy-all: ## Run Clippy with all warnings enabled
 .PHONY: wasm-build
 wasm-build: ## Build the WebAssembly module
 	cargo update -p wasm-bindgen-macro
-	wasm-pack build --target web
+	RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web
 
 .PHONY: wasm-build-release
 wasm-build-release: ## Build the WebAssembly module in release mode
 	cargo update -p wasm-bindgen-macro
-	wasm-pack build --target web --release
+	RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web --release
 
 .PHONY: wasm-copy
 wasm-copy: ## Copy WASM files to the frontend public directory

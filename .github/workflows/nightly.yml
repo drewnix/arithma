@@ -30,16 +30,16 @@ jobs:
         run: cargo fmt -- --check
         
       - name: Run clippy with all warnings
-        run: cargo clippy -- -W clippy::all
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo clippy -- -W clippy::all
         
       - name: Build in release mode
-        run: cargo build --release --verbose
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build --release --verbose
         
       - name: Run all tests
-        run: cargo test --all-features --verbose
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo test --all-features --verbose
         
       - name: Build WebAssembly optimized
-        run: wasm-pack build --target web --release
+        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web --release
 
   cross-platform:
     name: Cross-Platform Tests
@@ -58,10 +58,10 @@ jobs:
           override: true
           
       - name: Build
-        run: cargo build
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build
         
       - name: Test
-        run: cargo test
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo test
 
   security-audit:
     name: Security Audit

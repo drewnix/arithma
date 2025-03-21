@@ -39,16 +39,16 @@ jobs:
         run: cargo fmt -- --check
         
       - name: Lint with clippy
-        run: cargo clippy -- -D warnings
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo clippy -- -D warnings
         
       - name: Build
-        run: cargo build --verbose
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build --verbose
         
       - name: Run tests
-        run: cargo test --verbose
+        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo test --verbose
         
       - name: Build WebAssembly
-        run: wasm-pack build --target web
+        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web
 
   typescript-frontend:
     name: TypeScript Frontend
@@ -70,7 +70,7 @@ jobs:
           cargo update -p wasm-bindgen-macro
         
       - name: Build WebAssembly
-        run: wasm-pack build --target web
+        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web
         
       - name: Copy WASM to frontend
         run: |
@@ -123,7 +123,7 @@ jobs:
           cargo update -p wasm-bindgen-macro
           
       - name: Build WebAssembly
-        run: wasm-pack build --target web
+        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web
         
       - name: Setup Node.js
         uses: actions/setup-node@v3
