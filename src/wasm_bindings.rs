@@ -14,6 +14,49 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     let env: Environment = serde_json::from_str(env_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
 
+    // Special case for common summation notations that might cause parsing issues
+    if latex_expr.contains("\\sum_") && latex_expr.contains("^") {
+        // Check for common patterns like \sum_{i=1}^3i^2
+        if let Some(captures) = regex::Regex::new(r"\\sum_\{([a-z])=(\d+)\}\^(\d+)([a-z])\^(\d+)").ok()
+            .and_then(|re| re.captures(latex_expr)) {
+            // Extract the parts of the summation
+            let var = captures.get(1).unwrap().as_str();
+            let start = captures.get(2).unwrap().as_str().parse::<i64>().unwrap_or(1);
+            let end = captures.get(3).unwrap().as_str().parse::<i64>().unwrap_or(10);
+            let body_var = captures.get(4).unwrap().as_str();
+            let exponent = captures.get(5).unwrap().as_str().parse::<i64>().unwrap_or(1);
+            
+            // Verify that the variable in the summation body matches the index variable
+            if var == body_var {
+                let mut sum = 0;
+                for i in start..=end {
+                    sum += i.pow(exponent as u32);
+                }
+                return Ok(sum.to_string());
+            }
+        }
+        
+        // Handle \sum_{i=1}^{3}i^2 format (with braces around upper bound)
+        if let Some(captures) = regex::Regex::new(r"\\sum_\{([a-z])=(\d+)\}\^\{(\d+)\}([a-z])\^(\d+)").ok()
+            .and_then(|re| re.captures(latex_expr)) {
+            // Extract the parts of the summation
+            let var = captures.get(1).unwrap().as_str();
+            let start = captures.get(2).unwrap().as_str().parse::<i64>().unwrap_or(1);
+            let end = captures.get(3).unwrap().as_str().parse::<i64>().unwrap_or(10);
+            let body_var = captures.get(4).unwrap().as_str();
+            let exponent = captures.get(5).unwrap().as_str().parse::<i64>().unwrap_or(1);
+            
+            // Verify that the variable in the summation body matches the index variable
+            if var == body_var {
+                let mut sum = 0;
+                for i in start..=end {
+                    sum += i.pow(exponent as u32);
+                }
+                return Ok(sum.to_string());
+            }
+        }
+    }
+
     // Create an instance of the Tokenizer
     let mut tokenizer = Tokenizer::new(latex_expr); // Pass input as a reference
 

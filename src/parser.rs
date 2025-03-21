@@ -370,30 +370,93 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
             i += 1;
         }
     } else {
-        // If there's no brace, collect tokens until '='
-        // We need to handle expression like i^2 or 2*i separately from just 'i'
+        // If there's no brace, we need special handling for expressions like i^2 
+        // and ensure we collect all related tokens
         
-        // Check for simple variable first (just 'i')
-        if i < tokens.len() && tokens[i].chars().all(|c| c.is_alphabetic()) {
-            body_tokens.push(tokens[i].clone());
+        // Check for variable followed by operator (like "i^2")
+        if i < tokens.len() {
+            // Take the first token (usually a variable like "i")
+            let var_token = tokens[i].clone();
+            body_tokens.push(var_token.clone()); // Clone to avoid ownership issues
             i += 1;
-        } else {
-            // More complex expression - collect until equals sign or end
-            while i < tokens.len() && tokens[i] != "=" {
-                // Stop at the next summation if present
-                if tokens[i] == "sum" {
+            
+            // For the specific case of "i^2", "i^n", etc. gather the exponent too
+            if i < tokens.len() && tokens[i] == "^" {
+                // Special handling for power operations
+                // Remember: "i^2" should be parsed as "i * i", not as "i ^ 2"
+                let var_name = var_token;
+                body_tokens.clear();  // Clear existing tokens
+                
+                // We need to collect the exponent
+                i += 1;  // Skip past the ^ token
+                
+                if i < tokens.len() {
+                    let exponent = tokens[i].clone();
+                    i += 1;
+                    
+                    // For a simple numeric exponent, we can rewrite this as a multiplication chain
+                    if let Ok(exp_val) = exponent.parse::<i64>() {
+                        if exp_val == 0 {
+                            // x^0 = 1
+                            body_tokens.push("1".to_string());
+                        } else if exp_val == 1 {
+                            // x^1 = x
+                            body_tokens.push(var_name);
+                        } else if exp_val > 1 {
+                            // x^n = x * x * ... * x (n times)
+                            body_tokens.push(var_name.clone());
+                            
+                            for _ in 1..exp_val {
+                                body_tokens.push("*".to_string());
+                                body_tokens.push(var_name.clone());
+                            }
+                        } else {
+                            // Negative exponents can't be parsed this way, so keep the original format
+                            body_tokens.push(var_name);
+                            body_tokens.push("^".to_string());
+                            body_tokens.push(exponent);
+                        }
+                    } else {
+                        // For non-numeric exponents, keep the original format
+                        body_tokens.push(var_name);
+                        body_tokens.push("^".to_string());
+                        body_tokens.push(exponent);
+                    }
+                }
+            }
+            
+            // For cases with other operators
+            while i < tokens.len() && tokens[i] != "=" && tokens[i] != "sum" {
+                // Check for operations that likely belong to this expression
+                if i > 0 && (tokens[i] == "*" || tokens[i] == "/" || tokens[i] == "+" || tokens[i] == "-") {
+                    body_tokens.push(tokens[i].clone());
+                    i += 1;
+                    
+                    // Add the next token after the operator
+                    if i < tokens.len() && tokens[i] != "=" && tokens[i] != "sum" {
+                        body_tokens.push(tokens[i].clone());
+                        i += 1;
+                    }
+                } else {
+                    // Stop collecting if we don't recognize it as part of the expression
                     break;
                 }
-                body_tokens.push(tokens[i].clone());
-                i += 1;
             }
         }
     }
     
-    // Parse the start, end, and body expressions
-    let start_expr = build_expression_tree(lower_bound_tokens)?;
-    let end_expr = build_expression_tree(upper_bound_tokens)?;
-    let body_expr = build_expression_tree(body_tokens)?;
+    // Parse the start, end, and body expressions with better error handling
+    let start_expr = build_expression_tree(lower_bound_tokens)
+        .map_err(|e| format!("Error in summation lower bound: {}", e))?;
+    
+    let end_expr = build_expression_tree(upper_bound_tokens)
+        .map_err(|e| format!("Error in summation upper bound: {}", e))?;
+    
+    // Debug logging for body tokens
+    log::debug!("Body tokens for summation: {:?}", body_tokens);
+    
+    let body_expr = build_expression_tree(body_tokens)
+        .map_err(|e| format!("Error in summation body: {}", e))?;
     
     // The rest of the tokens after the summation need to be parsed
     let mut remaining_tokens = Vec::new();
