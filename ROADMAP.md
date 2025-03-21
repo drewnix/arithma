@@ -29,17 +29,17 @@ This roadmap outlines the planned development path for transforming Arithma into
 ## Calculus
 
 ### Differentiation
-- [ ] Basic differentiation rules
-  - [ ] Power rule
-  - [ ] Product rule
-  - [ ] Quotient rule
-  - [ ] Chain rule
-- [ ] Differentiation of elementary functions
-  - [ ] Trigonometric
-  - [ ] Exponential
-  - [ ] Logarithmic
+- [x] Basic differentiation rules
+  - [x] Power rule
+  - [x] Product rule
+  - [x] Quotient rule
+  - [x] Chain rule
+- [x] Differentiation of elementary functions
+  - [x] Trigonometric
+  - [x] Exponential
+  - [x] Logarithmic
 - [ ] Implicit differentiation
-- [ ] Partial derivatives
+- [x] Partial derivatives
 - [ ] Higher-order derivatives
 - [ ] Directional derivatives and gradients
 
