@@ -340,7 +340,6 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     }
     
     // Extract the expression to be summed
-    
     // The expression can be a single token or surrounded by braces
     let mut body_tokens = Vec::new();
     
@@ -370,79 +369,8 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
             i += 1;
         }
     } else {
-        // If there's no brace, we need special handling for expressions like i^2 
-        // and ensure we collect all related tokens
-        
-        // Check for variable followed by operator (like "i^2")
-        if i < tokens.len() {
-            // Take the first token (usually a variable like "i")
-            let var_token = tokens[i].clone();
-            body_tokens.push(var_token.clone()); // Clone to avoid ownership issues
-            i += 1;
-            
-            // For the specific case of "i^2", "i^n", etc. gather the exponent too
-            if i < tokens.len() && tokens[i] == "^" {
-                // Special handling for power operations
-                // Remember: "i^2" should be parsed as "i * i", not as "i ^ 2"
-                let var_name = var_token;
-                body_tokens.clear();  // Clear existing tokens
-                
-                // We need to collect the exponent
-                i += 1;  // Skip past the ^ token
-                
-                if i < tokens.len() {
-                    let exponent = tokens[i].clone();
-                    i += 1;
-                    
-                    // For a simple numeric exponent, we can rewrite this as a multiplication chain
-                    if let Ok(exp_val) = exponent.parse::<i64>() {
-                        if exp_val == 0 {
-                            // x^0 = 1
-                            body_tokens.push("1".to_string());
-                        } else if exp_val == 1 {
-                            // x^1 = x
-                            body_tokens.push(var_name);
-                        } else if exp_val > 1 {
-                            // x^n = x * x * ... * x (n times)
-                            body_tokens.push(var_name.clone());
-                            
-                            for _ in 1..exp_val {
-                                body_tokens.push("*".to_string());
-                                body_tokens.push(var_name.clone());
-                            }
-                        } else {
-                            // Negative exponents can't be parsed this way, so keep the original format
-                            body_tokens.push(var_name);
-                            body_tokens.push("^".to_string());
-                            body_tokens.push(exponent);
-                        }
-                    } else {
-                        // For non-numeric exponents, keep the original format
-                        body_tokens.push(var_name);
-                        body_tokens.push("^".to_string());
-                        body_tokens.push(exponent);
-                    }
-                }
-            }
-            
-            // For cases with other operators
-            while i < tokens.len() && tokens[i] != "=" && tokens[i] != "sum" {
-                // Check for operations that likely belong to this expression
-                if i > 0 && (tokens[i] == "*" || tokens[i] == "/" || tokens[i] == "+" || tokens[i] == "-") {
-                    body_tokens.push(tokens[i].clone());
-                    i += 1;
-                    
-                    // Add the next token after the operator
-                    if i < tokens.len() && tokens[i] != "=" && tokens[i] != "sum" {
-                        body_tokens.push(tokens[i].clone());
-                        i += 1;
-                    }
-                } else {
-                    // Stop collecting if we don't recognize it as part of the expression
-                    break;
-                }
-            }
-        }
+        // If there's no brace, extract the summation body with advanced balancing
+        parse_unbraced_summation_body(&tokens[i..], &mut body_tokens, &mut i);
     }
     
     // Parse the start, end, and body expressions with better error handling
@@ -488,4 +416,137 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     
     // If there are remaining tokens, something might be wrong, but we'll try to handle it gracefully
     Ok(summation_node)
+}
+
+/// Parse an unbraced summation body, handling cases like i^2, i*j, etc.
+fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String>, pos: &mut usize) {
+    let mut i = 0;
+    let mut paren_depth = 0;
+    let mut collecting = true;
+    
+    // Handle empty tokens case
+    if tokens.is_empty() {
+        return;
+    }
+    
+    // Special case for simple power expressions like i^2
+    // This is a common case that needs special handling
+    if tokens.len() >= 3 && tokens[0].chars().all(|c| c.is_alphabetic()) && 
+       tokens[1] == "^" && tokens[2].parse::<i64>().is_ok() {
+        
+        // Add balanced power operation tokens
+        body_tokens.push(tokens[0].clone()); // variable
+        body_tokens.push("^".to_string());   // power operator
+        body_tokens.push(tokens[2].clone()); // exponent
+        
+        // Update position and return early
+        *pos += 3;
+        return;
+    }
+    
+    // First token (usually a variable)
+    body_tokens.push(tokens[i].clone());
+    i += 1;
+    
+    // Now parse the rest of the expression with balanced operator tracking
+    while i < tokens.len() && collecting {
+        match tokens[i].as_str() {
+            // Opening parenthesis/brace increases depth
+            "(" | "{" => {
+                paren_depth += 1;
+                body_tokens.push(tokens[i].clone());
+            },
+            // Closing parenthesis/brace decreases depth
+            ")" | "}" => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                    body_tokens.push(tokens[i].clone());
+                } else {
+                    // Unbalanced closing without open - this is not part of our expression
+                    collecting = false;
+                    continue;
+                }
+            },
+            // Operators: keep collecting as long as we are in depth or have a meaningful continuation
+            "+" | "-" | "*" | "/" | "^" => {
+                // For operations at the top level (no open parens), collect if they're 
+                // standard infix operations like i^2, i*3, etc.
+                if paren_depth == 0 && i < tokens.len() - 1 {
+                    body_tokens.push(tokens[i].clone());
+                } else if paren_depth > 0 {
+                    // If we're inside parentheses/braces, always collect
+                    body_tokens.push(tokens[i].clone());
+                } else {
+                    // Operator at top level with nothing after it - not our expression
+                    collecting = false;
+                    continue;
+                }
+            },
+            // Equation sign or another summation - definitely stop collecting
+            "=" | "sum" => {
+                collecting = false;
+                continue;
+            },
+            // Any other token - include in our expression as long as we're in a balanced state
+            _ => {
+                body_tokens.push(tokens[i].clone());
+            }
+        }
+        
+        i += 1;
+        
+        // If we're at the top level (no open parens) after an operation, check if we should stop
+        if paren_depth == 0 && i < tokens.len() {
+            // After including a term after an operator, we've completed a binary operation
+            // If the next token isn't another operator, we should stop unless in parentheses
+            if i < tokens.len() && 
+               !matches!(tokens[i].as_str(), "+" | "-" | "*" | "/" | "^") &&
+               body_tokens.len() >= 3 {  // We have at least a term-op-term sequence
+                collecting = false;
+            }
+        }
+    }
+    
+    // Update the position
+    *pos += i;
+    
+    // Handle the case where we have a power operation that needs to be rewritten for RPN
+    if body_tokens.len() >= 2 && body_tokens.contains(&"^".to_string()) {
+        // For case like "i^2", ensure we have a valid RPN expression
+        // Sometimes, the ^ operator can be problematic in RPN evaluation
+        
+        // Add explicit parentheses for power operations to ensure correct precedence
+        if body_tokens.len() == 3 && body_tokens[1] == "^" {
+            // Format is: var ^ exponent
+            let var = body_tokens[0].clone();
+            let exponent = body_tokens[2].clone();
+            
+            // If it's a numeric exponent, we can special-case it for better handling
+            if let Ok(exp_val) = exponent.parse::<i64>() {
+                if exp_val == 2 {
+                    // For squaring, use explicit multiplication: i*i
+                    body_tokens.clear();
+                    body_tokens.push(var.clone());
+                    body_tokens.push("*".to_string());
+                    body_tokens.push(var);
+                } else if exp_val > 2 && exp_val <= 5 {
+                    // For small powers, use explicit multiplication chain
+                    body_tokens.clear();
+                    body_tokens.push("(".to_string());
+                    
+                    // Add the first factor
+                    body_tokens.push(var.clone());
+                    
+                    // Add the remaining factors
+                    for _ in 1..exp_val {
+                        body_tokens.push("*".to_string());
+                        body_tokens.push(var.clone());
+                    }
+                    
+                    body_tokens.push(")".to_string());
+                }
+                // For higher powers or non-numeric exponents, leave as is
+            }
+        }
+    }
 }
