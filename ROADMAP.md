@@ -22,7 +22,8 @@ This roadmap outlines the planned development path for transforming Arithma into
   - [ ] Partial fraction decomposition
   - [ ] Polynomial division
 - [ ] Expression canonicalization
-- [ ] Variable substitution and function composition
+- [x] Variable substitution 
+- [ ] Function composition
 - [ ] Pattern matching for algebraic manipulation
 
 ## Calculus

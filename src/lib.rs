@@ -26,3 +26,7 @@ mod functions;
 pub use crate::functions::FUNCTION_REGISTRY;
 
 pub mod simplify;
+
+// Declare the substitution module
+pub mod substitute;
+pub use crate::substitute::{substitute, substitute_latex};
