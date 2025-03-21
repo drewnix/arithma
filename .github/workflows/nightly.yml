@@ -1,0 +1,97 @@
+name: Arithma Nightly Build
+
+on:
+  schedule:
+    # Run at 2:30 AM UTC every day
+    - cron: '30 2 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  comprehensive-test:
+    name: Comprehensive Testing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+          
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+          
+      - name: Check formatting
+        run: cargo fmt -- --check
+        
+      - name: Run clippy with all warnings
+        run: cargo clippy -- -W clippy::all
+        
+      - name: Build in release mode
+        run: cargo build --release --verbose
+        
+      - name: Run all tests
+        run: cargo test --all-features --verbose
+        
+      - name: Build WebAssembly optimized
+        run: wasm-pack build --target web --release
+
+  cross-platform:
+    name: Cross-Platform Tests
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          
+      - name: Build
+        run: cargo build
+        
+      - name: Test
+        run: cargo test
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+        
+      - name: Run security audit
+        run: cargo audit
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Check for outdated dependencies
+        run: cargo outdated || true
