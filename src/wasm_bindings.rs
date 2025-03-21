@@ -1,5 +1,8 @@
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
+use crate::expression::extract_variable;
+use crate::expression::solve_for_variable;
+use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
@@ -18,6 +21,17 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
     let parsed_expr = build_expression_tree(tokens)
         .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
+
+    // Check if it's an equation that we need to solve
+    if let Node::Equation(_, _) = &parsed_expr {
+        // Try to find a variable to solve for
+        if let Some(var_name) = extract_variable(latex_expr) {
+            match solve_for_variable(&parsed_expr, &var_name) {
+                Ok(solution) => return Ok(format!("{} = {}", var_name, solution)),
+                Err(e) => return Err(JsValue::from_str(&format!("Error solving equation: {}", e))),
+            }
+        }
+    }
 
     // Always simplify the expression first
     let simplified_expr = parsed_expr

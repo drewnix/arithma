@@ -95,6 +95,12 @@ impl Evaluator {
                 let right_val = Self::evaluate(right, env)?;
                 Ok(if left_val == right_val { 1.0 } else { 0.0 })
             }
+            Node::Equation(left, right) => {
+                let left_val = Self::evaluate(left, env)?;
+                let right_val = Self::evaluate(right, env)?;
+                // Return difference between sides - when equation is satisfied, this is 0
+                Ok(left_val - right_val)
+            }
             Node::Piecewise(conditions) => {
                 for (expr, cond) in conditions {
                     let cond_val = Self::evaluate(cond, env)?;

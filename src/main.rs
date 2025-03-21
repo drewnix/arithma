@@ -23,6 +23,11 @@ fn main() {
             break;
         }
 
+        // Skip empty input
+        if input.trim().is_empty() {
+            continue;
+        }
+
         // Create an instance of the Tokenizer
         let mut tokenizer = Tokenizer::new(input); // Pass input as a reference
 

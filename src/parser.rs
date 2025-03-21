@@ -29,7 +29,7 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 output_queue.push(op);
             }
             output_queue.push("ABS".to_string()); // Add ABS function to the output
-        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" {
+        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" || token == "=" {
             while let Some(top) = operator_stack.last() {
                 if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
@@ -109,6 +109,7 @@ pub fn get_precedence(op: &str) -> i32 {
         "*" | "/" => 2,                      // Multiplication and Division
         "+" | "-" => 1,                      // Addition and Subtraction
         ">" | "<" | ">=" | "<=" | "==" => 0, // Inequality operators
+        "=" => -1,                          // Equation has lowest precedence
         _ => 0,
     }
 }
@@ -162,7 +163,7 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
             log::debug!("Pushing node: {:?}", node);
             stack.push(node);
-        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" {
+        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" || token == "=" {
             let right = stack
                 .pop()
                 .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
@@ -175,7 +176,8 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 "<" => Node::Less(Box::new(left), Box::new(right)),
                 ">=" => Node::GreaterEqual(Box::new(left), Box::new(right)),
                 "<=" => Node::LessEqual(Box::new(left), Box::new(right)),
-                "==" => Node::Equal(Box::new(left), Box::new(right)), // Optional for equality
+                "==" => Node::Equal(Box::new(left), Box::new(right)), // For equality comparison
+                "=" => Node::Equation(Box::new(left), Box::new(right)), // For equation
                 _ => return Err(format!("Unknown operator '{}'", token)),
             };
 

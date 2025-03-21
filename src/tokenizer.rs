@@ -36,8 +36,12 @@ impl<'a> Tokenizer<'a> {
             else if "+*/^(){}".contains(c) {
                 self.tokenize_operator_or_paren(&mut tokens, &mut current_token, c);
             }
+            // Handle single equals sign for equations
+            else if c == '=' {
+                self.tokenize_equation(&mut tokens, &mut current_token, c);
+            }
             // Handle comparison operators like >, <, >=, <=, and ==
-            else if c == '>' || c == '<' || c == '=' || c == '&' {
+            else if c == '>' || c == '<' || c == '&' {
                 self.tokenize_comparisons(&mut tokens, c);
             }
             // Handle alphabetic variables like x, y, etc.
@@ -194,6 +198,24 @@ impl<'a> Tokenizer<'a> {
         if let Some(&next_char) = self.chars.peek() {
             if next_char == '=' || (c == '&' && next_char == '&') || (c == '|' && next_char == '|')
             {
+                op.push(next_char);
+                self.chars.next();
+            }
+        }
+        tokens.push(op);
+    }
+
+    /// Handle equation with '=' sign
+    fn tokenize_equation(&mut self, tokens: &mut Vec<String>, current_token: &mut String, c: char) {
+        if !current_token.is_empty() {
+            tokens.push(current_token.clone());
+            current_token.clear();
+        }
+
+        let mut op = c.to_string();
+        // Check if it's a double equals (==) for comparison
+        if let Some(&next_char) = self.chars.peek() {
+            if next_char == '=' {
                 op.push(next_char);
                 self.chars.next();
             }

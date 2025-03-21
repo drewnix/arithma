@@ -3,3 +3,4 @@
 .idea
 *dump.txt
 debug/
+frontend/public/pkg/

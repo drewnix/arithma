@@ -113,7 +113,6 @@ mod algebra_tests {
 
     // 4. Linear Equations and Systems
     #[test]
-    #[ignore]
     fn test_linear_equation() -> Result<(), Box<dyn std::error::Error>> {
         // Create an instance of the Tokenizer
         let mut tokenizer = Tokenizer::new("2 * x + 5 = 11"); // Pass input as a reference
@@ -121,7 +120,7 @@ mod algebra_tests {
         // Tokenize and parse the input
         let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
-        let solution = solve_for_variable(&parsed_expr, 0.0, "x").unwrap();
+        let solution = solve_for_variable(&parsed_expr, "x").unwrap();
         assert_eq!(solution, 3.0);
 
         Ok(())

@@ -27,6 +27,9 @@ pub enum Node {
     LessEqual(Box<Node>, Box<Node>),
     Equal(Box<Node>, Box<Node>),
 
+    // Equation (left side = right side)
+    Equation(Box<Node>, Box<Node>),
+
     // Piecewise expressions
     Piecewise(Vec<(Node, Node)>),
 
@@ -72,6 +75,7 @@ impl fmt::Display for Node {
             Node::GreaterEqual(left, right) => write!(f, "({} >= {})", left, right),
             Node::LessEqual(left, right) => write!(f, "({} <= {})", left, right),
             Node::Equal(left, right) => write!(f, "({} == {})", left, right),
+            Node::Equation(left, right) => write!(f, "{} = {}", left, right),
             Node::ClosingParen | Node::ClosingBrace => Ok(()), // Add this to ignore them in formatting
             Node::Piecewise(conditions) => {
                 let mut formatted_conditions = String::new();

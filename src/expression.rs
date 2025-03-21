@@ -15,7 +15,19 @@ pub fn extract_variable(expr: &str) -> Option<String> {
     None
 }
 
-pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Result<f64, String> {
+pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> {
+    // Check if the expression is an equation
+    if let Node::Equation(left, right) = expr {
+        // Move everything to the left side of the equation: left - right = 0
+        let equation_expr = Node::Subtract(left.clone(), right.clone());
+        return solve_equation(&equation_expr, target_var);
+    } else {
+        // If not an equation, assume we're setting it to zero
+        return solve_equation(expr, target_var);
+    }
+}
+
+fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
     let mut coefficient = 0.0; // Coefficient of the target variable
     let mut constant = 0.0; // Constant part to move to the other side
 
@@ -89,8 +101,8 @@ pub fn solve_for_variable(expr: &Node, right_val: f64, target_var: &str) -> Resu
         ));
     }
 
-    // Solve for the variable: right_val = coefficient * variable + constant
-    // Adjust the equation: variable = (right_val - constant) / coefficient
-    let result = (right_val - constant) / coefficient;
+    // Solve for the variable: 0 = coefficient * variable + constant
+    // Adjust the equation: variable = -constant / coefficient
+    let result = -constant / coefficient;
     Ok(result)
 }
