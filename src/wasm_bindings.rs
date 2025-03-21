@@ -10,6 +10,7 @@ use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
 use wasm_bindgen::prelude::*;
 
+#[allow(unexpected_cfgs)]
 #[wasm_bindgen]
 pub fn compose_functions_js(f_latex: &str, f_var: &str, g_latex: &str) -> Result<String, JsValue> {
     // Compose the functions
@@ -22,6 +23,7 @@ pub fn compose_functions_js(f_latex: &str, f_var: &str, g_latex: &str) -> Result
     }
 }
 
+#[allow(unexpected_cfgs)]
 #[wasm_bindgen]
 pub fn integrate_expression_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
     // Calculate the indefinite integral
@@ -31,6 +33,7 @@ pub fn integrate_expression_js(latex_expr: &str, var_name: &str) -> Result<Strin
     }
 }
 
+#[allow(unexpected_cfgs)]
 #[wasm_bindgen]
 pub fn definite_integral_js(
     latex_expr: &str,
@@ -48,6 +51,7 @@ pub fn definite_integral_js(
     }
 }
 
+#[allow(unexpected_cfgs)]
 #[wasm_bindgen]
 pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {
     // Deserialize the environment

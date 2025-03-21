@@ -52,10 +52,12 @@ rust-clippy-all: ## Run Clippy with all warnings enabled
 
 .PHONY: wasm-build
 wasm-build: ## Build the WebAssembly module
+	cargo update -p wasm-bindgen-macro
 	wasm-pack build --target web
 
 .PHONY: wasm-build-release
 wasm-build-release: ## Build the WebAssembly module in release mode
+	cargo update -p wasm-bindgen-macro
 	wasm-pack build --target web --release
 
 .PHONY: wasm-copy

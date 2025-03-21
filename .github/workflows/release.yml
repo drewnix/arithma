@@ -35,8 +35,10 @@ jobs:
           toolchain: stable
           override: true
           
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+      - name: Install wasm-pack and update dependencies
+        run: |
+          cargo install wasm-pack
+          cargo update -p wasm-bindgen-macro
           
       - name: Build in release mode
         run: cargo build --release --verbose

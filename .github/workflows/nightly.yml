@@ -21,8 +21,10 @@ jobs:
           override: true
           components: rustfmt, clippy
           
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+      - name: Install wasm-pack and update dependencies
+        run: |
+          cargo install wasm-pack
+          cargo update -p wasm-bindgen-macro
           
       - name: Check formatting
         run: cargo fmt -- --check

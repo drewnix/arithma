@@ -30,8 +30,10 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+      - name: Install wasm-pack and update dependencies
+        run: |
+          cargo install wasm-pack
+          cargo update -p wasm-bindgen-macro
           
       - name: Check formatting
         run: cargo fmt -- --check
@@ -62,8 +64,10 @@ jobs:
           toolchain: stable
           override: true
       
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+      - name: Install wasm-pack and update dependencies
+        run: |
+          cargo install wasm-pack
+          cargo update -p wasm-bindgen-macro
         
       - name: Build WebAssembly
         run: wasm-pack build --target web
@@ -113,8 +117,10 @@ jobs:
           toolchain: stable
           override: true
           
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
+      - name: Install wasm-pack and update dependencies
+        run: |
+          cargo install wasm-pack
+          cargo update -p wasm-bindgen-macro
           
       - name: Build WebAssembly
         run: wasm-pack build --target web
