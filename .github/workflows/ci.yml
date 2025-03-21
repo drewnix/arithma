@@ -51,12 +51,30 @@ jobs:
   typescript-frontend:
     name: TypeScript Frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./frontend
+    needs: [rust-backend] # Needs Rust backend to complete first for WASM files
     steps:
       - uses: actions/checkout@v3
       
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+        
+      - name: Build WebAssembly
+        run: wasm-pack build --target web
+        
+      - name: Copy WASM to frontend
+        run: |
+          mkdir -p frontend/public/pkg
+          cp -r pkg/* frontend/public/pkg/
+          mkdir -p frontend/node_modules/arithma
+          cp -r pkg/* frontend/node_modules/arithma/
+        
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
@@ -65,16 +83,20 @@ jobs:
           cache-dependency-path: './frontend/package-lock.json'
           
       - name: Install dependencies
+        working-directory: ./frontend
         run: npm ci
         
       - name: Lint
+        working-directory: ./frontend
         run: npm run lint
         
       - name: Type check
+        working-directory: ./frontend
         run: npm run typecheck
         
       - name: Build
-        run: npm run build
+        working-directory: ./frontend
+        run: npm run build:ci
 
   # This job ensures all tests pass in a fully integrated environment
   integration:
@@ -108,9 +130,13 @@ jobs:
         run: cd frontend && npm ci
         
       - name: Copy WASM build to frontend
-        run: mkdir -p frontend/public/pkg && cp -r pkg/* frontend/public/pkg/
+        run: |
+          mkdir -p frontend/public/pkg 
+          cp -r pkg/* frontend/public/pkg/
+          mkdir -p frontend/node_modules/arithma
+          cp -r pkg/* frontend/node_modules/arithma/
         
       - name: Build frontend
-        run: cd frontend && npm run build
+        run: cd frontend && npm run build:ci
         
       # Add more integration tests here as needed

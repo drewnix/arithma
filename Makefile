@@ -79,6 +79,10 @@ frontend-dev: ## Start frontend development server
 frontend-build: ## Build the frontend
 	cd $(FRONTEND_DIR) && npm run build
 
+.PHONY: frontend-build-ci
+frontend-build-ci: ## Build the frontend with CI-specific steps
+	cd $(FRONTEND_DIR) && npm run build:ci
+
 .PHONY: frontend-lint
 frontend-lint: ## Lint the frontend code
 	cd $(FRONTEND_DIR) && npm run lint
@@ -110,10 +114,10 @@ check-outdated: ## Check for outdated dependencies (requires cargo-outdated)
 ################################################################################
 
 .PHONY: ci
-ci: rust-fmt-check rust-clippy rust-build rust-test wasm-build frontend-lint frontend-typecheck frontend-build ## Run all CI checks (similar to the CI workflow)
+ci: rust-fmt-check rust-clippy rust-build rust-test wasm-build wasm-copy frontend-lint frontend-typecheck frontend-build-ci ## Run all CI checks (similar to the CI workflow)
 
 .PHONY: ci-full
-ci-full: rust-fmt-check rust-clippy-all rust-build-release rust-test-full wasm-build-release frontend-lint frontend-typecheck frontend-build ## Run comprehensive CI checks (similar to nightly build)
+ci-full: rust-fmt-check rust-clippy-all rust-build-release rust-test-full wasm-build-release wasm-copy frontend-lint frontend-typecheck frontend-build-ci ## Run comprehensive CI checks (similar to nightly build)
 
 .PHONY: build-all
 build-all: rust-build wasm-build wasm-copy frontend-build ## Build everything (backend, WASM, and frontend)
@@ -123,6 +127,11 @@ build-all-release: rust-build-release wasm-build-release wasm-copy frontend-buil
 
 .PHONY: precommit
 precommit: ci ## Run pre-commit checks to verify code is ready for committing
+
+.PHONY: arithma-setup
+arithma-setup: wasm-build wasm-copy ## Setup Arithma WASM for frontend development
+	mkdir -p $(FRONTEND_DIR)/node_modules/arithma
+	cp -r $(PKG_DIR)/* $(FRONTEND_DIR)/node_modules/arithma/ 2>/dev/null || true
 
 ################################################################################
 # Project Setup
@@ -136,7 +145,7 @@ setup: ## Set up the project for development
 	$(MAKE) rust-build
 	$(MAKE) wasm-build
 	$(MAKE) frontend-install
-	$(MAKE) wasm-copy
+	$(MAKE) arithma-setup
 	@echo "Project setup complete!"
 	@echo "Run 'make help' to see available commands"
 

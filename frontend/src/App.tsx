@@ -16,7 +16,8 @@ import {Calculator, Infinity, Sigma, Box, Database} from "lucide-react";
 import {twMerge} from "tailwind-merge"
 import {clsx, type ClassValue} from "clsx"
 import {useEffect, useState} from "react";
-import init, {evaluate_latex_expression_js} from "arithma";
+// Import the WASM bindings
+import init, {evaluate_latex_expression_js} from "../public/pkg/arithma";
 import ExpressionInput from "@/components/ExpressionInput.tsx";
 import HistorySection from "@/components/HistorySection.tsx";
 

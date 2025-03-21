@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:ci": "npm run copy-wasm-types && tsc -b && vite build",
+    "copy-wasm-types": "mkdir -p public/pkg && cp -r public/pkg/* node_modules/arithma/ 2>/dev/null || true",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
@@ -22,7 +24,6 @@
     "@radix-ui/react-tooltip": "^1.1.2",
     "@visx/grid": "^3.5.0",
     "@visx/visx": "^3.11.0",
-    "arithma": "file:../pkg",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "framer-motion": "^11.5.4",

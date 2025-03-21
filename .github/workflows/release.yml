@@ -55,10 +55,14 @@ jobs:
         run: cd frontend && npm ci
         
       - name: Copy WASM build to frontend
-        run: mkdir -p frontend/public/pkg && cp -r pkg/* frontend/public/pkg/
+        run: |
+          mkdir -p frontend/public/pkg 
+          cp -r pkg/* frontend/public/pkg/
+          mkdir -p frontend/node_modules/arithma
+          cp -r pkg/* frontend/node_modules/arithma/
         
       - name: Build frontend
-        run: cd frontend && npm run build
+        run: cd frontend && npm run build:ci
         
       - name: Create release archive
         run: |
