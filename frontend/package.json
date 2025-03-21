@@ -31,7 +31,7 @@
     "lucide": "^0.445.0",
     "lucide-react": "^0.445.0",
     "mathlive": "^0.101.0",
-    "next": "^14.2.13",
+    "next": "^14.2.25",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-resizable-panels": "^2.1.3",
