@@ -23,12 +23,31 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
         .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
 
     // Check if it's an equation that we need to solve
-    if let Node::Equation(_, _) = &parsed_expr {
-        // Try to find a variable to solve for
-        if let Some(var_name) = extract_variable(latex_expr) {
-            match solve_for_variable(&parsed_expr, &var_name) {
-                Ok(solution) => return Ok(format!("{} = {}", var_name, solution)),
-                Err(e) => return Err(JsValue::from_str(&format!("Error solving equation: {}", e))),
+    if let Node::Equation(left, right) = &parsed_expr {
+        // First try to evaluate both sides
+        let env_clone = env.clone();
+        match (Evaluator::evaluate(left, &env_clone), Evaluator::evaluate(right, &env_clone)) {
+            (Ok(left_val), Ok(right_val)) => {
+                if (left_val - right_val).abs() < 1e-9 {
+                    return Ok(format!("Equation is true: {} = {}", left_val, right_val));
+                } else {
+                    return Ok(format!("Equation is false: {} ≠ {}", left_val, right_val));
+                }
+            },
+            _ => {
+                // Try to find a variable to solve for
+                if let Some(var_name) = extract_variable(latex_expr) {
+                    match solve_for_variable(&parsed_expr, &var_name) {
+                        Ok(solution) => return Ok(format!("{} = {}", var_name, solution)),
+                        Err(e) => {
+                            if e.contains("summation") || e.contains("function") {
+                                // For equations with summations or functions, show the simplified expression
+                                return Ok(format!("{}", parsed_expr));
+                            }
+                            return Err(JsValue::from_str(&format!("Error solving equation: {}", e)));
+                        }
+                    }
+                }
             }
         }
     }

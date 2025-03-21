@@ -86,6 +86,14 @@ fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
                     multiplier / right_constant,
                 )?;
             }
+            Node::Summation(_, _, _, _) => {
+                // For summation nodes, we'll compute the value and treat it as a constant
+                // This is a simplified approach - in reality we'd want to handle variables inside summation
+                return Err("Cannot solve for variable in an equation with summation. Try evaluating both sides separately.".to_string());
+            }
+            Node::Function(_, _) => {
+                return Err("Cannot solve for variable in an equation with function calls. Try evaluating both sides separately.".to_string());
+            }
             _ => return Err("Unexpected node in expression.".to_string()), // Handle any other unexpected node
         }
         Ok(())

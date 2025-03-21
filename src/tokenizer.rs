@@ -113,7 +113,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
             }
-            "cdot" => {
+            "cdot" | "times" => {
                 tokens.push("*".to_string());
             }
             "frac" => {

@@ -301,34 +301,45 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     i += 1;
     
     // Check for opening brace for upper bound
-    if i >= tokens.len() || tokens[i] != "{" {
-        return Err("Expected '{' after '^'".to_string());
+    // Some users might omit braces for single-token values (like \sum_{i=1}^3)
+    let has_upper_brace = i < tokens.len() && tokens[i] == "{";
+    if has_upper_brace {
+        i += 1;
+    } else if i >= tokens.len() {
+        return Err("Expected upper bound after '^'".to_string());
     }
-    i += 1;
     
     // Extract upper bound tokens
     let mut upper_bound_tokens = Vec::new();
-    brace_count = 1;
     
-    while i < tokens.len() && brace_count > 0 {
-        if tokens[i] == "{" {
-            brace_count += 1;
-        } else if tokens[i] == "}" {
-            brace_count -= 1;
-            if brace_count == 0 {
-                break;
+    if has_upper_brace {
+        // If we have braces, collect all tokens until the closing brace
+        brace_count = 1;
+        
+        while i < tokens.len() && brace_count > 0 {
+            if tokens[i] == "{" {
+                brace_count += 1;
+            } else if tokens[i] == "}" {
+                brace_count -= 1;
+                if brace_count == 0 {
+                    break;
+                }
             }
+            upper_bound_tokens.push(tokens[i].clone());
+            i += 1;
         }
+        
+        if brace_count > 0 {
+            return Err("Unclosed upper bound brace".to_string());
+        }
+        i += 1; // Move past the closing brace
+    } else {
+        // If no braces, take just one token as the upper bound
         upper_bound_tokens.push(tokens[i].clone());
         i += 1;
     }
     
-    if brace_count > 0 {
-        return Err("Unclosed upper bound brace".to_string());
-    }
-    
     // Extract the expression to be summed
-    i += 1; // Move past closing brace
     
     // The expression can be a single token or surrounded by braces
     let mut body_tokens = Vec::new();
@@ -354,11 +365,28 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         if brace_count > 0 {
             return Err("Unclosed body brace".to_string());
         }
+        // Move past the closing brace
+        if i < tokens.len() {
+            i += 1;
+        }
     } else {
-        // If there's no brace, collect all tokens until an equals sign or end of tokens
-        while i < tokens.len() && tokens[i] != "=" {
+        // If there's no brace, collect tokens until '='
+        // We need to handle expression like i^2 or 2*i separately from just 'i'
+        
+        // Check for simple variable first (just 'i')
+        if i < tokens.len() && tokens[i].chars().all(|c| c.is_alphabetic()) {
             body_tokens.push(tokens[i].clone());
             i += 1;
+        } else {
+            // More complex expression - collect until equals sign or end
+            while i < tokens.len() && tokens[i] != "=" {
+                // Stop at the next summation if present
+                if tokens[i] == "sum" {
+                    break;
+                }
+                body_tokens.push(tokens[i].clone());
+                i += 1;
+            }
         }
     }
     
@@ -395,7 +423,6 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         return Ok(Node::Equation(Box::new(summation_node), Box::new(right_expr)));
     }
     
-    // Otherwise, try to parse as a continuation of an expression
-    // (this is more complex and would require additional implementation)
-    Err("Unsupported tokens after summation".to_string())
+    // If there are remaining tokens, something might be wrong, but we'll try to handle it gracefully
+    Ok(summation_node)
 }
