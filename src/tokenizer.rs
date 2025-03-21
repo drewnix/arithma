@@ -33,8 +33,12 @@ impl<'a> Tokenizer<'a> {
                 self.tokenize_latex_commands(&mut tokens, &mut current_token);
             }
             // Handle operators and parentheses
-            else if "+*/^(){}".contains(c) {
+            else if "+*/(){}".contains(c) {
                 self.tokenize_operator_or_paren(&mut tokens, &mut current_token, c);
+            }
+            // Handle special tokens for summation bounds
+            else if c == '_' || c == '^' {
+                self.tokenize_special_tokens(&mut tokens, &mut current_token, c);
             }
             // Handle single equals sign for equations
             else if c == '=' {
@@ -136,6 +140,10 @@ impl<'a> Tokenizer<'a> {
                     self.chars.next(); // Consume the '|'
                 }
             }
+            "sum" => {
+                tokens.push("sum".to_string());
+                // The tokenizer will continue with the _ and ^ tokens handled separately
+            }
             _ => tokens.push(stripped_token),
         }
         current_token.clear();
@@ -181,6 +189,20 @@ impl<'a> Tokenizer<'a> {
     /// Handle operators and parentheses
     fn tokenize_operator_or_paren(
         &self,
+        tokens: &mut Vec<String>,
+        current_token: &mut String,
+        c: char,
+    ) {
+        if !current_token.is_empty() {
+            tokens.push(current_token.clone());
+            current_token.clear();
+        }
+        tokens.push(c.to_string());
+    }
+    
+    /// Handle special tokens like underscore and caret for summation bounds
+    fn tokenize_special_tokens(
+        &mut self,
         tokens: &mut Vec<String>,
         current_token: &mut String,
         c: char,

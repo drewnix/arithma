@@ -344,6 +344,28 @@ mod algebra_tests {
             result_1
         );
     }
+    
+    #[test]
+    fn test_summation() {
+        let env = Environment::new();
+        
+        // Sum of integers from 1 to 5
+        let result = evaluate_expression_with_env("\\sum_{i=1}^{5} i", &env).unwrap();
+        assert_eq!(result, 15.0);
+        
+        // Sum of squares from 1 to 4
+        let result = evaluate_expression_with_env("\\sum_{i=1}^{4} i^2", &env).unwrap();
+        assert_eq!(result, 30.0);
+        
+        // Sum of cubes from 1 to 3
+        let result = evaluate_expression_with_env("\\sum_{i=1}^{3} i^3", &env).unwrap();
+        assert_eq!(result, 36.0);
+        
+        // Gauss's formula: sum of 1 to n = n(n+1)/2
+        let n = 10;
+        let result = evaluate_expression_with_env("\\sum_{i=1}^{10} i", &env).unwrap();
+        assert_eq!(result, (n * (n + 1)) as f64 / 2.0);
+    }
 
     #[test]
     fn test_min_and_max_functions() {

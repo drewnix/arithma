@@ -33,6 +33,9 @@ pub enum Node {
     // Piecewise expressions
     Piecewise(Vec<(Node, Node)>),
 
+    // Summation: index_var, start, end, body
+    Summation(String, Box<Node>, Box<Node>, Box<Node>),
+
     // Function calls
     Function(String, Vec<Node>), // For functions like sin, cos
 }
@@ -83,6 +86,9 @@ impl fmt::Display for Node {
                     formatted_conditions.push_str(&format!("{} if {}, ", expr, cond));
                 }
                 write!(f, "piecewise({})", formatted_conditions)
+            }
+            Node::Summation(index_var, start, end, body) => {
+                write!(f, "\\sum_{{{} = {}}}^{{{}}}{{{}}}", index_var, start, end, body)
             }
             Node::Function(name, args) => {
                 let formatted_args = args

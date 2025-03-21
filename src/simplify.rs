@@ -131,6 +131,52 @@ impl Simplifiable for Node {
                 ))
             }
 
+            Node::Summation(index_var, start, end, body) => {
+                let start_simplified = start.simplify(env)?;
+                let end_simplified = end.simplify(env)?;
+                let body_simplified = body.simplify(env)?;
+                
+                // Try to evaluate if bounds are constant values
+                if let (Node::Number(start_val), Node::Number(end_val)) = (&start_simplified, &end_simplified) {
+                    if *start_val == (*start_val).floor() && *end_val == (*end_val).floor() {
+                        // Both start and end are integers - we could evaluate now,
+                        // but for large ranges we'll defer to the evaluator
+                        
+                        // For small ranges (fewer than 100 terms), we can expand inline
+                        let range_size = (*end_val - *start_val + 1.0) as usize;
+                        if range_size <= 10 {
+                            let mut sum_node = Node::Number(0.0);
+                            
+                            // Create a temporary environment for each iteration
+                            let mut sum_env = env.clone();
+                            
+                            // Evaluate each term and add them together
+                            for i in (*start_val as i64)..=(*end_val as i64) {
+                                sum_env.set(index_var, i as f64);
+                                
+                                // Create a substituted body for this iteration
+                                let substituted_body = substitute_variable(&body_simplified, index_var, &Node::Number(i as f64))?;
+                                
+                                // Add this term to our running sum
+                                sum_node = Node::Add(
+                                    Box::new(sum_node), 
+                                    Box::new(substituted_body)
+                                );
+                            }
+                            
+                            return Ok(sum_node);
+                        }
+                    }
+                }
+                
+                // If we can't or shouldn't evaluate the summation, return it with simplified components
+                Ok(Node::Summation(
+                    index_var.clone(),
+                    Box::new(start_simplified),
+                    Box::new(end_simplified),
+                    Box::new(body_simplified)
+                ))
+            }
             _ => Ok(self.clone()),
         }
     }
@@ -203,6 +249,10 @@ fn rebuild_expression(term_map: HashMap<String, f64>) -> Node {
             }
         }
     }
+    
+    if result_terms.is_empty() {
+        return Node::Number(0.0);
+    }
 
     // Combine all terms into a single expression (iterate from start to end)
     let mut simplified_expr = result_terms.remove(0);
@@ -211,4 +261,132 @@ fn rebuild_expression(term_map: HashMap<String, f64>) -> Node {
     }
 
     simplified_expr
+}
+
+/// Substitute a variable in an expression with the provided value
+fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<Node, String> {
+    match node {
+        Node::Number(_) => Ok(node.clone()),
+        Node::Variable(name) => {
+            if name == var_name {
+                Ok(value.clone())
+            } else {
+                Ok(node.clone())
+            }
+        },
+        Node::Rational(_, _) => Ok(node.clone()),
+        Node::ClosingParen | Node::ClosingBrace => Ok(node.clone()),
+        
+        Node::Add(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Add(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Subtract(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Subtract(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Multiply(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Multiply(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Divide(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Divide(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Power(base, exponent) => {
+            let base_subst = substitute_variable(base, var_name, value)?;
+            let exp_subst = substitute_variable(exponent, var_name, value)?;
+            Ok(Node::Power(Box::new(base_subst), Box::new(exp_subst)))
+        },
+        Node::Sqrt(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Sqrt(Box::new(operand_subst)))
+        },
+        Node::Abs(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Abs(Box::new(operand_subst)))
+        },
+        Node::Negate(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Negate(Box::new(operand_subst)))
+        },
+        
+        Node::Greater(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Greater(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Less(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Less(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::GreaterEqual(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::GreaterEqual(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::LessEqual(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::LessEqual(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Equal(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Equal(Box::new(left_subst), Box::new(right_subst)))
+        },
+        Node::Equation(left, right) => {
+            let left_subst = substitute_variable(left, var_name, value)?;
+            let right_subst = substitute_variable(right, var_name, value)?;
+            Ok(Node::Equation(Box::new(left_subst), Box::new(right_subst)))
+        },
+        
+        Node::Piecewise(conditions) => {
+            let mut new_conditions = Vec::new();
+            for (expr, cond) in conditions {
+                let expr_subst = substitute_variable(expr, var_name, value)?;
+                let cond_subst = substitute_variable(cond, var_name, value)?;
+                new_conditions.push((expr_subst, cond_subst));
+            }
+            Ok(Node::Piecewise(new_conditions))
+        },
+        
+        Node::Summation(index, start, end, body) => {
+            // If the summation uses the same index variable, don't substitute in the body
+            if index == var_name {
+                let start_subst = substitute_variable(start, var_name, value)?;
+                let end_subst = substitute_variable(end, var_name, value)?;
+                Ok(Node::Summation(
+                    index.clone(),
+                    Box::new(start_subst),
+                    Box::new(end_subst),
+                    body.clone()
+                ))
+            } else {
+                let start_subst = substitute_variable(start, var_name, value)?;
+                let end_subst = substitute_variable(end, var_name, value)?;
+                let body_subst = substitute_variable(body, var_name, value)?;
+                Ok(Node::Summation(
+                    index.clone(),
+                    Box::new(start_subst),
+                    Box::new(end_subst),
+                    Box::new(body_subst)
+                ))
+            }
+        },
+        
+        Node::Function(name, args) => {
+            let mut new_args = Vec::new();
+            for arg in args {
+                let arg_subst = substitute_variable(arg, var_name, value)?;
+                new_args.push(arg_subst);
+            }
+            Ok(Node::Function(name.clone(), new_args))
+        }
+    }
 }
