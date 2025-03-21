@@ -77,8 +77,9 @@ export default function NewApp({
 
             // Display the solution
             setHistory([...history, {input: latex, result}]);
-        } catch (err: any) {
-            setHistory([...history, { input: latex, result: 'Error', errorMessage: err.message || err.toString() }]);
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            setHistory([...history, { input: latex, result: 'Error', errorMessage }]);
         }
     };
 

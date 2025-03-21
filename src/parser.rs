@@ -29,7 +29,13 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 output_queue.push(op);
             }
             output_queue.push("ABS".to_string()); // Add ABS function to the output
-        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" || token == "=" {
+        } else if token == ">"
+            || token == "<"
+            || token == ">="
+            || token == "<="
+            || token == "=="
+            || token == "="
+        {
             while let Some(top) = operator_stack.last() {
                 if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
@@ -109,7 +115,7 @@ pub fn get_precedence(op: &str) -> i32 {
         "*" | "/" => 2,                      // Multiplication and Division
         "+" | "-" => 1,                      // Addition and Subtraction
         ">" | "<" | ">=" | "<=" | "==" => 0, // Inequality operators
-        "=" => -1,                          // Equation has lowest precedence
+        "=" => -1,                           // Equation has lowest precedence
         _ => 0,
     }
 }
@@ -168,7 +174,13 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
             log::debug!("Pushing node: {:?}", node);
             stack.push(node);
-        } else if token == ">" || token == "<" || token == ">=" || token == "<=" || token == "==" || token == "=" {
+        } else if token == ">"
+            || token == "<"
+            || token == ">="
+            || token == "<="
+            || token == "=="
+            || token == "="
+        {
             let right = stack
                 .pop()
                 .ok_or_else(|| format!("Not enough operands for operator '{}'", token))?;
@@ -242,24 +254,27 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 /// Parse a summation expression like \sum_{i=1}^{n} i
 fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     // Find the position of the sum token
-    let sum_pos = tokens.iter().position(|t| t == "sum").ok_or("Expected 'sum' token")?;
-    
+    let sum_pos = tokens
+        .iter()
+        .position(|t| t == "sum")
+        .ok_or("Expected 'sum' token")?;
+
     // Check for underscore after sum
     if sum_pos + 1 >= tokens.len() || tokens[sum_pos + 1] != "_" {
         return Err("Expected '_' after 'sum'".to_string());
     }
-    
+
     // Check for opening brace for lower bound
     if sum_pos + 2 >= tokens.len() || tokens[sum_pos + 2] != "{" {
         return Err("Expected '{' after '_'".to_string());
     }
-    
+
     // Extract the index variable and starting value
     // Format is typically: i = 1
     let mut lower_bound_tokens = Vec::new();
     let mut i = sum_pos + 3;
     let mut brace_count = 1;
-    
+
     // Extract the index variable
     let index_var = if i < tokens.len() && tokens[i].chars().all(|c| c.is_alphabetic()) {
         let var = tokens[i].clone();
@@ -268,13 +283,13 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     } else {
         return Err("Expected index variable after '{'".to_string());
     };
-    
+
     // Expect equals sign
     if i >= tokens.len() || tokens[i] != "=" {
         return Err("Expected '=' after index variable".to_string());
     }
     i += 1;
-    
+
     // Extract the start value
     while i < tokens.len() && brace_count > 0 {
         if tokens[i] == "{" {
@@ -288,18 +303,18 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         lower_bound_tokens.push(tokens[i].clone());
         i += 1;
     }
-    
+
     if brace_count > 0 {
         return Err("Unclosed lower bound brace".to_string());
     }
-    
+
     // Check for caret after lower bound
     i += 1; // Move past closing brace
     if i >= tokens.len() || tokens[i] != "^" {
         return Err("Expected '^' after lower bound".to_string());
     }
     i += 1;
-    
+
     // Check for opening brace for upper bound
     // Some users might omit braces for single-token values (like \sum_{i=1}^3)
     let has_upper_brace = i < tokens.len() && tokens[i] == "{";
@@ -308,14 +323,14 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
     } else if i >= tokens.len() {
         return Err("Expected upper bound after '^'".to_string());
     }
-    
+
     // Extract upper bound tokens
     let mut upper_bound_tokens = Vec::new();
-    
+
     if has_upper_brace {
         // If we have braces, collect all tokens until the closing brace
         brace_count = 1;
-        
+
         while i < tokens.len() && brace_count > 0 {
             if tokens[i] == "{" {
                 brace_count += 1;
@@ -328,7 +343,7 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
             upper_bound_tokens.push(tokens[i].clone());
             i += 1;
         }
-        
+
         if brace_count > 0 {
             return Err("Unclosed upper bound brace".to_string());
         }
@@ -338,16 +353,16 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         upper_bound_tokens.push(tokens[i].clone());
         i += 1;
     }
-    
+
     // Extract the expression to be summed
     // The expression can be a single token or surrounded by braces
     let mut body_tokens = Vec::new();
-    
+
     // If there's a brace, collect all tokens until closing brace
     if i < tokens.len() && tokens[i] == "{" {
         i += 1;
         brace_count = 1;
-        
+
         while i < tokens.len() && brace_count > 0 {
             if tokens[i] == "{" {
                 brace_count += 1;
@@ -360,7 +375,7 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
             body_tokens.push(tokens[i].clone());
             i += 1;
         }
-        
+
         if brace_count > 0 {
             return Err("Unclosed body brace".to_string());
         }
@@ -372,82 +387,89 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         // If there's no brace, extract the summation body with advanced balancing
         parse_unbraced_summation_body(&tokens[i..], &mut body_tokens, &mut i);
     }
-    
+
     // Parse the start, end, and body expressions with better error handling
     let start_expr = build_expression_tree(lower_bound_tokens)
         .map_err(|e| format!("Error in summation lower bound: {}", e))?;
-    
+
     let end_expr = build_expression_tree(upper_bound_tokens)
         .map_err(|e| format!("Error in summation upper bound: {}", e))?;
-    
+
     // Debug logging for body tokens
     log::debug!("Body tokens for summation: {:?}", body_tokens);
-    
+
     let body_expr = build_expression_tree(body_tokens)
         .map_err(|e| format!("Error in summation body: {}", e))?;
-    
+
     // The rest of the tokens after the summation need to be parsed
     let mut remaining_tokens = Vec::new();
-    for j in i..tokens.len() {
-        remaining_tokens.push(tokens[j].clone());
-    }
-    
+    remaining_tokens.extend(tokens.iter().skip(i).cloned());
+
     let summation_node = Node::Summation(
-        index_var, 
-        Box::new(start_expr), 
-        Box::new(end_expr), 
-        Box::new(body_expr)
+        index_var,
+        Box::new(start_expr),
+        Box::new(end_expr),
+        Box::new(body_expr),
     );
-    
+
     // If there are no additional tokens, return the summation node
     if remaining_tokens.is_empty() {
         return Ok(summation_node);
     }
-    
+
     // If there's an equation, we need to parse the right side
     if remaining_tokens.contains(&"=".to_string()) {
         let eq_pos = remaining_tokens.iter().position(|t| t == "=").unwrap();
-        
-        let right_tokens = remaining_tokens[eq_pos+1..].to_vec();
+
+        let right_tokens = remaining_tokens[eq_pos + 1..].to_vec();
         let right_expr = build_expression_tree(right_tokens)?;
-        
-        return Ok(Node::Equation(Box::new(summation_node), Box::new(right_expr)));
+
+        return Ok(Node::Equation(
+            Box::new(summation_node),
+            Box::new(right_expr),
+        ));
     }
-    
+
     // If there are remaining tokens, something might be wrong, but we'll try to handle it gracefully
     Ok(summation_node)
 }
 
 /// Parse an unbraced summation body, handling cases like i^2, i*j, etc.
-fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String>, pos: &mut usize) {
+fn parse_unbraced_summation_body(
+    tokens: &[String],
+    body_tokens: &mut Vec<String>,
+    pos: &mut usize,
+) {
     let mut i = 0;
     let mut paren_depth = 0;
     let mut collecting = true;
-    
+
     // Handle empty tokens case
     if tokens.is_empty() {
         return;
     }
-    
+
     // Special case for simple power expressions like i^2
     // This is a common case that needs special handling
-    if tokens.len() >= 3 && tokens[0].chars().all(|c| c.is_alphabetic()) && 
-       tokens[1] == "^" && tokens[2].parse::<i64>().is_ok() {
-        
+    if tokens.len() >= 3
+        && tokens[0].chars().all(|c| c.is_alphabetic())
+        && tokens[1] == "^"
+        && tokens[2].parse::<i64>().is_ok()
+    {
         // Add balanced power operation tokens
         body_tokens.push(tokens[0].clone()); // variable
-        body_tokens.push("^".to_string());   // power operator
+        body_tokens.push("^".to_string()); // power operator
         body_tokens.push(tokens[2].clone()); // exponent
-        
+
         // Update position and return early
         *pos += 3;
         return;
     }
-    
+
     // First token (usually a variable)
     body_tokens.push(tokens[i].clone());
     i += 1;
-    
+
     // Now parse the rest of the expression with balanced operator tracking
     while i < tokens.len() && collecting {
         match tokens[i].as_str() {
@@ -455,7 +477,7 @@ fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String
             "(" | "{" => {
                 paren_depth += 1;
                 body_tokens.push(tokens[i].clone());
-            },
+            }
             // Closing parenthesis/brace decreases depth
             ")" | "}" => {
                 if paren_depth > 0 {
@@ -466,10 +488,10 @@ fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String
                     collecting = false;
                     continue;
                 }
-            },
+            }
             // Operators: keep collecting as long as we are in depth or have a meaningful continuation
             "+" | "-" | "*" | "/" | "^" => {
-                // For operations at the top level (no open parens), collect if they're 
+                // For operations at the top level (no open parens), collect if they're
                 // standard infix operations like i^2, i*3, etc.
                 if paren_depth == 0 && i < tokens.len() - 1 {
                     body_tokens.push(tokens[i].clone());
@@ -481,46 +503,48 @@ fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String
                     collecting = false;
                     continue;
                 }
-            },
+            }
             // Equation sign or another summation - definitely stop collecting
             "=" | "sum" => {
                 collecting = false;
                 continue;
-            },
+            }
             // Any other token - include in our expression as long as we're in a balanced state
             _ => {
                 body_tokens.push(tokens[i].clone());
             }
         }
-        
+
         i += 1;
-        
+
         // If we're at the top level (no open parens) after an operation, check if we should stop
         if paren_depth == 0 && i < tokens.len() {
             // After including a term after an operator, we've completed a binary operation
             // If the next token isn't another operator, we should stop unless in parentheses
-            if i < tokens.len() && 
-               !matches!(tokens[i].as_str(), "+" | "-" | "*" | "/" | "^") &&
-               body_tokens.len() >= 3 {  // We have at least a term-op-term sequence
+            if i < tokens.len()
+                && !matches!(tokens[i].as_str(), "+" | "-" | "*" | "/" | "^")
+                && body_tokens.len() >= 3
+            {
+                // We have at least a term-op-term sequence
                 collecting = false;
             }
         }
     }
-    
+
     // Update the position
     *pos += i;
-    
+
     // Handle the case where we have a power operation that needs to be rewritten for RPN
     if body_tokens.len() >= 2 && body_tokens.contains(&"^".to_string()) {
         // For case like "i^2", ensure we have a valid RPN expression
         // Sometimes, the ^ operator can be problematic in RPN evaluation
-        
+
         // Add explicit parentheses for power operations to ensure correct precedence
         if body_tokens.len() == 3 && body_tokens[1] == "^" {
             // Format is: var ^ exponent
             let var = body_tokens[0].clone();
             let exponent = body_tokens[2].clone();
-            
+
             // If it's a numeric exponent, we can special-case it for better handling
             if let Ok(exp_val) = exponent.parse::<i64>() {
                 if exp_val == 2 {
@@ -533,16 +557,16 @@ fn parse_unbraced_summation_body(tokens: &[String], body_tokens: &mut Vec<String
                     // For small powers, use explicit multiplication chain
                     body_tokens.clear();
                     body_tokens.push("(".to_string());
-                    
+
                     // Add the first factor
                     body_tokens.push(var.clone());
-                    
+
                     // Add the remaining factors
                     for _ in 1..exp_val {
                         body_tokens.push("*".to_string());
                         body_tokens.push(var.clone());
                     }
-                    
+
                     body_tokens.push(")".to_string());
                 }
                 // For higher powers or non-numeric exponents, leave as is

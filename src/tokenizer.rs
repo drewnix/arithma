@@ -25,7 +25,7 @@ impl<'a> Tokenizer<'a> {
             }
 
             // Handle numbers
-            if c.is_digit(10) || c == '.' {
+            if c.is_ascii_digit() || c == '.' {
                 self.tokenize_numbers(&mut tokens, &mut current_token, c);
             }
             // Handle LaTeX commands
@@ -74,7 +74,7 @@ impl<'a> Tokenizer<'a> {
     fn tokenize_numbers(&mut self, tokens: &mut Vec<String>, current_token: &mut String, c: char) {
         current_token.push(c);
         while let Some(&next_char) = self.chars.peek() {
-            if next_char.is_digit(10) || next_char == '.' {
+            if next_char.is_ascii_digit() || next_char == '.' {
                 current_token.push(next_char);
                 self.chars.next(); // Move the iterator forward
             } else {
@@ -119,7 +119,7 @@ impl<'a> Tokenizer<'a> {
             "frac" => {
                 if let Some(&next_char) = self.chars.peek() {
                     // Check if next char is a digit, indicating shorthand fraction \frac23
-                    if next_char.is_digit(10) {
+                    if next_char.is_ascii_digit() {
                         current_token.clear();
                         self.tokenize_shorthand_fraction(tokens);
                     } else {
@@ -152,18 +152,16 @@ impl<'a> Tokenizer<'a> {
     /// Handle shorthand fraction (like \frac23)
     fn tokenize_shorthand_fraction(&mut self, tokens: &mut Vec<String>) {
         if let Some(numerator_char) = self.chars.next() {
-            if numerator_char.is_digit(10) {
+            if numerator_char.is_ascii_digit() {
                 tokens.push(numerator_char.to_string());
             } else {
                 return;
             }
 
             if let Some(denominator_char) = self.chars.next() {
-                if denominator_char.is_digit(10) {
+                if denominator_char.is_ascii_digit() {
                     tokens.push("/".to_string());
                     tokens.push(denominator_char.to_string());
-                } else {
-                    return;
                 }
             }
         }
@@ -199,7 +197,7 @@ impl<'a> Tokenizer<'a> {
         }
         tokens.push(c.to_string());
     }
-    
+
     /// Handle special tokens like underscore and caret for summation bounds
     fn tokenize_special_tokens(
         &mut self,

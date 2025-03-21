@@ -7,12 +7,9 @@ pub fn extract_variable(expr: &str) -> Option<String> {
 
     // Tokenize and parse the input
     let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
-    for token in tokens {
-        if token.chars().all(char::is_alphabetic) {
-            return Some(token);
-        }
-    }
-    None
+    tokens
+        .into_iter()
+        .find(|token| token.chars().all(char::is_alphabetic))
 }
 
 pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> {
@@ -20,10 +17,10 @@ pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> 
     if let Node::Equation(left, right) = expr {
         // Move everything to the left side of the equation: left - right = 0
         let equation_expr = Node::Subtract(left.clone(), right.clone());
-        return solve_equation(&equation_expr, target_var);
+        solve_equation(&equation_expr, target_var)
     } else {
         // If not an equation, assume we're setting it to zero
-        return solve_equation(expr, target_var);
+        solve_equation(expr, target_var)
     }
 }
 

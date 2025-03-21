@@ -135,46 +135,50 @@ impl Simplifiable for Node {
                 let start_simplified = start.simplify(env)?;
                 let end_simplified = end.simplify(env)?;
                 let body_simplified = body.simplify(env)?;
-                
+
                 // Try to evaluate if bounds are constant values
-                if let (Node::Number(start_val), Node::Number(end_val)) = (&start_simplified, &end_simplified) {
+                if let (Node::Number(start_val), Node::Number(end_val)) =
+                    (&start_simplified, &end_simplified)
+                {
                     if *start_val == (*start_val).floor() && *end_val == (*end_val).floor() {
                         // Both start and end are integers - we could evaluate now,
                         // but for large ranges we'll defer to the evaluator
-                        
+
                         // For small ranges (fewer than 100 terms), we can expand inline
                         let range_size = (*end_val - *start_val + 1.0) as usize;
                         if range_size <= 10 {
                             let mut sum_node = Node::Number(0.0);
-                            
+
                             // Create a temporary environment for each iteration
                             let mut sum_env = env.clone();
-                            
+
                             // Evaluate each term and add them together
                             for i in (*start_val as i64)..=(*end_val as i64) {
                                 sum_env.set(index_var, i as f64);
-                                
+
                                 // Create a substituted body for this iteration
-                                let substituted_body = crate::substitute::substitute_variable(&body_simplified, index_var, &Node::Number(i as f64))?;
-                                
+                                let substituted_body = crate::substitute::substitute_variable(
+                                    &body_simplified,
+                                    index_var,
+                                    &Node::Number(i as f64),
+                                )?;
+
                                 // Add this term to our running sum
-                                sum_node = Node::Add(
-                                    Box::new(sum_node), 
-                                    Box::new(substituted_body)
-                                );
+                                sum_node =
+                                    Node::Add(Box::new(sum_node), Box::new(substituted_body));
                             }
-                            
+
                             return Ok(sum_node);
                         }
                     }
                 }
-                
+
                 // If we can't or shouldn't evaluate the summation, return it with simplified components
                 Ok(Node::Summation(
                     index_var.clone(),
                     Box::new(start_simplified),
                     Box::new(end_simplified),
-                    Box::new(body_simplified)
+                    Box::new(body_simplified),
                 ))
             }
             _ => Ok(self.clone()),
@@ -198,12 +202,12 @@ fn simplify_fraction(numerator: i64, denominator: i64) -> (i64, i64) {
 fn collect_terms(
     node: &Node,
     term_map: &mut HashMap<String, f64>,
-    env: &Environment,
+    _env: &Environment,
 ) -> Result<(), String> {
     match node {
         Node::Add(left, right) => {
-            collect_terms(left, term_map, env)?;
-            collect_terms(right, term_map, env)?;
+            collect_terms(left, term_map, _env)?;
+            collect_terms(right, term_map, _env)?;
         }
         Node::Multiply(left, right) => {
             if let (Node::Number(coef), Node::Variable(var)) = (&**left, &**right) {
@@ -249,7 +253,7 @@ fn rebuild_expression(term_map: HashMap<String, f64>) -> Node {
             }
         }
     }
-    
+
     if result_terms.is_empty() {
         return Node::Number(0.0);
     }

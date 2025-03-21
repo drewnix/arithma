@@ -88,7 +88,11 @@ impl fmt::Display for Node {
                 write!(f, "piecewise({})", formatted_conditions)
             }
             Node::Summation(index_var, start, end, body) => {
-                write!(f, "\\sum_{{{} = {}}}^{{{}}}{{{}}}", index_var, start, end, body)
+                write!(
+                    f,
+                    "\\sum_{{{} = {}}}^{{{}}}{{{}}}",
+                    index_var, start, end, body
+                )
             }
             Node::Function(name, args) => {
                 let formatted_args = args

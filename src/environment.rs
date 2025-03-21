@@ -6,6 +6,12 @@ pub struct Environment {
     pub vars: HashMap<String, f64>,
 }
 
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Environment {
     pub fn new() -> Self {
         Environment {

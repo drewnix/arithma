@@ -14,6 +14,12 @@ pub struct FunctionRegistry {
     functions: HashMap<String, Box<dyn FunctionHandler + Send + Sync>>,
 }
 
+impl Default for FunctionRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FunctionRegistry {
     // Create a new function registry (using lazy_static to ensure it's a singleton)
     pub fn new() -> Self {
@@ -30,8 +36,8 @@ impl FunctionRegistry {
         self.functions.insert(name.to_string(), function);
     }
 
-    pub fn get(&self, name: &str) -> Option<&Box<dyn FunctionHandler + Send + Sync>> {
-        self.functions.get(name)
+    pub fn get(&self, name: &str) -> Option<&(dyn FunctionHandler + Send + Sync)> {
+        self.functions.get(name).map(|v| &**v)
     }
 }
 

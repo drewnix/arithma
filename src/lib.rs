@@ -41,4 +41,6 @@ pub use crate::composition::{compose, compose_latex, compose_multiple};
 
 // Declare the integration module
 pub mod integration;
-pub use crate::integration::{integrate, integrate_latex, definite_integral, definite_integral_latex};
+pub use crate::integration::{
+    definite_integral, definite_integral_latex, integrate, integrate_latex,
+};

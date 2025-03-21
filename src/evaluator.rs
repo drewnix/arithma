@@ -105,21 +105,21 @@ impl Evaluator {
                 // Evaluate start and end bounds
                 let start_val = Self::evaluate(start, env)?;
                 let end_val = Self::evaluate(end, env)?;
-                
+
                 // Create a new environment for each iteration
                 let mut sum_env = env.clone();
                 let mut sum = 0.0;
-                
+
                 // Iterate from start to end, inclusive
                 for i in (start_val as i64)..=(end_val as i64) {
                     // Set the index variable value for this iteration
                     sum_env.set(index_var, i as f64);
-                    
+
                     // Evaluate the body with the updated environment
                     let value = Self::evaluate(body, &sum_env)?;
                     sum += value;
                 }
-                
+
                 Ok(sum)
             }
             Node::Piecewise(conditions) => {

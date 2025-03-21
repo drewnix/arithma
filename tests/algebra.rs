@@ -344,126 +344,132 @@ mod algebra_tests {
             result_1
         );
     }
-    
+
     #[test]
     fn test_summation() {
         let env = Environment::new();
-        
+
         // Sum of integers from 1 to 5
         let result = evaluate_expression_with_env("\\sum_{i=1}^{5} i", &env).unwrap();
         assert_eq!(result, 15.0);
-        
+
         // Sum of squares from 1 to 4
         let result = evaluate_expression_with_env("\\sum_{i=1}^{4}{i^2}", &env).unwrap();
         assert_eq!(result, 30.0);
-        
+
         // Sum of cubes from 1 to 3
         let result = evaluate_expression_with_env("\\sum_{i=1}^{3}{i^3}", &env).unwrap();
         assert_eq!(result, 36.0);
-        
+
         // Gauss's formula: sum of 1 to n = n(n+1)/2
         let n = 10;
         let result = evaluate_expression_with_env("\\sum_{i=1}^{10} i", &env).unwrap();
         assert_eq!(result, (n * (n + 1)) as f64 / 2.0);
     }
-    
+
     #[test]
     fn test_summation_edge_cases() {
         let env = Environment::new();
-        
+
         // Let's test the cases individually to find the failing ones
-        
+
         // Test with single term in body (should work)
         let result = evaluate_expression_with_env("\\sum_{i=1}^{5}i", &env).unwrap();
         assert_eq!(result, 15.0); // 1 + 2 + 3 + 4 + 5 = 15
-        
+
         // Test with properly braced expression (should work)
         let result = evaluate_expression_with_env("\\sum_{i=1}^{3}{i^2}", &env).unwrap();
         assert_eq!(result, 14.0); // 1^2 + 2^2 + 3^2 = 14
-        
+
         // Test with empty range (start > end)
         let result = evaluate_expression_with_env("\\sum_{i=5}^{3}{i}", &env).unwrap();
         assert_eq!(result, 0.0); // Empty sum should be 0
-        
+
         // Test with single iteration (start = end)
         let result = evaluate_expression_with_env("\\sum_{i=7}^{7}{i^2}", &env).unwrap();
         assert_eq!(result, 49.0); // Just 7^2 = 49
-        
+
         // More complex expression with proper bracing
         let result = evaluate_expression_with_env("\\sum_{i=1}^{4}{i*i + 2*i}", &env).unwrap();
         assert_eq!(result, 50.0); // (1*1+2*1) + (2*2+2*2) + (3*3+2*3) + (4*4+2*4) = 3 + 8 + 15 + 24 = 50
     }
-    
+
     #[test]
     fn test_summation_complex() {
         let mut env = Environment::new();
         env.set("n", 5.0);
-        
+
         // Test formula for sum of cubes: sum(i^3, i=1..n) = (n*(n+1)/2)^2
         let result = evaluate_expression_with_env("\\sum_{i=1}^{n}{i^3}", &env).unwrap();
         let expected = ((env.get("n").unwrap() * (env.get("n").unwrap() + 1.0)) / 2.0).powf(2.0);
         assert!(
             approx_eq(result, expected, 1e-9),
-            "Expected sum of cubes to equal (n*(n+1)/2)^2, got {} vs {}", 
-            result, expected
+            "Expected sum of cubes to equal (n*(n+1)/2)^2, got {} vs {}",
+            result,
+            expected
         );
-        
+
         // Test formula for sum of first n odd numbers = n^2
         // sum(2*i-1, i=1..n) = n^2
         let result = evaluate_expression_with_env("\\sum_{i=1}^{n}{2*i-1}", &env).unwrap();
         let expected = env.get("n").unwrap().powf(2.0);
-        assert_eq!(result, expected, "Expected sum of first n odd numbers to equal n^2");
+        assert_eq!(
+            result, expected,
+            "Expected sum of first n odd numbers to equal n^2"
+        );
     }
-    
+
     #[test]
     fn test_summation_unbraced() {
         let env = Environment::new();
-        
+
         // Test with unbraced upper limit - simpler case first
         let result = evaluate_expression_with_env("\\sum_{i=1}^3{i}", &env).unwrap();
         assert_eq!(result, 6.0); // 1 + 2 + 3 = 6
-        
+
         // Test with no braces in the summation body but braced upper limit
         let result = evaluate_expression_with_env("\\sum_{i=1}^{3}i", &env).unwrap();
         assert_eq!(result, 6.0); // 1 + 2 + 3 = 6
     }
-    
+
     #[test]
     fn test_summation_with_variables() {
         let mut env = Environment::new();
         env.set("n", 5.0);
-        
+
         // Test with variable as upper bound
         let result = evaluate_expression_with_env("\\sum_{i=1}^{n}{i}", &env).unwrap();
         assert_eq!(result, 15.0); // 1 + 2 + 3 + 4 + 5 = 15
-        
+
         // Test with variable in expression body
         env.set("x", 2.0);
         let result = evaluate_expression_with_env("\\sum_{i=1}^{3}{i*x}", &env).unwrap();
         assert_eq!(result, 12.0); // 1*2 + 2*2 + 3*2 = 12
-        
+
         // Test manual verification of Gauss's formula
         let left = evaluate_expression_with_env("\\sum_{i=1}^{n}{i}", &env).unwrap();
         let n_val = env.get("n").unwrap();
-        let expected = (n_val * (n_val + 1.0)) / 2.0; 
+        let expected = (n_val * (n_val + 1.0)) / 2.0;
         assert_eq!(left, expected, "Expected sum from 1 to n equals n(n+1)/2");
     }
-    
+
     #[test]
     fn test_summation_error_handling() {
         // Test with invalid index variable reference
         let result = evaluate_expression("\\sum_{i=1}^{5}{j}").unwrap_err();
         assert!(result.contains("Variable 'j' is not defined"));
-        
+
         // Test with invalid upper bound
         let result = evaluate_expression("\\sum_{i=1}^{k}{i}").unwrap_err();
         assert!(result.contains("Variable 'k' is not defined"));
-        
+
         // Test with missing closing brace
         let result = evaluate_expression("\\sum_{i=1}^{5{i}").unwrap_err();
-        assert!(result.contains("Unclosed upper bound brace") || 
-                result.contains("brace") || 
-                result.contains("parsing"));
+        assert!(
+            result.contains("Unclosed upper bound brace")
+                || result.contains("brace")
+                || result.contains("parsing")
+        );
     }
 
     #[test]

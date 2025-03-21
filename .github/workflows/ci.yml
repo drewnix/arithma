@@ -71,7 +71,7 @@ jobs:
         run: npm run lint
         
       - name: Type check
-        run: npm run typecheck || echo "Type check failed but continuing"
+        run: npm run typecheck
         
       - name: Build
         run: npm run build

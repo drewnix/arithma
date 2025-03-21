@@ -1,9 +1,10 @@
 import {MathfieldElement} from "mathlive";
 import "//unpkg.com/mathlive";
 
+// Augment React's JSX types to include math-field
 declare global {
-    namespace JSX {
-        interface IntrinsicElements {
+    interface JSX {
+        IntrinsicElements: {
             'math-field': React.DetailedHTMLProps<React.HTMLAttributes<MathfieldElement>, MathfieldElement>;
         }
     }

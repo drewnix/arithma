@@ -55,8 +55,8 @@ fn main() {
 
         // Evaluate the simplified expression
         match Evaluator::evaluate(&simplified_expr, &env) {
-            Ok(result) => println!("{}", result.to_string()),
-            Err(_) => println!("{}", simplified_expr.to_string()),
+            Ok(result) => println!("{}", result),
+            Err(_) => println!("{}", simplified_expr),
         }
     }
 }
