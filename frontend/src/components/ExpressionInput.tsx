@@ -1,14 +1,6 @@
-import {MathfieldElement} from "mathlive";
-import "//unpkg.com/mathlive";
-
-// Augment React's JSX types to include math-field
-declare global {
-    interface JSX {
-        IntrinsicElements: {
-            'math-field': React.DetailedHTMLProps<React.HTMLAttributes<MathfieldElement>, MathfieldElement>;
-        }
-    }
-}
+import "mathlive";
+// Import the MathfieldElement type
+import type { MathfieldElement } from "mathlive";
 import React from "react";
 import {Button} from "@/components/ui/button.tsx";
 import {Card} from "@/components/ui/card";
