@@ -244,11 +244,8 @@ impl Matrix {
         let det = self.determinant(env)?;
 
         // Check if determinant is zero
-        match det {
-            Node::Number(n) if n == 0.0 => {
-                return Err("Cannot invert a singular matrix (determinant is zero)".to_string());
-            }
-            _ => {}
+        if let Node::Number(0.0) = det {
+            return Err("Cannot invert a singular matrix (determinant is zero)".to_string());
         }
 
         // Inverse = adjugate / determinant
@@ -373,11 +370,8 @@ impl Matrix {
 
         // Check if matrix is invertible
         let det = self.determinant(env)?;
-        match det {
-            Node::Number(n) if n == 0.0 => {
-                return Err("System has no unique solution (singular matrix)".to_string());
-            }
-            _ => {}
+        if let Node::Number(0.0) = det {
+            return Err("System has no unique solution (singular matrix)".to_string());
         }
 
         // Solve using matrix inverse: x = A^-1 * b
