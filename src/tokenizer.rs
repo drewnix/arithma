@@ -45,8 +45,16 @@ impl<'a> Tokenizer<'a> {
                 self.tokenize_equation(&mut tokens, &mut current_token, c);
             }
             // Handle comparison operators like >, <, >=, <=, and ==
-            else if c == '>' || c == '<' || c == '&' {
+            else if c == '>' || c == '<' {
                 self.tokenize_comparisons(&mut tokens, c);
+            }
+            // Handle matrix cell separator '&' or logical AND '&&'
+            else if c == '&' {
+                if !current_token.is_empty() {
+                    tokens.push(current_token.clone());
+                    current_token.clear();
+                }
+                self.handle_double_ampersand(&mut tokens);
             }
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
@@ -216,13 +224,27 @@ impl<'a> Tokenizer<'a> {
     fn tokenize_comparisons(&mut self, tokens: &mut Vec<String>, c: char) {
         let mut op = c.to_string();
         if let Some(&next_char) = self.chars.peek() {
-            if next_char == '=' || (c == '&' && next_char == '&') || (c == '|' && next_char == '|')
-            {
+            if next_char == '=' || (c == '|' && next_char == '|') {
                 op.push(next_char);
                 self.chars.next();
             }
         }
         tokens.push(op);
+    }
+
+    /// Special handler for &&
+    fn handle_double_ampersand(&mut self, tokens: &mut Vec<String>) {
+        // Check if the next char is also &
+        if let Some(&next_char) = self.chars.peek() {
+            if next_char == '&' {
+                self.chars.next(); // Consume the second &
+                tokens.push("&&".to_string());
+                return;
+            }
+        }
+
+        // If not a double ampersand, just push a single &
+        tokens.push("&".to_string());
     }
 
     /// Handle equation with '=' sign
