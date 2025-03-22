@@ -46,3 +46,7 @@ pub mod integration;
 pub use crate::integration::{
     definite_integral, definite_integral_latex, integrate, integrate_latex,
 };
+
+// Declare the matrix module
+pub mod matrix;
+pub use crate::matrix::{parse_latex_matrix, Matrix};

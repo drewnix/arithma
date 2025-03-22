@@ -35,3 +35,40 @@ fn test_parse_matrices() {
     assert_eq!(matrix_b.rows, 2);
     assert_eq!(matrix_b.cols, 1);
 }
+
+// Test for using \cdot to multiply matrices in LaTeX
+#[test]
+fn test_matrix_cdot_parsing() {
+    let env = Environment::default();
+
+    // Test string with matrix multiplication using \cdot
+    let latex =
+        r"\begin{pmatrix} 5 & 2 \\ -9 & 11 \end{pmatrix}\cdot\begin{pmatrix} 1 \\ 2 \end{pmatrix}";
+
+    // Split the string by \cdot
+    let parts: Vec<&str> = latex.split("\\cdot").collect();
+    assert_eq!(parts.len(), 2);
+
+    // Parse the matrices
+    let matrix_a = parse_latex_matrix(parts[0], &env).unwrap();
+    let matrix_b = parse_latex_matrix(parts[1], &env).unwrap();
+
+    // Check dimensions for matrix-vector multiplication compatibility
+    assert_eq!(matrix_a.cols, matrix_b.rows);
+}
+
+#[test]
+fn test_matrix_dimension_mismatch() {
+    let env = Environment::default();
+
+    // Define matrices with incompatible dimensions
+    let latex_a = r"\begin{pmatrix} 5 & 2 \\ -9 & 11 \end{pmatrix}";
+    let matrix_a = parse_latex_matrix(latex_a, &env).unwrap();
+
+    let latex_c = r"\begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \end{pmatrix}";
+    let matrix_c = parse_latex_matrix(latex_c, &env).unwrap();
+
+    // Attempt to multiply incompatible matrices should fail
+    let result = matrix_a.multiply(&matrix_c, &env);
+    assert!(result.is_err());
+}
