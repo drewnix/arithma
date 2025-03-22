@@ -1,5 +1,6 @@
 use crate::functions::FUNCTION_REGISTRY;
 use crate::node::Node;
+use crate::simplify::Simplifiable;
 
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     log::debug!("Starting Shunting Yard with tokens: {:?}", tokens);
@@ -249,6 +250,19 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 
     log::debug!("Final expression tree: {:?}", stack[0]);
     Ok(stack.pop().unwrap())
+}
+
+/// Parse a LaTeX expression string into a Node AST
+pub fn parse_latex(latex: &str, env: &crate::environment::Environment) -> Result<Node, String> {
+    let mut tokenizer = crate::tokenizer::Tokenizer::new(latex);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)?;
+
+    // Simplify the expression using the environment
+    match expr.simplify(env) {
+        Ok(simplified) => Ok(simplified),
+        Err(_) => Ok(expr), // Fall back to the original expression if simplification fails
+    }
 }
 
 /// Parse a summation expression like \sum_{i=1}^{n} i

@@ -28,6 +28,48 @@ fn main() {
             continue;
         }
 
+        // Special case for matrix multiplication with \cdot
+        if input.contains("\\begin{pmatrix}")
+            && input.contains("\\cdot")
+            && input.contains("\\end{pmatrix}")
+        {
+            // Try to split the expression by \cdot
+            let parts: Vec<&str> = input.split("\\cdot").collect();
+            if parts.len() == 2 {
+                // Handle matrix multiplication specially
+                let matrix_a = parts[0].trim();
+                let matrix_b = parts[1].trim();
+
+                // Skip direct parsing of matrices since we're using parse_latex_matrix
+                // Instead, directly use the specialized matrix parser function
+
+                // Parse the matrices using the specialized matrix parser
+                match (
+                    arithma::matrix::parse_latex_matrix(matrix_a, &env),
+                    arithma::matrix::parse_latex_matrix(matrix_b, &env),
+                ) {
+                    (Ok(matrix_a), Ok(matrix_b)) => {
+                        // Multiply the matrices
+                        match matrix_a.multiply(&matrix_b, &env) {
+                            Ok(result) => {
+                                println!("{}", result.to_latex());
+                            }
+                            Err(e) => {
+                                println!("Error multiplying matrices: {}", e);
+                            }
+                        }
+                    }
+                    (Err(e), _) => {
+                        println!("Error parsing first matrix: {}", e);
+                    }
+                    (_, Err(e)) => {
+                        println!("Error parsing second matrix: {}", e);
+                    }
+                }
+                continue;
+            }
+        }
+
         // Create an instance of the Tokenizer
         let mut tokenizer = Tokenizer::new(input); // Pass input as a reference
 

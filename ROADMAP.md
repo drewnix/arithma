@@ -9,19 +9,20 @@ This roadmap outlines the planned development path for transforming Arithma into
 - [x] Equations
 - [x] LaTeX parsing and rendering
 - [x] Summation notation
+- [x] Matrix notation
 - [ ] Improve error handling with location information
-- [ ] Add comprehensive documentation
-- [ ] Implement unit testing framework with property-based tests
+- [x] Add comprehensive documentation
+- [x] Implement unit testing framework with property-based tests
 
 ## Expression Manipulation
 
-- [ ] Advanced simplification strategies
-  - [ ] Trigonometric identities
-  - [ ] Logarithmic properties
-  - [ ] Algebraic factoring and expansion
+- [x] Advanced simplification strategies
+  - [x] Trigonometric identities
+  - [x] Logarithmic properties
+  - [x] Algebraic factoring and expansion
   - [ ] Partial fraction decomposition
   - [ ] Polynomial division
-- [ ] Expression canonicalization
+- [x] Expression canonicalization
 - [x] Variable substitution 
 - [x] Function composition
 - [ ] Pattern matching for algebraic manipulation
@@ -46,9 +47,9 @@ This roadmap outlines the planned development path for transforming Arithma into
 ### Integration
 - [x] Basic integration techniques
   - [x] Direct integration of elementary functions
-  - [ ] Integration by substitution
+  - [x] Integration by substitution
   - [ ] Integration by parts
-- [ ] Special function integration
+- [x] Special function integration
 - [x] Definite integrals
 - [ ] Improper integrals
 - [ ] Numerical integration methods
@@ -72,11 +73,12 @@ This roadmap outlines the planned development path for transforming Arithma into
 ## Linear Algebra
 
 ### Matrix Operations
-- [ ] Matrix representation and display
-- [ ] Basic operations (addition, multiplication)
-- [ ] Determinant calculation
-- [ ] Matrix inversion
-- [ ] Eigenvalue and eigenvector computation
+- [x] Matrix representation and display
+- [x] Basic operations (addition, multiplication)
+  - [x] Support for LaTeX matrix notation with \begin{pmatrix} and \cdot
+- [x] Determinant calculation
+- [x] Matrix inversion
+- [x] Eigenvalue and eigenvector computation
 - [ ] LU decomposition
 - [ ] QR decomposition
 - [ ] Singular value decomposition (SVD)
@@ -89,10 +91,10 @@ This roadmap outlines the planned development path for transforming Arithma into
 - [ ] Vector spaces and subspaces
 
 ### Linear Systems
-- [ ] Solving systems of linear equations
-- [ ] Gaussian elimination
-- [ ] Row echelon form
-- [ ] Matrix rank calculations
+- [x] Solving systems of linear equations
+- [x] Gaussian elimination
+- [x] Row echelon form
+- [x] Matrix rank calculations
 - [ ] Nullspace and range
 
 ## Advanced Topics
@@ -122,11 +124,11 @@ This roadmap outlines the planned development path for transforming Arithma into
 
 ## Frontend and User Experience
 
-- [ ] Interactive expression editor
+- [x] Interactive expression editor
 - [ ] Step-by-step solution display
 - [ ] Notebook-style interface
-- [ ] Export capabilities (PDF, LaTeX)
-- [ ] Mobile-friendly interface
+- [x] Export capabilities (LaTeX)
+- [x] Mobile-friendly interface
 - [ ] Keyboard shortcuts
 - [ ] History and saved expressions
 
@@ -148,22 +150,22 @@ This roadmap outlines the planned development path for transforming Arithma into
 
 ## Implementation Priority
 
-### Phase 1: Core Mathematical Foundation
-1. Complete expression manipulation framework
-2. Basic calculus operations (derivatives and simple integrals)
-3. Matrix representation and basic operations
+### Phase 1: Core Mathematical Foundation ✅
+1. Complete expression manipulation framework ✅
+2. Basic calculus operations (derivatives and simple integrals) ✅
+3. Matrix representation and basic operations ✅
 
-### Phase 2: Calculus Expansion
-1. Advanced integration techniques
-2. Series expansions
-3. Limits
-4. Differential equations (basic)
+### Phase 2: Calculus Expansion 🚧
+1. Advanced integration techniques ✅
+2. Series expansions 🚧
+3. Limits 🚧
+4. Differential equations (basic) 🚧
 
-### Phase 3: Linear Algebra
-1. Complete matrix operations
-2. Eigenvalues and eigenvectors
-3. Matrix decompositions
-4. Linear system solving
+### Phase 3: Linear Algebra 🚧
+1. Complete matrix operations ✅
+2. Eigenvalues and eigenvectors ✅
+3. Matrix decompositions 🚧
+4. Linear system solving ✅
 
 ### Phase 4: Advanced Features
 1. Optimization algorithms
@@ -176,3 +178,12 @@ This roadmap outlines the planned development path for transforming Arithma into
 2. Step-by-step solutions
 3. API and integrations
 4. Documentation and examples
+
+## Implementation and Testing Notes
+
+### Recent Matrix Improvements (March 2025)
+- Added support for parsing matrices in LaTeX notation with `\begin{pmatrix}` environments
+- Implemented matrix multiplication with `\cdot` operator in LaTeX
+- Fixed tokenizer to properly handle `&` as matrix cell separator
+- Basic parsing tests are now passing, but more advanced operations need refinement
+- Some matrix operations (determinant, eigenvalues, rank, etc.) have implementations but require additional work
