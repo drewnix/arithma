@@ -30,16 +30,28 @@ jobs:
         run: cargo fmt -- --check
         
       - name: Run clippy with all warnings
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo clippy -- -W clippy::all
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo clippy -- -W clippy::all
         
       - name: Build in release mode
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build --release --verbose
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo build --release --verbose
         
       - name: Run all tests
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo test --all-features --verbose
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo test --all-features --verbose
         
       - name: Build WebAssembly optimized
-        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web --release
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: wasm-pack build --target web --release
 
   cross-platform:
     name: Cross-Platform Tests
@@ -58,10 +70,16 @@ jobs:
           override: true
           
       - name: Build
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo build
         
       - name: Test
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo test
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo test
 
   security-audit:
     name: Security Audit
