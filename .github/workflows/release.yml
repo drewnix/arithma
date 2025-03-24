@@ -41,10 +41,16 @@ jobs:
           cargo update -p wasm-bindgen-macro
           
       - name: Build in release mode
-        run: RUSTFLAGS="--allow=unexpected_cfgs" cargo build --release --verbose
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: cargo build --release --verbose
         
       - name: Build WebAssembly
-        run: RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web --release
+        shell: bash
+        env:
+          RUSTFLAGS: --allow=unexpected_cfgs
+        run: wasm-pack build --target web --release
         
       - name: Setup Node.js
         uses: actions/setup-node@v3
