@@ -4,6 +4,7 @@ use crate::evaluator::Evaluator;
 use crate::expression::extract_variable;
 use crate::expression::solve_for_variable;
 use crate::integration::{definite_integral_latex, integrate_latex};
+use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::simplify::Simplifiable;
@@ -57,6 +58,22 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     // Deserialize the environment
     let env: Environment = serde_json::from_str(env_json)
         .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Special case for matrix multiplication with \cdot
+    if latex_expr.contains("\\begin{pmatrix}")
+        && latex_expr.contains("\\cdot")
+        && latex_expr.contains("\\end{pmatrix}")
+    {
+        // Try to split the expression by \cdot
+        let parts: Vec<&str> = latex_expr.split("\\cdot").collect();
+        if parts.len() == 2 {
+            let matrix_a = parts[0].trim();
+            let matrix_b = parts[1].trim();
+
+            // Try to perform matrix multiplication
+            return matrix_multiply_js(matrix_a, matrix_b, env_json);
+        }
+    }
 
     // Special case for common summation notations in the frontend that might cause parsing issues
     if latex_expr.contains("\\sum_") && latex_expr.contains("^") {
@@ -151,5 +168,165 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
     match Evaluator::evaluate(&simplified_expr, &env) {
         Ok(result) => Ok(result.to_string()), // Return fully evaluated result if possible
         Err(_) => Ok(simplified_expr.to_string()), // If evaluation fails, return the simplified expression
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn parse_matrix_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix
+    match parse_latex_matrix(latex_expr, &env) {
+        Ok(matrix) => Ok(matrix.to_latex()),
+        Err(e) => Err(JsValue::from_str(&format!("Error parsing matrix: {}", e))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn matrix_determinant_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix
+    let matrix = parse_latex_matrix(latex_expr, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix: {}", e)))?;
+
+    // Calculate the determinant
+    match matrix.determinant(&env) {
+        Ok(det) => Ok(det.to_string()),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error calculating determinant: {}",
+            e
+        ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn matrix_inverse_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix
+    let matrix = parse_latex_matrix(latex_expr, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix: {}", e)))?;
+
+    // Calculate the inverse
+    match matrix.inverse(&env) {
+        Ok(inv) => Ok(inv.to_latex()),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error calculating inverse: {}",
+            e
+        ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn matrix_multiply_js(
+    matrix_a: &str,
+    matrix_b: &str,
+    env_json: &str,
+) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrices
+    let matrix_a = parse_latex_matrix(matrix_a, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix A: {}", e)))?;
+
+    let matrix_b = parse_latex_matrix(matrix_b, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix B: {}", e)))?;
+
+    // Multiply the matrices
+    match matrix_a.multiply(&matrix_b, &env) {
+        Ok(result) => Ok(result.to_latex()),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error multiplying matrices: {}",
+            e
+        ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn matrix_rank_js(latex_expr: &str, env_json: &str) -> Result<usize, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix
+    let matrix = parse_latex_matrix(latex_expr, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix: {}", e)))?;
+
+    // Calculate the rank
+    match matrix.rank(&env) {
+        Ok(rank) => Ok(rank),
+        Err(e) => Err(JsValue::from_str(&format!("Error calculating rank: {}", e))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn matrix_eigenvalues_js(latex_expr: &str, env_json: &str) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix
+    let matrix = parse_latex_matrix(latex_expr, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing matrix: {}", e)))?;
+
+    // Calculate eigenvalues
+    match matrix.eigenvalues(&env) {
+        Ok(values) => {
+            // Format the eigenvalues as a LaTeX array
+            let values_str: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+            Ok(format!("\\lambda = \\{{{}}}", values_str.join(", ")))
+        }
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error calculating eigenvalues: {}",
+            e
+        ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn solve_linear_system_js(
+    matrix_a: &str,
+    vector_b: &str,
+    env_json: &str,
+) -> Result<String, JsValue> {
+    // Deserialize the environment
+    let env: Environment = serde_json::from_str(env_json)
+        .map_err(|e| JsValue::from_str(&format!("Failed to parse environment: {}", e)))?;
+
+    // Parse the matrix and vector
+    let matrix_a = parse_latex_matrix(matrix_a, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing coefficient matrix: {}", e)))?;
+
+    let vector_b = parse_latex_matrix(vector_b, &env)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing right-hand side vector: {}", e)))?;
+
+    // Check if vector_b is actually a column vector
+    if vector_b.cols != 1 {
+        return Err(JsValue::from_str("Right-hand side must be a column vector"));
+    }
+
+    // Solve the system
+    match matrix_a.solve(&vector_b, &env) {
+        Ok(solution) => Ok(solution.to_latex()),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error solving linear system: {}",
+            e
+        ))),
     }
 }
