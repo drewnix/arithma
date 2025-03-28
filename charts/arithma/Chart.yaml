@@ -1,0 +1,7 @@
+apiVersion: v2
+kind: Chart
+name: arithma
+description: A Helm chart for Arithma - Computer Algebra System
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

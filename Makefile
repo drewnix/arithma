@@ -5,6 +5,8 @@
 FRONTEND_DIR := frontend
 PKG_DIR := pkg
 FRONTEND_PUBLIC_PKG_DIR := $(FRONTEND_DIR)/public/pkg
+DOCKER_IMAGE := arithma-frontend
+DOCKER_TAG := latest
 
 .PHONY: help
 help: ## Show this help message
@@ -152,6 +154,107 @@ setup: ## Set up the project for development
 	@echo "Run 'make help' to see available commands"
 
 ################################################################################
+# Docker Commands
+################################################################################
+
+# DockerHub settings
+DOCKERHUB_USERNAME ?= drewnix
+DOCKERHUB_REPO ?= arithma
+DOCKERHUB_TAG ?= latest
+
+.PHONY: docker-build
+docker-build: ## Build the Docker container
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+
+.PHONY: docker-run
+docker-run: ## Run the Docker container locally
+	docker run -p 3000:80 $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: docker-up
+docker-up: ## Start the container using docker-compose
+	docker-compose up -d
+
+.PHONY: docker-down
+docker-down: ## Stop the container using docker-compose
+	docker-compose down
+
+.PHONY: docker-logs
+docker-logs: ## View logs from the running container
+	docker-compose logs -f
+
+.PHONY: docker-tag
+docker-tag: ## Tag Docker image for DockerHub
+	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)
+
+.PHONY: docker-login
+docker-login: ## Login to DockerHub (interactive)
+	@echo "Logging into DockerHub..."
+	docker login
+
+.PHONY: docker-push
+docker-push: docker-tag ## Push Docker image to DockerHub
+	docker push $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)
+
+.PHONY: docker-publish
+docker-publish: docker-build docker-tag docker-push ## Build, tag and push to DockerHub
+	@echo "Image published to DockerHub as $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)"
+
+################################################################################
+# Helm Chart Commands
+################################################################################
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart
+	helm lint charts/arithma
+
+.PHONY: helm-template
+helm-template: ## Generate Kubernetes manifests from the Helm chart
+	helm template arithma charts/arithma
+
+.PHONY: helm-install
+helm-install: ## Install the Helm chart to the current Kubernetes context
+	helm install arithma charts/arithma
+
+.PHONY: helm-upgrade
+helm-upgrade: ## Upgrade the installed Helm chart
+	helm upgrade arithma charts/arithma
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm chart
+	helm uninstall arithma
+
+.PHONY: k8s-deploy-local
+k8s-deploy-local: docker-build ## Build image and deploy to Kubernetes using LoadBalancer
+	@echo "Building simple docker image for local architecture..."
+	@echo "Creating a Kubernetes ConfigMap for image pull policy..."
+	kubectl delete configmap local-registry-config 2>/dev/null || true
+	kubectl create configmap local-registry-config --from-literal=pullPolicy=Never
+	@echo "Updating values.yaml for local deployment..."
+	sed -i '' 's|pullPolicy: IfNotPresent|pullPolicy: Never|g' charts/arithma/values.yaml
+	sed -i '' 's|type: ClusterIP|type: LoadBalancer|g' charts/arithma/values.yaml
+	@echo "Saving Docker image to tar file..."
+	docker save $(DOCKER_IMAGE):$(DOCKER_TAG) -o /tmp/arithma-image.tar
+	@echo "Loading image into Kubernetes nodes..."
+	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} scp /tmp/arithma-image.tar {}:/tmp/
+	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} ssh {} "docker load -i /tmp/arithma-image.tar"
+	@echo "Installing Helm chart..."
+	helm install arithma charts/arithma || helm upgrade arithma charts/arithma
+	@echo "Application deployed to Kubernetes with locally loaded images"
+
+.PHONY: k8s-deploy-dockerhub
+k8s-deploy-dockerhub: docker-publish ## Build and deploy to Kubernetes using DockerHub
+	@echo "Updating values.yaml with DockerHub information..."
+	sed -i '' 's|repository: $(DOCKER_IMAGE)|repository: $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO)|g' charts/arithma/values.yaml
+	sed -i '' 's|tag: "latest"|tag: "$(DOCKERHUB_TAG)"|g' charts/arithma/values.yaml
+	sed -i '' 's|pullPolicy: Never|pullPolicy: IfNotPresent|g' charts/arithma/values.yaml
+	@echo "Installing Helm chart..."
+	helm install arithma charts/arithma
+	@echo "Application deployed to Kubernetes using DockerHub image"
+
+.PHONY: k8s-deploy
+k8s-deploy: k8s-deploy-local ## Build and deploy to Kubernetes (default method)
+	@echo "Used default deployment method (local)"
+
 # Default Target
 ################################################################################
 

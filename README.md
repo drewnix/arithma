@@ -27,6 +27,8 @@ capabilities with a focus on elegance, performance, and extensibility.
 - Rust (latest stable version)
 - wasm-pack (for WebAssembly compilation)
 - Node.js and npm (for the frontend)
+- Docker (for containerized deployment)
+- Kubernetes CLI (kubectl) and Helm (for Kubernetes deployment)
 
 ### Installation
 
@@ -64,6 +66,79 @@ capabilities with a focus on elegance, performance, and extensibility.
   cd frontend
   npm run dev
   ```
+
+- **Using Docker**:
+  ```
+  make docker-build             # Build the Docker image
+  make docker-build-multiarch   # Build for both ARM64 and AMD64
+  make docker-run               # Run the container locally
+  make docker-publish           # Build, tag and push to DockerHub
+  make docker-publish-multiarch # Build and push multi-arch image to DockerHub
+  ```
+
+### Deploying with Helm
+
+Arithma can be deployed to a Kubernetes cluster using the provided Helm chart:
+
+1. **Build the Docker image**:
+   ```
+   make docker-build
+   ```
+
+2. **Verify the Helm chart**:
+   ```
+   make helm-lint
+   ```
+
+3. **Deploy to Kubernetes**:
+   ```
+   make k8s-deploy
+   ```
+
+   This will:
+   - Build the Docker image locally
+   - Save the image to a tar file and copy it directly to your Kubernetes nodes
+   - Set image pull policy to "Never" so Kubernetes uses the local image
+   - Install the Helm chart with LoadBalancer service type
+
+
+4. **Alternative deployment methods**:
+
+   - Deploy using a registry (if you have one configured):
+     ```
+     make k8s-deploy-registry
+     ```
+
+   - Deploy using DockerHub (requires DockerHub credentials):
+     ```
+     make k8s-deploy-dockerhub
+     ```
+
+5. **Advanced deployment options**:
+
+   - Preview the Kubernetes manifests:
+     ```
+     make helm-template
+     ```
+
+   - Upgrade an existing deployment:
+     ```
+     make helm-upgrade
+     ```
+
+   - Uninstall the application:
+     ```
+     make helm-uninstall
+     ```
+
+5. **Customizing the deployment**:
+
+   Edit the `charts/arithma/values.yaml` file to customize:
+   - Image repository and tag
+   - Number of replicas
+   - Resource limits
+   - Ingress configuration
+   - Service type (ClusterIP, NodePort, LoadBalancer)
 
 ## Design and Architecture
 
