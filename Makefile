@@ -177,6 +177,64 @@ docker-down: ## Stop the container using docker-compose
 docker-logs: ## View logs from the running container
 	docker-compose logs -f
 
+################################################################################
+# Helm Chart Commands
+################################################################################
+
+.PHONY: helm-lint
+helm-lint: ## Lint the Helm chart
+	helm lint charts/arithma
+
+.PHONY: helm-template
+helm-template: ## Generate Kubernetes manifests from the Helm chart
+	helm template arithma charts/arithma
+
+.PHONY: helm-install
+helm-install: ## Install the Helm chart to the current Kubernetes context
+	helm install arithma charts/arithma
+
+.PHONY: helm-upgrade
+helm-upgrade: ## Upgrade the installed Helm chart
+	helm upgrade arithma charts/arithma
+
+.PHONY: helm-uninstall
+helm-uninstall: ## Uninstall the Helm chart
+	helm uninstall arithma
+
+.PHONY: k8s-deploy-local
+k8s-deploy-local: docker-build ## Build and deploy to Kubernetes using LoadBalancer and locally built image 
+	@echo "Creating a Kubernetes ConfigMap for image pull policy..."
+	kubectl delete configmap local-registry-config 2>/dev/null || true
+	kubectl create configmap local-registry-config --from-literal=pullPolicy=Never
+	@echo "Updating values.yaml for local deployment..."
+	sed -i '' 's|pullPolicy: IfNotPresent|pullPolicy: Never|g' charts/arithma/values.yaml
+	sed -i '' 's|type: ClusterIP|type: LoadBalancer|g' charts/arithma/values.yaml
+	@echo "Saving Docker image to tar file..."
+	docker save $(DOCKER_IMAGE):$(DOCKER_TAG) -o /tmp/arithma-image.tar
+	@echo "Loading image into Kubernetes nodes..."
+	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} scp /tmp/arithma-image.tar {}:/tmp/
+	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} ssh {} "docker load -i /tmp/arithma-image.tar"
+	@echo "Installing Helm chart..."
+	helm install arithma charts/arithma
+	@echo "Application deployed to Kubernetes with locally loaded images"
+
+.PHONY: k8s-deploy-registry
+k8s-deploy-registry: docker-build ## Build and deploy to Kubernetes using a registry
+	@echo "Tagging Docker image for remote registry..."
+	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) namazu.local:5000/$(DOCKER_IMAGE):$(DOCKER_TAG)
+	@echo "Pushing Docker image to remote registry..."
+	docker push namazu.local:5000/$(DOCKER_IMAGE):$(DOCKER_TAG)
+	@echo "Updating values.yaml with registry information..."
+	sed -i '' 's|repository: $(DOCKER_IMAGE)|repository: namazu.local:5000/$(DOCKER_IMAGE)|g' charts/arithma/values.yaml
+	sed -i '' 's|pullPolicy: Never|pullPolicy: IfNotPresent|g' charts/arithma/values.yaml
+	@echo "Installing Helm chart..."
+	helm install arithma charts/arithma
+	@echo "Application deployed to Kubernetes using registry"
+
+.PHONY: k8s-deploy
+k8s-deploy: k8s-deploy-local ## Build and deploy to Kubernetes (default method)
+	@echo "Used default deployment method (local)"
+
 # Default Target
 ################################################################################
 
