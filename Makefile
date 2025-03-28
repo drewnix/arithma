@@ -5,6 +5,8 @@
 FRONTEND_DIR := frontend
 PKG_DIR := pkg
 FRONTEND_PUBLIC_PKG_DIR := $(FRONTEND_DIR)/public/pkg
+DOCKER_IMAGE := arithma-frontend
+DOCKER_TAG := latest
 
 .PHONY: help
 help: ## Show this help message
@@ -152,6 +154,29 @@ setup: ## Set up the project for development
 	@echo "Run 'make help' to see available commands"
 
 ################################################################################
+# Docker Commands
+################################################################################
+
+.PHONY: docker-build
+docker-build: ## Build the Docker container
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+
+.PHONY: docker-run
+docker-run: ## Run the Docker container locally
+	docker run -p 3000:80 $(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: docker-up
+docker-up: ## Start the container using docker-compose
+	docker-compose up -d
+
+.PHONY: docker-down
+docker-down: ## Stop the container using docker-compose
+	docker-compose down
+
+.PHONY: docker-logs
+docker-logs: ## View logs from the running container
+	docker-compose logs -f
+
 # Default Target
 ################################################################################
 
