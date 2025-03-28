@@ -69,8 +69,11 @@ capabilities with a focus on elegance, performance, and extensibility.
 
 - **Using Docker**:
   ```
-  make docker-build    # Build the Docker image
-  make docker-run      # Run the container locally
+  make docker-build             # Build the Docker image
+  make docker-build-multiarch   # Build for both ARM64 and AMD64
+  make docker-run               # Run the container locally
+  make docker-publish           # Build, tag and push to DockerHub
+  make docker-publish-multiarch # Build and push multi-arch image to DockerHub
   ```
 
 ### Deploying with Helm
@@ -104,6 +107,11 @@ Arithma can be deployed to a Kubernetes cluster using the provided Helm chart:
    - Deploy using a registry (if you have one configured):
      ```
      make k8s-deploy-registry
+     ```
+
+   - Deploy using DockerHub (requires DockerHub credentials):
+     ```
+     make k8s-deploy-dockerhub
      ```
 
 5. **Advanced deployment options**:
