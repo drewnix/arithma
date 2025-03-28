@@ -1,0 +1,31 @@
+# Git
+.git
+.github
+.gitignore
+
+# Node
+node_modules
+frontend/node_modules
+frontend/dist
+frontend/npm-debug.log
+
+# Rust
+target
+/pkg
+**/*.rs.bk
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode
+.idea
+*.swp
+*.swo
+
+# Misc
+.env
+.env.local
+README.md
+ROADMAP.md
