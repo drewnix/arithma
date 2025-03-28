@@ -3,8 +3,8 @@
 replicaCount: 1
 
 image:
-  repository: arithma-frontend
-  pullPolicy: Never
+  repository: drewnix/arithma
+  pullPolicy: IfNotPresent
   tag: "latest"
 
 imagePullSecrets: []

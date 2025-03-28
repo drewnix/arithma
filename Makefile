@@ -157,6 +157,11 @@ setup: ## Set up the project for development
 # Docker Commands
 ################################################################################
 
+# DockerHub settings
+DOCKERHUB_USERNAME ?= drewnix
+DOCKERHUB_REPO ?= arithma
+DOCKERHUB_TAG ?= latest
+
 .PHONY: docker-build
 docker-build: ## Build the Docker container
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
@@ -176,6 +181,23 @@ docker-down: ## Stop the container using docker-compose
 .PHONY: docker-logs
 docker-logs: ## View logs from the running container
 	docker-compose logs -f
+
+.PHONY: docker-tag
+docker-tag: ## Tag Docker image for DockerHub
+	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)
+
+.PHONY: docker-login
+docker-login: ## Login to DockerHub (interactive)
+	@echo "Logging into DockerHub..."
+	docker login
+
+.PHONY: docker-push
+docker-push: docker-tag ## Push Docker image to DockerHub
+	docker push $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)
+
+.PHONY: docker-publish
+docker-publish: docker-build docker-tag docker-push ## Build, tag and push to DockerHub
+	@echo "Image published to DockerHub as $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO):$(DOCKERHUB_TAG)"
 
 ################################################################################
 # Helm Chart Commands
@@ -202,7 +224,8 @@ helm-uninstall: ## Uninstall the Helm chart
 	helm uninstall arithma
 
 .PHONY: k8s-deploy-local
-k8s-deploy-local: docker-build ## Build and deploy to Kubernetes using LoadBalancer and locally built image 
+k8s-deploy-local: docker-build ## Build image and deploy to Kubernetes using LoadBalancer
+	@echo "Building simple docker image for local architecture..."
 	@echo "Creating a Kubernetes ConfigMap for image pull policy..."
 	kubectl delete configmap local-registry-config 2>/dev/null || true
 	kubectl create configmap local-registry-config --from-literal=pullPolicy=Never
@@ -215,21 +238,18 @@ k8s-deploy-local: docker-build ## Build and deploy to Kubernetes using LoadBalan
 	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} scp /tmp/arithma-image.tar {}:/tmp/
 	kubectl get nodes -o wide | tail -n +2 | awk '{print $$6}' | xargs -I {} ssh {} "docker load -i /tmp/arithma-image.tar"
 	@echo "Installing Helm chart..."
-	helm install arithma charts/arithma
+	helm install arithma charts/arithma || helm upgrade arithma charts/arithma
 	@echo "Application deployed to Kubernetes with locally loaded images"
 
-.PHONY: k8s-deploy-registry
-k8s-deploy-registry: docker-build ## Build and deploy to Kubernetes using a registry
-	@echo "Tagging Docker image for remote registry..."
-	docker tag $(DOCKER_IMAGE):$(DOCKER_TAG) namazu.local:5000/$(DOCKER_IMAGE):$(DOCKER_TAG)
-	@echo "Pushing Docker image to remote registry..."
-	docker push namazu.local:5000/$(DOCKER_IMAGE):$(DOCKER_TAG)
-	@echo "Updating values.yaml with registry information..."
-	sed -i '' 's|repository: $(DOCKER_IMAGE)|repository: namazu.local:5000/$(DOCKER_IMAGE)|g' charts/arithma/values.yaml
+.PHONY: k8s-deploy-dockerhub
+k8s-deploy-dockerhub: docker-publish ## Build and deploy to Kubernetes using DockerHub
+	@echo "Updating values.yaml with DockerHub information..."
+	sed -i '' 's|repository: $(DOCKER_IMAGE)|repository: $(DOCKERHUB_USERNAME)/$(DOCKERHUB_REPO)|g' charts/arithma/values.yaml
+	sed -i '' 's|tag: "latest"|tag: "$(DOCKERHUB_TAG)"|g' charts/arithma/values.yaml
 	sed -i '' 's|pullPolicy: Never|pullPolicy: IfNotPresent|g' charts/arithma/values.yaml
 	@echo "Installing Helm chart..."
 	helm install arithma charts/arithma
-	@echo "Application deployed to Kubernetes using registry"
+	@echo "Application deployed to Kubernetes using DockerHub image"
 
 .PHONY: k8s-deploy
 k8s-deploy: k8s-deploy-local ## Build and deploy to Kubernetes (default method)
