@@ -114,18 +114,44 @@ impl Simplifiable for Node {
                     Box::new(exponent_simplified),
                 ))
             }
+            Node::Subtract(left, right) => {
+                let left_simplified = left.simplify(env)?;
+                let right_simplified = right.simplify(env)?;
+
+                if let (Node::Num(ref l), Node::Num(ref r)) =
+                    (&left_simplified, &right_simplified)
+                {
+                    return Ok(Node::Num(l - r));
+                }
+
+                Ok(Node::Subtract(
+                    Box::new(left_simplified),
+                    Box::new(right_simplified),
+                ))
+            }
+            Node::Negate(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(-n.clone()));
+                }
+                Ok(Node::Negate(Box::new(simplified)))
+            }
             Node::Divide(left, right) => {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
 
-                // Division by one
                 if let Node::Num(ref n) = right_simplified {
                     if n.is_one() {
                         return Ok(left_simplified);
                     }
                 }
 
-                // If no special simplifications apply, return simplified Divide
+                if let (Node::Num(ref l), Node::Num(ref r)) =
+                    (&left_simplified, &right_simplified)
+                {
+                    return Ok(Node::Num(l / r));
+                }
+
                 Ok(Node::Divide(
                     Box::new(left_simplified),
                     Box::new(right_simplified),

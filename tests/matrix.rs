@@ -74,7 +74,6 @@ fn test_matrix_transpose() {
 }
 
 #[test]
-#[ignore = "Matrix determinant calculation needs fixing"]
 fn test_matrix_determinant() {
     let env = Environment::default();
 
@@ -115,7 +114,6 @@ fn test_matrix_determinant() {
 }
 
 #[test]
-#[ignore = "Matrix multiplication result calculation needs fixing"]
 fn test_matrix_multiplication() {
     let env = Environment::default();
 
@@ -169,7 +167,6 @@ fn test_matrix_multiplication() {
 }
 
 #[test]
-#[ignore = "Matrix inverse calculation needs fixing"]
 fn test_matrix_inverse() {
     let env = Environment::default();
 
@@ -230,7 +227,6 @@ fn test_matrix_inverse() {
 }
 
 #[test]
-#[ignore = "Matrix singular detection needs fixing"]
 fn test_singular_matrix() {
     let env = Environment::default();
 
@@ -253,7 +249,6 @@ fn test_singular_matrix() {
 }
 
 #[test]
-#[ignore = "Matrix rank calculation needs fixing"]
 fn test_matrix_rank() {
     let env = Environment::default();
 
@@ -415,7 +410,6 @@ fn test_linear_system_solve() {
 }
 
 #[test]
-#[ignore = "Matrix RREF calculation needs fixing"]
 fn test_rref() {
     let env = Environment::default();
 

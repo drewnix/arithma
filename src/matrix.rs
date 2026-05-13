@@ -772,7 +772,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix determinant calculation needs fixing"]
     fn test_matrix_determinant() {
         let env = Environment::default();
 
@@ -815,7 +814,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix multiplication result calculation needs fixing"]
     fn test_matrix_multiplication() {
         let env = Environment::default();
 
@@ -860,7 +858,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix inverse calculation needs fixing"]
     fn test_matrix_inverse() {
         let env = Environment::default();
 
@@ -899,7 +896,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix singular detection needs fixing"]
     fn test_singular_matrix_inverse() {
         let env = Environment::default();
 
@@ -918,7 +914,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix rank calculation needs fixing"]
     fn test_matrix_rank() {
         let env = Environment::default();
 

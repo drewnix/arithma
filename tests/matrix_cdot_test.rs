@@ -61,14 +61,13 @@ fn test_matrix_cdot_parsing() {
 fn test_matrix_dimension_mismatch() {
     let env = Environment::default();
 
-    // Define matrices with incompatible dimensions
+    // Define matrices with incompatible dimensions: 2x2 * 3x2 fails (cols of A != rows of B)
     let latex_a = r"\begin{pmatrix} 5 & 2 \\ -9 & 11 \end{pmatrix}";
     let matrix_a = parse_latex_matrix(latex_a, &env).unwrap();
 
-    let latex_c = r"\begin{pmatrix} 1 & 2 & 3 \\ 4 & 5 & 6 \end{pmatrix}";
+    let latex_c = r"\begin{pmatrix} 1 & 2 \\ 3 & 4 \\ 5 & 6 \end{pmatrix}";
     let matrix_c = parse_latex_matrix(latex_c, &env).unwrap();
 
-    // Attempt to multiply incompatible matrices should fail
     let result = matrix_a.multiply(&matrix_c, &env);
     assert!(result.is_err());
 }
