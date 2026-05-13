@@ -257,6 +257,71 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(l / r));
                 }
 
+                // x / x → 1
+                if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
+                    return Ok(Node::Num(ExactNum::one()));
+                }
+
+                // x^a / x^b → x^(a-b)
+                if let (
+                    Node::Power(ref base1, ref exp1),
+                    Node::Power(ref base2, ref exp2),
+                ) = (&left_simplified, &right_simplified)
+                {
+                    if base1 == base2 {
+                        if let (Node::Num(ref a), Node::Num(ref b)) =
+                            (exp1.as_ref(), exp2.as_ref())
+                        {
+                            let diff = a - b;
+                            if diff.is_zero() {
+                                return Ok(Node::Num(ExactNum::one()));
+                            } else if diff.is_one() {
+                                return Ok(*base1.clone());
+                            }
+                            return Ok(Node::Power(
+                                base1.clone(),
+                                Box::new(Node::Num(diff)),
+                            ));
+                        }
+                    }
+                }
+
+                // x^a / x → x^(a-1)
+                if let Node::Power(ref base, ref exp) = left_simplified {
+                    if *base.as_ref() == right_simplified {
+                        if let Node::Num(ref a) = exp.as_ref() {
+                            let diff = a - &ExactNum::one();
+                            if diff.is_zero() {
+                                return Ok(Node::Num(ExactNum::one()));
+                            } else if diff.is_one() {
+                                return Ok(*base.clone());
+                            }
+                            return Ok(Node::Power(
+                                base.clone(),
+                                Box::new(Node::Num(diff)),
+                            ));
+                        }
+                    }
+                }
+
+                // x / x^a → x^(1-a)
+                if let Node::Power(ref base, ref exp) = right_simplified {
+                    if *base.as_ref() == left_simplified {
+                        if let Node::Num(ref a) = exp.as_ref() {
+                            let diff = &ExactNum::one() - a;
+                            if diff.is_zero() {
+                                return Ok(Node::Num(ExactNum::one()));
+                            } else if diff.is_one() {
+                                return Ok(*base.clone());
+                            }
+                            return Ok(Node::Power(
+                                base.clone(),
+                                Box::new(Node::Num(diff)),
+                            ));
+                        }
+                    }
+                }
+
                 if let Some(simplified) = try_polynomial_divide(&left_simplified, &right_simplified)
                 {
                     return Ok(simplified);

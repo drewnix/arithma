@@ -484,4 +484,82 @@ mod test_simplify {
         let simplified = expr.simplify(&env).unwrap();
         assert_eq!(format!("{}", simplified), "sin(x)^{5}");
     }
+
+    #[test]
+    fn test_divide_same_expr() {
+        let env = Environment::new();
+        // x / x → 1
+        let expr = Node::Divide(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(1)));
+    }
+
+    #[test]
+    fn test_divide_power_subtraction() {
+        let env = Environment::new();
+        // x^5 / x^3 → x^2
+        let expr = Node::Divide(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(5))),
+            )),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{2}");
+    }
+
+    #[test]
+    fn test_divide_power_to_one() {
+        let env = Environment::new();
+        // x^3 / x^2 → x
+        let expr = Node::Divide(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x");
+    }
+
+    #[test]
+    fn test_divide_power_by_base() {
+        let env = Environment::new();
+        // x^3 / x → x^2
+        let expr = Node::Divide(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{2}");
+    }
+
+    #[test]
+    fn test_divide_base_by_power() {
+        let env = Environment::new();
+        // x / x^3 → x^{-2}
+        let expr = Node::Divide(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{-2}");
+    }
 }
