@@ -440,6 +440,42 @@ impl Simplifiable for Node {
                     .map(|a| a.simplify(env))
                     .collect::<Result<Vec<_>, _>>()?;
 
+                // Inverse function simplification for single-argument functions
+                if simplified_args.len() == 1 {
+                    let arg = &simplified_args[0];
+                    match name.as_str() {
+                        // ln(e^x) → x
+                        "ln" => {
+                            if let Node::Power(base, exp) = arg {
+                                if let Node::Num(ref b) = **base {
+                                    if (b.to_f64() - std::f64::consts::E).abs() < 1e-14 {
+                                        return Ok(*exp.clone());
+                                    }
+                                }
+                            }
+                        }
+                        // exp(ln(x)) → x
+                        "exp" => {
+                            if let Node::Function(inner_name, inner_args) = arg {
+                                if inner_name == "ln" && inner_args.len() == 1 {
+                                    return Ok(inner_args[0].clone());
+                                }
+                            }
+                        }
+                        // sqrt(x²) → |x| → x for simplification purposes
+                        "sqrt" => {
+                            if let Node::Power(base, exp) = arg {
+                                if let Node::Num(ref e) = **exp {
+                                    if e == &ExactNum::two() {
+                                        return Ok(Node::Abs(base.clone()));
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
                 let all_numeric = simplified_args.iter().all(|a| matches!(a, Node::Num(_)));
                 if all_numeric {
                     let f64_args: Vec<f64> = simplified_args

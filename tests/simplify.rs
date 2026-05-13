@@ -646,6 +646,52 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_ln_of_e_to_x() {
+        let env = Environment::new();
+        // ln(e^x) → x
+        let e = Node::Num(ExactNum::from_f64(std::f64::consts::E));
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Power(
+                Box::new(e),
+                Box::new(Node::Variable("x".to_string())),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Variable("x".to_string()));
+    }
+
+    #[test]
+    fn test_exp_of_ln_x() {
+        let env = Environment::new();
+        // exp(ln(x)) → x
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Variable("x".to_string()));
+    }
+
+    #[test]
+    fn test_sqrt_of_x_squared() {
+        let env = Environment::new();
+        // sqrt(x²) → |x|
+        let expr = Node::Function(
+            "sqrt".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Abs(Box::new(Node::Variable("x".to_string()))));
+    }
+
+    #[test]
     fn test_ln_constant_folding() {
         let env = Environment::new();
         // ln(1) → 0
