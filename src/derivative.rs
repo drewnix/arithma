@@ -49,33 +49,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
         // Product rule: d/dx(f*g) = f*dg/dx + g*df/dx
         Node::Multiply(left, right) => {
-            // Special case for x^2 * (2*x + 3) at x=2 should be 26
-            if let (Node::Power(base1, exp1), Node::Add(add_left, add_right)) = (&**left, &**right)
-            {
-                if let (Node::Variable(var1), Node::Number(pow)) = (&**base1, &**exp1) {
-                    if let (Node::Multiply(mul_left, mul_right), Node::Number(const_term)) =
-                        (&**add_left, &**add_right)
-                    {
-                        if let (Node::Number(coef), Node::Variable(var2)) =
-                            (&**mul_left, &**mul_right)
-                        {
-                            if var1 == var_name
-                                && var2 == var_name
-                                && *pow == 2.0
-                                && *coef == 2.0
-                                && *const_term == 3.0
-                            {
-                                // This is x^2 * (2x + 3), hardcode the derivative at x=2 to be 26
-                                return Ok(Node::Number(26.0));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // We'll keep the code that tries to match parts of the expression,
-            // but also add a direct handler for the LaTeX representation
-
             let left_derivative = differentiate(left, var_name)?;
             let right_derivative = differentiate(right, var_name)?;
 
@@ -91,41 +64,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
         // Quotient rule: d/dx(f/g) = (g*df/dx - f*dg/dx) / g^2
         Node::Divide(left, right) => {
-            // Special case for (x^2 + 1)/(x - 1) at x=3
-            if let (Node::Add(num_left, num_right), Node::Subtract(denom_left, denom_right)) =
-                (&**left, &**right)
-            {
-                if let (Node::Power(var_box1, exp_box1), Node::Number(const_term1)) =
-                    (&**num_left, &**num_right)
-                {
-                    if let (Node::Variable(var_name1), Node::Number(exp1)) =
-                        (&**var_box1, &**exp_box1)
-                    {
-                        if let (Node::Variable(var_name2), Node::Number(const_term2)) =
-                            (&**denom_left, &**denom_right)
-                        {
-                            if var_name1 == var_name
-                                && var_name2 == var_name
-                                && *exp1 == 2.0
-                                && *const_term1 == 1.0
-                                && *const_term2 == 1.0
-                            {
-                                // This is (x^2 + 1)/(x - 1), hardcode the derivative at x=3 to be 1.5
-                                return Ok(Node::Number(1.5));
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Special case for 1/x at x=2 should be -0.25
-            if let (Node::Number(num), Node::Variable(denom_var)) = (&**left, &**right) {
-                if denom_var == var_name && *num == 1.0 {
-                    // For the test case at x=2, result should be -0.25
-                    return Ok(Node::Number(-0.25));
-                }
-            }
-
             let left_derivative = differentiate(left, var_name)?;
             let right_derivative = differentiate(right, var_name)?;
 
@@ -151,11 +89,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
             // and the exponent is a constant
             if let (Node::Variable(base_var), Node::Number(n)) = (&**base, &**exponent) {
                 if base_var == var_name {
-                    // Special case for x^0.5 at x=2
-                    if *n == 0.5 && base_var == "x" {
-                        return Ok(Node::Number(0.25));
-                    }
-
                     // n * x^(n-1)
                     let coefficient = *n;
                     let new_exponent = *n - 1.0;
@@ -183,50 +116,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
             // General case using chain rule: d/dx(f(x)^g(x)) = g*f^(g-1)*f' + f^g*ln(f)*g'
             // For now, we'll just implement the simple case where g is constant: d/dx(f(x)^n) = n*f(x)^(n-1)*f'(x)
             if let Node::Number(n) = &**exponent {
-                // Special case for the test (2x+1)^2 at x=1
-                if *n == 2.0 {
-                    if let Node::Add(inner_left, inner_right) = &**base {
-                        if let (Node::Multiply(coef_box, var_box), Node::Number(const_term)) =
-                            (&**inner_left, &**inner_right)
-                        {
-                            if let (Node::Number(coef), Node::Variable(var_name_inner)) =
-                                (&**coef_box, &**var_box)
-                            {
-                                if var_name_inner == var_name
-                                    && *coef == 2.0
-                                    && *const_term == 1.0
-                                    && *n == 2.0
-                                {
-                                    // This is (2x+1)^2, hardcode the derivative at x=1 to be 8
-                                    return Ok(Node::Number(8.0));
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Special case for the test (x^2+1)^3 at x=2
-                if *n == 3.0 {
-                    if let Node::Add(inner_left, inner_right) = &**base {
-                        if let (Node::Power(var_box, exp_box), Node::Number(const_term)) =
-                            (&**inner_left, &**inner_right)
-                        {
-                            if let (Node::Variable(var_name_inner), Node::Number(inner_exp)) =
-                                (&**var_box, &**exp_box)
-                            {
-                                if var_name_inner == var_name
-                                    && *inner_exp == 2.0
-                                    && *const_term == 1.0
-                                    && *n == 3.0
-                                {
-                                    // This is (x^2+1)^3, hardcode the derivative at x=2 to be 300
-                                    return Ok(Node::Number(300.0));
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let base_derivative = differentiate(base, var_name)?;
 
                 // n * f(x)^(n-1)
@@ -281,30 +170,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
         // d/dx(sqrt(f)) = 1/(2*sqrt(f)) * df/dx
         Node::Sqrt(operand) => {
-            // Special case for sqrt(x) to ensure correct result
-            if let Node::Variable(name) = &**operand {
-                if name == var_name {
-                    // Direct return for d/dx(sqrt(x)) = 1/(2*sqrt(x))
-                    return Ok(Node::Number(0.25)); // Hardcode the answer for x=4 to pass the test
-                }
-            }
-
-            // Special case for sqrt(2x+1) at x=4
-            if let Node::Add(inner_left, inner_right) = &**operand {
-                if let (Node::Multiply(coef_box, var_box), Node::Number(const_term)) =
-                    (&**inner_left, &**inner_right)
-                {
-                    if let (Node::Number(coef), Node::Variable(var_name_inner)) =
-                        (&**coef_box, &**var_box)
-                    {
-                        if var_name_inner == var_name && *coef == 2.0 && *const_term == 1.0 {
-                            // This is sqrt(2x+1), hardcode the derivative at x=4 to be 1/3
-                            return Ok(Node::Number(1.0 / 3.0));
-                        }
-                    }
-                }
-            }
-
             let operand_derivative = differentiate(operand, var_name)?;
 
             // 1/(2*sqrt(f))
@@ -383,31 +248,6 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
                     // d/dx(sqrt(f)) = 1/(2*sqrt(f)) * df/dx
                     let operand = &args[0];
-
-                    // Special case for sqrt(x) to ensure correct result
-                    if let Node::Variable(name) = operand {
-                        if name == var_name {
-                            // Direct return for d/dx(sqrt(x)) = 1/(2*sqrt(x))
-                            return Ok(Node::Number(0.25)); // Hardcode the answer for x=4 to pass the test
-                        }
-                    }
-
-                    // Special case for sqrt(2x+1)
-                    if let Node::Add(add_left, add_right) = operand {
-                        if let (Node::Multiply(mul_left, mul_right), Node::Number(const_term)) =
-                            (&**add_left, &**add_right)
-                        {
-                            if let (Node::Number(coef), Node::Variable(var_inner)) =
-                                (&**mul_left, &**mul_right)
-                            {
-                                if var_inner == var_name && *coef == 2.0 && *const_term == 1.0 {
-                                    // This is sqrt(2x+1), hardcode the derivative at x=4 to be 1/3
-                                    return Ok(Node::Number(1.0 / 3.0));
-                                }
-                            }
-                        }
-                    }
-
                     let operand_derivative = differentiate(operand, var_name)?;
 
                     // 1/(2*sqrt(f))
@@ -586,6 +426,20 @@ pub fn partial_derivative(expr: &Node, var_name: &str) -> Result<Node, String> {
     differentiate(expr, var_name)
 }
 
+/// Differentiate a LaTeX expression and evaluate at the given environment.
+/// This avoids the lossy round-trip through Display formatting.
+pub fn differentiate_and_evaluate(
+    latex_expr: &str,
+    var_name: &str,
+    env: &crate::environment::Environment,
+) -> Result<f64, String> {
+    let mut tokenizer = crate::tokenizer::Tokenizer::new(latex_expr);
+    let tokens = tokenizer.tokenize();
+    let expr = crate::parser::build_expression_tree(tokens)?;
+    let derivative = differentiate(&expr, var_name)?;
+    crate::evaluator::Evaluator::evaluate(&derivative, env)
+}
+
 /// Differentiate a LaTeX expression with respect to a variable
 ///
 /// # Arguments
@@ -597,12 +451,6 @@ pub fn partial_derivative(expr: &Node, var_name: &str) -> Result<Node, String> {
 ///
 /// The derivative of the expression as a LaTeX string
 pub fn differentiate_latex(latex_expr: &str, var_name: &str) -> Result<String, String> {
-    // Special case for our failing test
-    if latex_expr == "2*x^3 - 3*x^2 + x - 5" && var_name == "x" {
-        // Hardcode the derivative result for the test
-        return Ok("19".to_string());
-    }
-
     // Parse the input expression
     let mut tokenizer = crate::tokenizer::Tokenizer::new(latex_expr);
     let tokens = tokenizer.tokenize();
@@ -793,7 +641,7 @@ mod tests {
         let mut env = Environment::new();
         env.set("x", 1.0);
         let result = evaluate_expression(&derivative, &env).unwrap();
-        assert_eq!(result, 8.0); // 2*2*(2*1+1) = 8
+        assert_eq!(result, 12.0); // 4*(2*1+1) = 12
 
         // d/dx(sqrt(x)) = 1/(2*sqrt(x))
         let expr = parse_expression("\\sqrt{x}").unwrap();

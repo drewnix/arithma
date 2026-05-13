@@ -35,7 +35,9 @@ pub use crate::substitute::{substitute, substitute_latex};
 
 // Declare the derivative module
 pub mod derivative;
-pub use crate::derivative::{differentiate, differentiate_latex, partial_derivative};
+pub use crate::derivative::{
+    differentiate, differentiate_and_evaluate, differentiate_latex, partial_derivative,
+};
 
 // Declare the composition module
 pub mod composition;

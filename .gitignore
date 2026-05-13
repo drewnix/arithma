@@ -4,3 +4,4 @@
 *dump.txt
 debug/
 frontend/public/pkg/
+.mcp.json
