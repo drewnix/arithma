@@ -210,4 +210,99 @@ mod derivative_tests {
             result
         );
     }
+
+    #[test]
+    fn test_hyperbolic_derivatives() {
+        let mut env = Environment::new();
+        env.set("x", 1.0);
+
+        // d/dx(sinh(x)) = cosh(x), at x=1: cosh(1)
+        let result = differentiate_and_evaluate("\\sinh(x)", "x", &env).unwrap();
+        assert!(
+            approx_eq(result, 1.0_f64.cosh(), 1e-10),
+            "d/dx sinh(x) at x=1 should be cosh(1)={}, got {}",
+            1.0_f64.cosh(),
+            result
+        );
+
+        // d/dx(cosh(x)) = sinh(x), at x=1: sinh(1)
+        let result = differentiate_and_evaluate("\\cosh(x)", "x", &env).unwrap();
+        assert!(
+            approx_eq(result, 1.0_f64.sinh(), 1e-10),
+            "d/dx cosh(x) at x=1 should be sinh(1)={}, got {}",
+            1.0_f64.sinh(),
+            result
+        );
+
+        // d/dx(tanh(x)) = 1 - tanh²(x), at x=1
+        let result = differentiate_and_evaluate("\\tanh(x)", "x", &env).unwrap();
+        let expected = 1.0 - 1.0_f64.tanh().powi(2);
+        assert!(
+            approx_eq(result, expected, 1e-10),
+            "d/dx tanh(x) at x=1 should be {}, got {}",
+            expected,
+            result
+        );
+    }
+
+    #[test]
+    fn test_inverse_trig_derivatives() {
+        let mut env = Environment::new();
+        env.set("x", 0.5);
+
+        // d/dx(arcsin(x)) = 1/√(1-x²), at x=0.5
+        let result = differentiate_and_evaluate("\\arcsin(x)", "x", &env).unwrap();
+        let expected = 1.0 / (1.0 - 0.25_f64).sqrt();
+        assert!(
+            approx_eq(result, expected, 1e-10),
+            "d/dx arcsin(x) at x=0.5 should be {}, got {}",
+            expected,
+            result
+        );
+
+        // d/dx(arccos(x)) = -1/√(1-x²), at x=0.5
+        let result = differentiate_and_evaluate("\\arccos(x)", "x", &env).unwrap();
+        assert!(
+            approx_eq(result, -expected, 1e-10),
+            "d/dx arccos(x) at x=0.5 should be {}, got {}",
+            -expected,
+            result
+        );
+
+        // d/dx(arctan(x)) = 1/(1+x²), at x=0.5
+        let result = differentiate_and_evaluate("\\arctan(x)", "x", &env).unwrap();
+        let expected = 1.0 / (1.0 + 0.25);
+        assert!(
+            approx_eq(result, expected, 1e-10),
+            "d/dx arctan(x) at x=0.5 should be {}, got {}",
+            expected,
+            result
+        );
+    }
+
+    #[test]
+    fn test_reciprocal_trig_derivatives() {
+        let mut env = Environment::new();
+        env.set("x", 1.0);
+
+        // d/dx(sec(x)) = sec(x)·tan(x), at x=1
+        let result = differentiate_and_evaluate("\\sec(x)", "x", &env).unwrap();
+        let expected = (1.0 / 1.0_f64.cos()) * 1.0_f64.tan();
+        assert!(
+            approx_eq(result, expected, 1e-10),
+            "d/dx sec(x) at x=1 should be {}, got {}",
+            expected,
+            result
+        );
+
+        // d/dx(cot(x)) = -csc²(x), at x=1
+        let result = differentiate_and_evaluate("\\cot(x)", "x", &env).unwrap();
+        let expected = -(1.0 / 1.0_f64.sin()).powi(2);
+        assert!(
+            approx_eq(result, expected, 1e-10),
+            "d/dx cot(x) at x=1 should be {}, got {}",
+            expected,
+            result
+        );
+    }
 }

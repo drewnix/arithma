@@ -385,6 +385,156 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                         Box::new(operand_derivative),
                     ))
                 }
+                "sec" => {
+                    if args.len() != 1 {
+                        return Err("sec function requires exactly one argument".to_string());
+                    }
+                    // d/dx(sec(f)) = sec(f)·tan(f) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Multiply(
+                            Box::new(Node::Function("sec".to_string(), vec![f.clone()])),
+                            Box::new(Node::Function("tan".to_string(), vec![f.clone()])),
+                        )),
+                        Box::new(fp),
+                    ))
+                }
+                "csc" => {
+                    if args.len() != 1 {
+                        return Err("csc function requires exactly one argument".to_string());
+                    }
+                    // d/dx(csc(f)) = -csc(f)·cot(f) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Negate(Box::new(Node::Multiply(
+                            Box::new(Node::Function("csc".to_string(), vec![f.clone()])),
+                            Box::new(Node::Function("cot".to_string(), vec![f.clone()])),
+                        )))),
+                        Box::new(fp),
+                    ))
+                }
+                "cot" => {
+                    if args.len() != 1 {
+                        return Err("cot function requires exactly one argument".to_string());
+                    }
+                    // d/dx(cot(f)) = -csc²(f) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Negate(Box::new(Node::Power(
+                            Box::new(Node::Function("csc".to_string(), vec![f.clone()])),
+                            Box::new(Node::Num(ExactNum::two())),
+                        )))),
+                        Box::new(fp),
+                    ))
+                }
+                "sinh" => {
+                    if args.len() != 1 {
+                        return Err("sinh function requires exactly one argument".to_string());
+                    }
+                    // d/dx(sinh(f)) = cosh(f) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Function("cosh".to_string(), vec![f.clone()])),
+                        Box::new(fp),
+                    ))
+                }
+                "cosh" => {
+                    if args.len() != 1 {
+                        return Err("cosh function requires exactly one argument".to_string());
+                    }
+                    // d/dx(cosh(f)) = sinh(f) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Function("sinh".to_string(), vec![f.clone()])),
+                        Box::new(fp),
+                    ))
+                }
+                "tanh" => {
+                    if args.len() != 1 {
+                        return Err("tanh function requires exactly one argument".to_string());
+                    }
+                    // d/dx(tanh(f)) = (1 - tanh²(f)) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Subtract(
+                            Box::new(Node::Num(ExactNum::one())),
+                            Box::new(Node::Power(
+                                Box::new(Node::Function("tanh".to_string(), vec![f.clone()])),
+                                Box::new(Node::Num(ExactNum::two())),
+                            )),
+                        )),
+                        Box::new(fp),
+                    ))
+                }
+                "arcsin" => {
+                    if args.len() != 1 {
+                        return Err("arcsin function requires exactly one argument".to_string());
+                    }
+                    // d/dx(arcsin(f)) = 1/√(1-f²) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Divide(
+                            Box::new(Node::Num(ExactNum::one())),
+                            Box::new(Node::Sqrt(Box::new(Node::Subtract(
+                                Box::new(Node::Num(ExactNum::one())),
+                                Box::new(Node::Power(
+                                    Box::new(f.clone()),
+                                    Box::new(Node::Num(ExactNum::two())),
+                                )),
+                            )))),
+                        )),
+                        Box::new(fp),
+                    ))
+                }
+                "arccos" => {
+                    if args.len() != 1 {
+                        return Err("arccos function requires exactly one argument".to_string());
+                    }
+                    // d/dx(arccos(f)) = -1/√(1-f²) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Negate(Box::new(Node::Divide(
+                            Box::new(Node::Num(ExactNum::one())),
+                            Box::new(Node::Sqrt(Box::new(Node::Subtract(
+                                Box::new(Node::Num(ExactNum::one())),
+                                Box::new(Node::Power(
+                                    Box::new(f.clone()),
+                                    Box::new(Node::Num(ExactNum::two())),
+                                )),
+                            )))),
+                        )))),
+                        Box::new(fp),
+                    ))
+                }
+                "arctan" => {
+                    if args.len() != 1 {
+                        return Err("arctan function requires exactly one argument".to_string());
+                    }
+                    // d/dx(arctan(f)) = 1/(1+f²) · f'
+                    let f = &args[0];
+                    let fp = differentiate(f, var_name)?;
+                    Ok(Node::Multiply(
+                        Box::new(Node::Divide(
+                            Box::new(Node::Num(ExactNum::one())),
+                            Box::new(Node::Add(
+                                Box::new(Node::Num(ExactNum::one())),
+                                Box::new(Node::Power(
+                                    Box::new(f.clone()),
+                                    Box::new(Node::Num(ExactNum::two())),
+                                )),
+                            )),
+                        )),
+                        Box::new(fp),
+                    ))
+                }
                 "abs" => {
                     if args.len() != 1 {
                         return Err("abs function requires exactly one argument".to_string());
