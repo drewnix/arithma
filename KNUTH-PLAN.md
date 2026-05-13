@@ -9,24 +9,17 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 11)
+## Current State (Post Session 12)
 
-**Phases 1-2 complete. Phase 3.1 complete. Simplifier significantly deepened.** 255 tests pass, 1 ignored (limits unimplemented).
+**Phases 1-2 complete. Phase 3.1 complete. Simplifier significantly deepened. Equation solver handles arbitrary degree.** 284 tests pass, 1 ignored (limits unimplemented).
 
-### Session 11 Changes
-- **Polynomial routing for integration/differentiation**: Polynomial integrands and differentiands are routed through `Polynomial::integral()`/`derivative()` for canonical output. `∫(3x²+2x+1)dx` → `x³+x²+x` instead of `3·x³/3 + 2·x²/2 + x`.
-- **Exact powf**: `ExactNum::powf` stays rational for integer exponents — `(2/3)²=4/9`, `3⁴=81`, `(2/3)⁻²=9/4`.
-- **Exact sqrt**: `ExactNum::sqrt` stays rational for perfect squares — `√9=3`, `√(9/4)=3/2`.
-- **Simplifier: Subtract normalization**: Polynomial normalization + collect_terms for subtraction — `x²-x²→0`, `2x²-x²→x²`, `5x+3y-2x→3x+3y`.
-- **Simplifier: Multiply normalization**: Polynomial path for products — `x·x→x²`, `(x+1)(x-1)→x²-1`, `3(x+2)→3x+6`.
-- **Simplifier: Power-of-power**: `(x^a)^b → x^(a·b)` for numeric exponents.
-- **Simplifier: Double negation**: `--x → x`.
-- **Polynomial to_node**: Uses Subtract for negative terms — `x²-1` not `x²+-1`.
-- **Multiply Display**: Integer coefficients use juxtaposition for powers — `2x³` not `2·x³`. Fraction coefficients use `\cdot`.
-- **collect_terms extended**: Now handles Subtract and Negate nodes for multi-variable term collection.
-- **WASM endpoints**: `simplify_latex_js` and `polynomial_factor_js` — dedicated simplification and factorization for the frontend/MCP.
-- **Auto-simplification**: `differentiate_latex` and `integrate_latex` simplify their output.
-- **Pre-simplification**: `differentiate` and `integrate` simplify their input for consistent pattern matching. Fixes `d/dx(x^{-1})`.
+### Session 12 Changes
+- **Rational root theorem**: `Polynomial::rational_roots()` finds all rational roots of any-degree polynomial using the rational root theorem. Converts to primitive part for integer coefficients, enumerates ±(divisor of a₀)/(divisor of aₙ), tests via Horner evaluation.
+- **Synthetic division**: `Polynomial::deflate(root)` divides out a known root in O(n), reducing degree by 1.
+- **Cubic solver (Cardano)**: For irreducible cubics (no rational roots), Cardano's formula computes real roots. Handles all three cases: one real root (h > 0), double root (h = 0), and casus irreducibilis (h < 0, three real roots via trigonometric method).
+- **General equation solver**: Degree ≥ 3 polynomials solved by: (1) find all rational roots via rational root theorem, (2) deflate, (3) solve remaining factor with appropriate formula (linear, quadratic, or Cardano). Works for any degree — quintic x⁵-x=0 correctly returns roots {-1, 0, 1}.
+- **Implicit multiplication parsing**: Tokenizer inserts `*` for `\frac{a}{b}x`, `2(x+1)`, `(a+b)(c+d)`, and `(expr)number` patterns. Function calls like `\sin(x)` correctly not affected.
+- **Environment ExactNum**: Environment stores `ExactNum` internally instead of f64. The f64 API is preserved for backward compatibility. Custom serde keeps JSON interface unchanged. Summation loop variables are now exact integers. The last precision leak in the pipeline is closed.
 
 ### Remaining Ignored Tests (1)
 - `test_lim_function`: limits not implemented
@@ -79,11 +72,13 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 **Goal:** A proper `Polynomial` type for efficient polynomial arithmetic.
 
-### 3.1 — Dense univariate polynomials
-- `UnivariatePolynomial<R>` — coefficients in a ring `R` (initially `BigRational`)
-- Operations: add, subtract, multiply, divide-with-remainder, GCD
-- GCD via the subresultant algorithm (not Euclidean — coefficient growth matters)
-- Conversion: `Node` ↔ `UnivariatePolynomial` for polynomial expressions
+### 3.1 — Dense univariate polynomials ✅ (Sessions 10-12)
+- `Polynomial` — dense representation, coefficients in `BigRational`, least-degree first
+- Operations: add, subtract, multiply, divide-with-remainder, GCD (Euclidean)
+- Conversion: `Node` ↔ `Polynomial` for polynomial expressions
+- Derivative, integral, square-free decomposition, content, primitive part
+- **Session 12:** `rational_roots()` via rational root theorem, `deflate()` via synthetic division
+- **Equation solver:** Linear (exact), quadratic (exact when possible, f64 fallback), cubic (Cardano with trigonometric method for casus irreducibilis), any-degree via rational root theorem + deflation
 
 ### 3.2 — Multivariate polynomials
 - Recursive representation: a polynomial in x whose coefficients are polynomials in y, z, ...
@@ -91,11 +86,10 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - GCD via the sparse modular algorithm if performance requires it
 
 ### 3.3 — Polynomial factoring
-- Square-free factorization (necessary for integration)
-- Factoring over Q via Hensel lifting (Berlekamp-Zassenhaus)
-- This is algorithmically deep but essential for a serious CAS
+- Square-free factorization ✅ (Session 10)
+- Factoring over Q via Hensel lifting (Berlekamp-Zassenhaus) — algorithmically deep, future work
 
-**Estimated effort:** 2-3 sessions for 3.1 + 3.2. Factoring (3.3) is a separate project.
+**Estimated effort:** 3.1 complete. 3.2 is 1-2 sessions. 3.3 (Berlekamp-Zassenhaus) is a separate project.
 
 ## Phase 4: Simplification Engine
 
