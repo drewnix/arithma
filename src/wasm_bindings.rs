@@ -2,7 +2,6 @@ use crate::composition::compose_latex;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::expression::extract_variable;
-use crate::expression::solve_for_variable;
 use crate::integration::{definite_integral_latex, integrate_latex};
 use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
@@ -176,13 +175,17 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
                 }
             }
             _ => {
-                // Try to find a variable to solve for
                 if let Some(var_name) = extract_variable(latex_expr) {
-                    match solve_for_variable(&parsed_expr, &var_name) {
-                        Ok(solution) => return Ok(format!("{} = {}", var_name, solution)),
+                    match crate::expression::solve_for_variable_exact(&parsed_expr, &var_name) {
+                        Ok(solutions) => {
+                            let parts: Vec<String> = solutions
+                                .iter()
+                                .map(|s| format!("{} = {}", var_name, s))
+                                .collect();
+                            return Ok(parts.join(", "));
+                        }
                         Err(e) => {
                             if e.contains("summation") || e.contains("function") {
-                                // For equations with summations or functions, show the simplified expression
                                 return Ok(format!("{}", parsed_expr));
                             }
                             return Err(JsValue::from_str(&format!(
