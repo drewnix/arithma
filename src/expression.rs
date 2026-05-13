@@ -1,125 +1,130 @@
+use crate::exact::ExactNum;
 use crate::node::Node;
+use crate::polynomial::Polynomial;
 use crate::Tokenizer;
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::{Signed, Zero};
 
 pub fn extract_variable(expr: &str) -> Option<String> {
-    // Create an instance of the Tokenizer
-    let mut tokenizer = Tokenizer::new(expr); // Pass input as a reference
-
-    // Tokenize and parse the input
-    let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
+    let mut tokenizer = Tokenizer::new(expr);
+    let tokens = tokenizer.tokenize();
     tokens
         .into_iter()
         .find(|token| token.chars().all(char::is_alphabetic))
 }
 
 pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> {
-    // Check if the expression is an equation
-    if let Node::Equation(left, right) = expr {
-        // Move everything to the left side of the equation: left - right = 0
-        let equation_expr = Node::Subtract(left.clone(), right.clone());
-        solve_equation(&equation_expr, target_var)
+    let solutions = solve_polynomial(expr, target_var)?;
+    if solutions.is_empty() {
+        return Err("No real solutions".to_string());
+    }
+    Ok(solutions[0].to_f64())
+}
+
+pub fn solve_for_variable_exact(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, String> {
+    solve_polynomial(expr, target_var)
+}
+
+fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, String> {
+    let equation_expr = if let Node::Equation(left, right) = expr {
+        Node::Subtract(left.clone(), right.clone())
     } else {
-        // If not an equation, assume we're setting it to zero
-        solve_equation(expr, target_var)
+        expr.clone()
+    };
+
+    let env = crate::environment::Environment::new();
+    let simplified = crate::simplify::Simplifiable::simplify(&equation_expr, &env)
+        .unwrap_or(equation_expr);
+
+    let poly = Polynomial::from_node(&simplified, target_var)
+        .map_err(|e| format!("Cannot convert to polynomial: {}", e))?;
+
+    match poly.degree() {
+        None => {
+            // Zero polynomial — every value is a solution
+            Err("Equation is trivially true for all values".to_string())
+        }
+        Some(0) => {
+            // Nonzero constant — no solutions
+            Err("No solution (contradiction)".to_string())
+        }
+        Some(1) => {
+            // ax + b = 0  →  x = -b/a
+            let a = poly.coeff(1);
+            let b = poly.coeff(0);
+            let root = -b / a;
+            Ok(vec![rational_to_exact(&root)])
+        }
+        Some(2) => {
+            // ax² + bx + c = 0  →  x = (-b ± √(b²-4ac)) / 2a
+            let a = poly.coeff(2);
+            let b = poly.coeff(1);
+            let c = poly.coeff(0);
+            let discriminant = &b * &b - BigRational::from_integer(BigInt::from(4)) * &a * &c;
+
+            if discriminant.is_negative() {
+                return Err("No real solutions (negative discriminant)".to_string());
+            }
+
+            if discriminant.is_zero() {
+                let root = -b / (BigRational::from_integer(BigInt::from(2)) * a);
+                return Ok(vec![rational_to_exact(&root)]);
+            }
+
+            // Check if discriminant is a perfect square
+            let two_a = BigRational::from_integer(BigInt::from(2)) * &a;
+            if let Some(sqrt_d) = exact_rational_sqrt(&discriminant) {
+                let r1 = (-&b + &sqrt_d) / &two_a;
+                let r2 = (-&b - &sqrt_d) / &two_a;
+                Ok(vec![rational_to_exact(&r1), rational_to_exact(&r2)])
+            } else {
+                let disc_f64 = discriminant.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                    / discriminant.denom().to_string().parse::<f64>().unwrap_or(1.0);
+                let sqrt_d = disc_f64.sqrt();
+                let b_f64 = b.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                    / b.denom().to_string().parse::<f64>().unwrap_or(1.0);
+                let two_a_f64 = two_a.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                    / two_a.denom().to_string().parse::<f64>().unwrap_or(1.0);
+                let r1 = (-b_f64 + sqrt_d) / two_a_f64;
+                let r2 = (-b_f64 - sqrt_d) / two_a_f64;
+                Ok(vec![ExactNum::from_f64(r1), ExactNum::from_f64(r2)])
+            }
+        }
+        Some(d) => Err(format!(
+            "Polynomial degree {} — only linear and quadratic equations are supported",
+            d
+        )),
     }
 }
 
-fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
-    let mut coefficient = 0.0; // Coefficient of the target variable
-    let mut constant = 0.0; // Constant part to move to the other side
-
-    fn traverse(
-        node: &Node,
-        target_var: &str,
-        coefficient: &mut f64,
-        constant: &mut f64,
-        multiplier: f64, // Apply multiplier for cases like (x + 2) * 3
-    ) -> Result<(), String> {
-        match node {
-            Node::Num(num) => {
-                *constant += multiplier * num.to_f64(); // Apply multiplier to constants
-            }
-            Node::Variable(var_name) => {
-                if var_name == target_var {
-                    *coefficient += multiplier; // Apply multiplier to the variable coefficient
-                } else {
-                    return Err(format!("Unexpected variable '{}'", var_name));
-                }
-            }
-            Node::Add(left, right) => {
-                traverse(left, target_var, coefficient, constant, multiplier)?; // Traverse left side
-                traverse(right, target_var, coefficient, constant, multiplier)?;
-                // Traverse right side
-            }
-            Node::Subtract(left, right) => {
-                traverse(left, target_var, coefficient, constant, multiplier)?; // Traverse left side
-                traverse(right, target_var, coefficient, constant, -multiplier)?;
-                // Apply negation to the right
-            }
-            Node::Multiply(left, right) => {
-                if let Node::Num(num) = &**left {
-                    // If the left node is a number, it's a multiplier for the right side
-                    traverse(
-                        right,
-                        target_var,
-                        coefficient,
-                        constant,
-                        multiplier * num.to_f64(),
-                    )?;
-                } else if let Node::Num(num) = &**right {
-                    // If the right node is a number, it's a multiplier for the left side
-                    traverse(
-                        left,
-                        target_var,
-                        coefficient,
-                        constant,
-                        multiplier * num.to_f64(),
-                    )?;
-                } else {
-                    return Err(
-                        "Expected one operand to be a number in multiplication.".to_string()
-                    );
-                }
-            }
-            Node::Divide(left, right) => {
-                let mut right_constant = 0.0;
-                traverse(right, target_var, coefficient, &mut right_constant, 1.0)?;
-                if right_constant == 0.0 {
-                    return Err("Division by zero".to_string());
-                }
-                traverse(
-                    left,
-                    target_var,
-                    coefficient,
-                    constant,
-                    multiplier / right_constant,
-                )?;
-            }
-            Node::Summation(_, _, _, _) => {
-                // For summation nodes, we'll compute the value and treat it as a constant
-                // This is a simplified approach - in reality we'd want to handle variables inside summation
-                return Err("Cannot solve for variable in an equation with summation. Try evaluating both sides separately.".to_string());
-            }
-            Node::Function(_, _) => {
-                return Err("Cannot solve for variable in an equation with function calls. Try evaluating both sides separately.".to_string());
-            }
-            _ => return Err("Unexpected node in expression.".to_string()), // Handle any other unexpected node
-        }
-        Ok(())
+fn rational_to_exact(r: &BigRational) -> ExactNum {
+    if r.is_integer() {
+        ExactNum::integer(r.numer().try_into().unwrap_or(0))
+    } else {
+        ExactNum::rational(
+            r.numer().try_into().unwrap_or(0),
+            r.denom().try_into().unwrap_or(1),
+        )
     }
+}
 
-    // Start the traversal with a multiplier of 1.0
-    traverse(expr, target_var, &mut coefficient, &mut constant, 1.0)?;
-
-    if coefficient == 0.0 {
-        return Err(format!(
-            "Coefficient of variable '{}' is zero, can't solve.",
-            target_var
-        ));
+fn exact_rational_sqrt(r: &BigRational) -> Option<BigRational> {
+    if r.is_negative() {
+        return None;
     }
-
-    // Solve for the variable: 0 = coefficient * variable + constant
-    // Adjust the equation: variable = -constant / coefficient
-    let result = -constant / coefficient;
-    Ok(result)
+    if r.is_zero() {
+        return Some(BigRational::zero());
+    }
+    let n: i64 = r.numer().try_into().ok()?;
+    let d: i64 = r.denom().try_into().ok()?;
+    let nu = n.unsigned_abs();
+    let du = d.unsigned_abs();
+    let sn = (nu as f64).sqrt() as u64;
+    let sd = (du as f64).sqrt() as u64;
+    if sn * sn == nu && sd * sd == du {
+        Some(BigRational::new(BigInt::from(sn), BigInt::from(sd)))
+    } else {
+        None
+    }
 }

@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod algebra_tests {
-    use arithma::{build_expression_tree, solve_for_variable, Environment, Evaluator, Tokenizer};
+    use arithma::{
+        build_expression_tree, solve_for_variable, solve_for_variable_exact, Environment,
+        Evaluator, Tokenizer,
+    };
 
     fn evaluate_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
         // Create an instance of the Tokenizer
@@ -551,6 +554,77 @@ mod algebra_tests {
 
         // max() should panic or return an error
         assert!(evaluate_expression_with_env("\\max{}", &env).is_err());
+    }
+
+    #[test]
+    fn test_solve_quadratic_rational_roots() {
+        // x² - 5x + 6 = 0  →  (x-2)(x-3) = 0  →  x = 3, x = 2
+        let mut tokenizer = Tokenizer::new("x^{2} - 5*x + 6 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2);
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals[0], 2.0);
+        assert_eq!(vals[1], 3.0);
+    }
+
+    #[test]
+    fn test_solve_quadratic_double_root() {
+        // x² - 4x + 4 = 0  →  (x-2)² = 0  →  x = 2
+        let mut tokenizer = Tokenizer::new("x^{2} - 4*x + 4 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert_eq!(solutions[0].to_f64(), 2.0);
+    }
+
+    #[test]
+    fn test_solve_quadratic_no_real() {
+        // x² + 1 = 0  →  no real solutions
+        let mut tokenizer = Tokenizer::new("x^{2} + 1 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let result = solve_for_variable_exact(&expr, "x");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_solve_quadratic_irrational_roots() {
+        // x² - 2 = 0  →  x = ±√2
+        let mut tokenizer = Tokenizer::new("x^{2} - 2 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2);
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(approx_eq(vals[0], -std::f64::consts::SQRT_2, 1e-10));
+        assert!(approx_eq(vals[1], std::f64::consts::SQRT_2, 1e-10));
+    }
+
+    #[test]
+    fn test_solve_linear_exact() {
+        // 3x + 6 = 0  →  x = -2
+        let mut tokenizer = Tokenizer::new("3*x + 6 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert_eq!(solutions[0], arithma::ExactNum::integer(-2));
+    }
+
+    #[test]
+    fn test_solve_linear_fractional() {
+        // 2x = 3  →  x = 3/2
+        let mut tokenizer = Tokenizer::new("2*x = 3");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert_eq!(solutions[0], arithma::ExactNum::rational(3, 2));
     }
 
     #[test]
