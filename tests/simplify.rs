@@ -195,4 +195,40 @@ mod test_simplify {
 
         assert_eq!(sorted_expr(&simplified), sorted_expr(&expected));
     }
+
+    #[test]
+    fn test_simplify_polynomial_like_terms() {
+        let env = Environment::new();
+        // x^2 + 3x + x^2 + 2x + 1 should simplify to 2x^2 + 5x + 1
+        let expr = Node::Add(
+            Box::new(Node::Add(
+                Box::new(Node::Power(
+                    Box::new(Node::Variable("x".to_string())),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )),
+                Box::new(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(3))),
+                    Box::new(Node::Variable("x".to_string())),
+                )),
+            )),
+            Box::new(Node::Add(
+                Box::new(Node::Add(
+                    Box::new(Node::Power(
+                        Box::new(Node::Variable("x".to_string())),
+                        Box::new(Node::Num(ExactNum::integer(2))),
+                    )),
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Num(ExactNum::integer(2))),
+                        Box::new(Node::Variable("x".to_string())),
+                    )),
+                )),
+                Box::new(Node::Num(ExactNum::integer(1))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut result_env = Environment::new();
+        result_env.set("x", 10.0);
+        let val = Evaluator::evaluate(&simplified, &result_env).unwrap();
+        assert_eq!(val, 251.0, "2(100) + 5(10) + 1 = 251");
+    }
 }

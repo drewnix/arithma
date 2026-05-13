@@ -1,6 +1,7 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
 use crate::node::Node;
+use crate::polynomial::Polynomial;
 use std::collections::HashMap;
 
 pub trait Simplifiable {
@@ -34,6 +35,8 @@ impl Simplifiable for Node {
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
                     Ok(rebuild_expression(term_map))
+                } else if let Some(normalized) = try_polynomial_normalize(&result) {
+                    Ok(normalized)
                 } else {
                     Ok(result)
                 }
@@ -336,4 +339,38 @@ fn rebuild_expression(term_map: HashMap<String, ExactNum>) -> Node {
     simplified_expr
 }
 
-// This function has been moved to the substitute module
+fn find_single_variable(node: &Node) -> Option<String> {
+    let mut vars = std::collections::HashSet::new();
+    collect_variables(node, &mut vars);
+    if vars.len() == 1 {
+        vars.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn collect_variables(node: &Node, vars: &mut std::collections::HashSet<String>) {
+    match node {
+        Node::Variable(v) => {
+            vars.insert(v.clone());
+        }
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r) => {
+            collect_variables(l, vars);
+            collect_variables(r, vars);
+        }
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+            collect_variables(inner, vars);
+        }
+        _ => {}
+    }
+}
+
+fn try_polynomial_normalize(node: &Node) -> Option<Node> {
+    let var = find_single_variable(node)?;
+    let poly = Polynomial::from_node(node, &var).ok()?;
+    Some(poly.to_node())
+}
