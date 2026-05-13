@@ -167,7 +167,7 @@ impl fmt::Display for Node {
                     .map(|arg| format!("{}", arg))
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "{}({})", name, formatted_args)
+                write!(f, "\\{}({})", name, formatted_args)
             }
         }
     }

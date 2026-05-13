@@ -482,7 +482,128 @@ mod test_simplify {
             )),
         );
         let simplified = expr.simplify(&env).unwrap();
-        assert_eq!(format!("{}", simplified), "sin(x)^{5}");
+        assert_eq!(format!("{}", simplified), "\\sin(x)^{5}");
+    }
+
+    #[test]
+    fn test_pythagorean_identity() {
+        let env = Environment::new();
+        // sin²(x) + cos²(x) → 1
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Add(
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Power(
+                Box::new(cos_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(1)));
+    }
+
+    #[test]
+    fn test_pythagorean_identity_reversed() {
+        let env = Environment::new();
+        // cos²(x) + sin²(x) → 1
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Add(
+            Box::new(Node::Power(
+                Box::new(cos_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(1)));
+    }
+
+    #[test]
+    fn test_pythagorean_different_args() {
+        let env = Environment::new();
+        // sin²(x) + cos²(y) should NOT simplify
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_y = Node::Function("cos".to_string(), vec![Node::Variable("y".to_string())]);
+        let expr = Node::Add(
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Power(
+                Box::new(cos_y),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_ne!(simplified, Node::Num(ExactNum::integer(1)));
+    }
+
+    #[test]
+    fn test_pythagorean_with_coefficient() {
+        let env = Environment::new();
+        // 3·sin²(x) + 3·cos²(x) → 3
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(3))),
+                Box::new(Node::Power(
+                    Box::new(sin_x),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(3))),
+                Box::new(Node::Power(
+                    Box::new(cos_x),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(3)));
+    }
+
+    #[test]
+    fn test_function_latex_display() {
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        assert_eq!(format!("{}", sin_x), "\\sin(x)");
+
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        assert_eq!(format!("{}", cos_x), "\\cos(x)");
+
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        assert_eq!(format!("{}", ln_x), "\\ln(x)");
+    }
+
+    #[test]
+    fn test_trig_constant_folding() {
+        let env = Environment::new();
+        // sin(0) → 0
+        let expr = Node::Function("sin".to_string(), vec![Node::Num(ExactNum::zero())]);
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::zero()));
+
+        // cos(0) → 1
+        let expr = Node::Function("cos".to_string(), vec![Node::Num(ExactNum::zero())]);
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::one()));
+    }
+
+    #[test]
+    fn test_ln_constant_folding() {
+        let env = Environment::new();
+        // ln(1) → 0
+        let expr = Node::Function("ln".to_string(), vec![Node::Num(ExactNum::one())]);
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::zero()));
     }
 
     #[test]

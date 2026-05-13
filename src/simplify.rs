@@ -31,6 +31,11 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // sin²(x) + cos²(x) → 1
+                if let Some(result) = try_pythagorean(&left_simplified, &right_simplified) {
+                    return Ok(result);
+                }
+
                 let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
@@ -595,4 +600,77 @@ fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
         Box::new(n_reduced.to_node()),
         Box::new(d_reduced.to_node()),
     ))
+}
+
+fn is_trig_squared(node: &Node, func_name: &str) -> Option<Vec<Node>> {
+    if let Node::Power(base, exp) = node {
+        if let Node::Num(ref e) = **exp {
+            if e == &ExactNum::two() {
+                if let Node::Function(name, args) = base.as_ref() {
+                    if name == func_name {
+                        return Some(args.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn try_pythagorean(left: &Node, right: &Node) -> Option<Node> {
+    // sin²(x) + cos²(x) → 1
+    if let (Some(sin_args), Some(cos_args)) =
+        (is_trig_squared(left, "sin"), is_trig_squared(right, "cos"))
+    {
+        if sin_args == cos_args {
+            return Some(Node::Num(ExactNum::one()));
+        }
+    }
+    // cos²(x) + sin²(x) → 1
+    if let (Some(cos_args), Some(sin_args)) =
+        (is_trig_squared(left, "cos"), is_trig_squared(right, "sin"))
+    {
+        if cos_args == sin_args {
+            return Some(Node::Num(ExactNum::one()));
+        }
+    }
+
+    // a·sin²(x) + a·cos²(x) → a (with coefficient)
+    if let (Some((coeff_l, sin_args)), Some((coeff_r, cos_args))) = (
+        extract_coeff_trig_sq(left, "sin"),
+        extract_coeff_trig_sq(right, "cos"),
+    ) {
+        if sin_args == cos_args && coeff_l == coeff_r {
+            return Some(Node::Num(coeff_l));
+        }
+    }
+    if let (Some((coeff_l, cos_args)), Some((coeff_r, sin_args))) = (
+        extract_coeff_trig_sq(left, "cos"),
+        extract_coeff_trig_sq(right, "sin"),
+    ) {
+        if cos_args == sin_args && coeff_l == coeff_r {
+            return Some(Node::Num(coeff_l));
+        }
+    }
+
+    None
+}
+
+fn extract_coeff_trig_sq(node: &Node, func_name: &str) -> Option<(ExactNum, Vec<Node>)> {
+    if let Some(args) = is_trig_squared(node, func_name) {
+        return Some((ExactNum::one(), args));
+    }
+    if let Node::Multiply(coeff, power) = node {
+        if let Node::Num(ref c) = **coeff {
+            if let Some(args) = is_trig_squared(power, func_name) {
+                return Some((c.clone(), args));
+            }
+        }
+        if let Node::Num(ref c) = **power {
+            if let Some(args) = is_trig_squared(coeff, func_name) {
+                return Some((c.clone(), args));
+            }
+        }
+    }
+    None
 }
