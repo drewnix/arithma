@@ -701,6 +701,152 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_ln_of_power() {
+        let env = Environment::new();
+        // ln(x^3) → 3·ln(x)
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 2.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert!((val - 3.0 * 2.0_f64.ln()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_ln_of_product() {
+        let env = Environment::new();
+        // ln(x * y) → ln(x) + ln(y)
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Variable("y".to_string())),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert!(matches!(simplified, Node::Add(_, _)));
+    }
+
+    #[test]
+    fn test_ln_of_quotient() {
+        let env = Environment::new();
+        // ln(x / y) → ln(x) - ln(y)
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Divide(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Variable("y".to_string())),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert!(matches!(simplified, Node::Subtract(_, _)));
+    }
+
+    #[test]
+    fn test_sin_div_cos() {
+        let env = Environment::new();
+        // sin(x) / cos(x) → tan(x)
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Divide(Box::new(sin_x), Box::new(cos_x));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("tan".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_cos_div_sin() {
+        let env = Environment::new();
+        // cos(x) / sin(x) → cot(x)
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Divide(Box::new(cos_x), Box::new(sin_x));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("cot".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_sin_odd_function() {
+        let env = Environment::new();
+        // sin(-x) → -sin(x)
+        let expr = Node::Function(
+            "sin".to_string(),
+            vec![Node::Negate(Box::new(Node::Variable("x".to_string())))],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Negate(Box::new(Node::Function(
+                "sin".to_string(),
+                vec![Node::Variable("x".to_string())]
+            )))
+        );
+    }
+
+    #[test]
+    fn test_cos_even_function() {
+        let env = Environment::new();
+        // cos(-x) → cos(x)
+        let expr = Node::Function(
+            "cos".to_string(),
+            vec![Node::Negate(Box::new(Node::Variable("x".to_string())))],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_abs_numeric() {
+        let env = Environment::new();
+        // |-5| → 5
+        let expr = Node::Abs(Box::new(Node::Num(ExactNum::integer(-5))));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(5)));
+    }
+
+    #[test]
+    fn test_abs_negate() {
+        let env = Environment::new();
+        // |-x| → |x|
+        let expr = Node::Abs(Box::new(Node::Negate(Box::new(Node::Variable(
+            "x".to_string(),
+        )))));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Abs(Box::new(Node::Variable("x".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_abs_idempotent() {
+        let env = Environment::new();
+        // ||x|| → |x|
+        let expr = Node::Abs(Box::new(Node::Abs(Box::new(Node::Variable(
+            "x".to_string(),
+        )))));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Abs(Box::new(Node::Variable("x".to_string())))
+        );
+    }
+
+    #[test]
     fn test_divide_same_expr() {
         let env = Environment::new();
         // x / x → 1

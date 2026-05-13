@@ -303,6 +303,20 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(ExactNum::one()));
                 }
 
+                // sin(x) / cos(x) → tan(x)
+                if let (
+                    Node::Function(ref fname1, ref args1),
+                    Node::Function(ref fname2, ref args2),
+                ) = (&left_simplified, &right_simplified)
+                {
+                    if fname1 == "sin" && fname2 == "cos" && args1 == args2 {
+                        return Ok(Node::Function("tan".to_string(), args1.clone()));
+                    }
+                    if fname1 == "cos" && fname2 == "sin" && args1 == args2 {
+                        return Ok(Node::Function("cot".to_string(), args1.clone()));
+                    }
+                }
+
                 // x^a / x^b → x^(a-b)
                 if let (
                     Node::Power(ref base1, ref exp1),
@@ -427,6 +441,21 @@ impl Simplifiable for Node {
                     Box::new(body_simplified),
                 ))
             }
+            Node::Abs(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.abs()));
+                }
+                // |-x| → |x|
+                if let Node::Negate(inner) = simplified {
+                    return Ok(Node::Abs(inner));
+                }
+                // ||x|| → |x|
+                if let Node::Abs(_) = simplified {
+                    return Ok(simplified);
+                }
+                Ok(Node::Abs(Box::new(simplified)))
+            }
             Node::Sqrt(operand) => {
                 let simplified = operand.simplify(env)?;
                 if let Node::Num(ref n) = simplified {
@@ -440,36 +469,72 @@ impl Simplifiable for Node {
                     .map(|a| a.simplify(env))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                // Inverse function simplification for single-argument functions
                 if simplified_args.len() == 1 {
                     let arg = &simplified_args[0];
                     match name.as_str() {
-                        // ln(e^x) → x
                         "ln" => {
+                            // ln(e^x) → x
                             if let Node::Power(base, exp) = arg {
                                 if let Node::Num(ref b) = **base {
                                     if (b.to_f64() - std::f64::consts::E).abs() < 1e-14 {
                                         return Ok(*exp.clone());
                                     }
                                 }
+                                // ln(a^b) → b·ln(a)
+                                return Ok(Node::Multiply(
+                                    exp.clone(),
+                                    Box::new(Node::Function(
+                                        "ln".to_string(),
+                                        vec![*base.clone()],
+                                    )),
+                                ));
+                            }
+                            // ln(a·b) → ln(a) + ln(b)
+                            if let Node::Multiply(a, b) = arg {
+                                return Ok(Node::Add(
+                                    Box::new(Node::Function("ln".to_string(), vec![*a.clone()])),
+                                    Box::new(Node::Function("ln".to_string(), vec![*b.clone()])),
+                                ));
+                            }
+                            // ln(a/b) → ln(a) - ln(b)
+                            if let Node::Divide(a, b) = arg {
+                                return Ok(Node::Subtract(
+                                    Box::new(Node::Function("ln".to_string(), vec![*a.clone()])),
+                                    Box::new(Node::Function("ln".to_string(), vec![*b.clone()])),
+                                ));
                             }
                         }
-                        // exp(ln(x)) → x
                         "exp" => {
+                            // exp(ln(x)) → x
                             if let Node::Function(inner_name, inner_args) = arg {
                                 if inner_name == "ln" && inner_args.len() == 1 {
                                     return Ok(inner_args[0].clone());
                                 }
                             }
                         }
-                        // sqrt(x²) → |x| → x for simplification purposes
                         "sqrt" => {
+                            // sqrt(x²) → |x|
                             if let Node::Power(base, exp) = arg {
                                 if let Node::Num(ref e) = **exp {
                                     if e == &ExactNum::two() {
                                         return Ok(Node::Abs(base.clone()));
                                     }
                                 }
+                            }
+                        }
+                        // sin(-x) → -sin(x)
+                        "sin" | "tan" | "sinh" | "tanh" => {
+                            if let Node::Negate(inner) = arg {
+                                return Ok(Node::Negate(Box::new(Node::Function(
+                                    name.clone(),
+                                    vec![*inner.clone()],
+                                ))));
+                            }
+                        }
+                        // cos(-x) → cos(x)
+                        "cos" | "cosh" => {
+                            if let Node::Negate(inner) = arg {
+                                return Ok(Node::Function(name.clone(), vec![*inner.clone()]));
                             }
                         }
                         _ => {}
