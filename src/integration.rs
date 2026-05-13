@@ -5,6 +5,9 @@ use crate::polynomial::Polynomial;
 use crate::tokenizer::Tokenizer;
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
+    let env = crate::environment::Environment::new();
+    let expr = &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+
     if let Ok(poly) = Polynomial::from_node(expr, var_name) {
         return Ok(poly.integral().to_node());
     }
