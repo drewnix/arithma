@@ -1,6 +1,8 @@
 #![allow(unexpected_cfgs)]
 
-// Declare the node module
+pub mod exact;
+pub use crate::exact::ExactNum;
+
 mod node;
 pub use crate::node::Node;
 

@@ -1,3 +1,4 @@
+use crate::exact::ExactNum;
 use crate::node::Node;
 
 /// Calculates the derivative of an expression with respect to a given variable
@@ -13,19 +14,16 @@ use crate::node::Node;
 pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
     match expr {
         // Constants differentiate to zero
-        Node::Number(_) => Ok(Node::Number(0.0)),
+        Node::Num(_) => Ok(Node::Num(ExactNum::zero())),
 
         // Variables: d/dx(x) = 1, d/dx(y) = 0
         Node::Variable(name) => {
             if name == var_name {
-                Ok(Node::Number(1.0))
+                Ok(Node::Num(ExactNum::one()))
             } else {
-                Ok(Node::Number(0.0))
+                Ok(Node::Num(ExactNum::zero()))
             }
         }
-
-        // Rational numbers are constants
-        Node::Rational(_, _) => Ok(Node::Number(0.0)),
 
         // d/dx(f + g) = d/dx(f) + d/dx(g)
         Node::Add(left, right) => {
@@ -77,7 +75,7 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
             let numerator = Node::Subtract(Box::new(term1), Box::new(term2));
 
             // g^2
-            let denominator = Node::Power(right.clone(), Box::new(Node::Number(2.0)));
+            let denominator = Node::Power(right.clone(), Box::new(Node::Num(ExactNum::two())));
 
             // (g*df/dx - f*dg/dx) / g^2
             Ok(Node::Divide(Box::new(numerator), Box::new(denominator)))
@@ -87,26 +85,26 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
         Node::Power(base, exponent) => {
             // Check if the base is the variable we're differentiating with respect to
             // and the exponent is a constant
-            if let (Node::Variable(base_var), Node::Number(n)) = (&**base, &**exponent) {
+            if let (Node::Variable(base_var), Node::Num(n)) = (&**base, &**exponent) {
                 if base_var == var_name {
                     // n * x^(n-1)
-                    let coefficient = *n;
-                    let new_exponent = *n - 1.0;
+                    let coefficient = n.clone();
+                    let new_exponent = n.clone() - ExactNum::one();
 
                     // Handle special cases
-                    if new_exponent == 0.0 {
-                        return Ok(Node::Number(coefficient));
-                    } else if new_exponent == 1.0 {
+                    if new_exponent.is_zero() {
+                        return Ok(Node::Num(coefficient));
+                    } else if new_exponent.is_one() {
                         return Ok(Node::Multiply(
-                            Box::new(Node::Number(coefficient)),
+                            Box::new(Node::Num(coefficient)),
                             Box::new(Node::Variable(var_name.to_string())),
                         ));
                     } else {
                         return Ok(Node::Multiply(
-                            Box::new(Node::Number(coefficient)),
+                            Box::new(Node::Num(coefficient)),
                             Box::new(Node::Power(
                                 Box::new(Node::Variable(var_name.to_string())),
-                                Box::new(Node::Number(new_exponent)),
+                                Box::new(Node::Num(new_exponent)),
                             )),
                         ));
                     }
@@ -115,18 +113,18 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
             // General case using chain rule: d/dx(f(x)^g(x)) = g*f^(g-1)*f' + f^g*ln(f)*g'
             // For now, we'll just implement the simple case where g is constant: d/dx(f(x)^n) = n*f(x)^(n-1)*f'(x)
-            if let Node::Number(n) = &**exponent {
+            if let Node::Num(n) = &**exponent {
                 let base_derivative = differentiate(base, var_name)?;
 
                 // n * f(x)^(n-1)
-                let new_exponent = *n - 1.0;
-                let power_term = if new_exponent == 0.0 {
-                    Node::Number(1.0)
+                let new_exponent = n.clone() - ExactNum::one();
+                let power_term = if new_exponent.is_zero() {
+                    Node::Num(ExactNum::one())
                 } else {
-                    Node::Power(base.clone(), Box::new(Node::Number(new_exponent)))
+                    Node::Power(base.clone(), Box::new(Node::Num(new_exponent)))
                 };
 
-                let coefficient = Node::Number(*n);
+                let coefficient = Node::Num(n.clone());
 
                 // n * f(x)^(n-1) * f'(x)
                 Ok(Node::Multiply(
@@ -142,7 +140,7 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     // y * f(x)^(y-1)
                     let new_exponent = Node::Subtract(
                         Box::new(Node::Variable(exp_var.clone())),
-                        Box::new(Node::Number(1.0)),
+                        Box::new(Node::Num(ExactNum::one())),
                     );
 
                     let power_term = Node::Power(base.clone(), Box::new(new_exponent));
@@ -174,9 +172,9 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
             // 1/(2*sqrt(f))
             let coefficient = Node::Divide(
-                Box::new(Node::Number(1.0)),
+                Box::new(Node::Num(ExactNum::one())),
                 Box::new(Node::Multiply(
-                    Box::new(Node::Number(2.0)),
+                    Box::new(Node::Num(ExactNum::two())),
                     Box::new(Node::Sqrt(operand.clone())),
                 )),
             );
@@ -211,7 +209,7 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
             if index == var_name {
                 // If the variable we're differentiating with respect to is the summation index,
                 // the derivative is zero because the index is bound by the summation
-                Ok(Node::Number(0.0))
+                Ok(Node::Num(ExactNum::zero()))
             } else {
                 // Differentiate the start, end and body with respect to the variable
                 let start_derivative = differentiate(start, var_name)?;
@@ -219,8 +217,8 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 let body_derivative = differentiate(body, var_name)?;
 
                 // If start and end don't depend on the variable, just differentiate the body
-                if matches!(&start_derivative, Node::Number(0.0))
-                    && matches!(&end_derivative, Node::Number(0.0))
+                if matches!(&start_derivative, Node::Num(n) if n.is_zero())
+                    && matches!(&end_derivative, Node::Num(n) if n.is_zero())
                 {
                     Ok(Node::Summation(
                         index.clone(),
@@ -252,9 +250,9 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
                     // 1/(2*sqrt(f))
                     let coefficient = Node::Divide(
-                        Box::new(Node::Number(1.0)),
+                        Box::new(Node::Num(ExactNum::one())),
                         Box::new(Node::Multiply(
-                            Box::new(Node::Number(2.0)),
+                            Box::new(Node::Num(ExactNum::two())),
                             Box::new(Node::Function("sqrt".to_string(), vec![operand.clone()])),
                         )),
                     );
@@ -315,10 +313,10 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
                     // sec^2(f) = 1/cos^2(f)
                     let coefficient = Node::Divide(
-                        Box::new(Node::Number(1.0)),
+                        Box::new(Node::Num(ExactNum::one())),
                         Box::new(Node::Power(
                             Box::new(Node::Function("cos".to_string(), vec![operand.clone()])),
-                            Box::new(Node::Number(2.0)),
+                            Box::new(Node::Num(ExactNum::two())),
                         )),
                     );
 
@@ -339,7 +337,7 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
                     // 1/f
                     let coefficient =
-                        Node::Divide(Box::new(Node::Number(1.0)), Box::new(operand.clone()));
+                        Node::Divide(Box::new(Node::Num(ExactNum::one())), Box::new(operand.clone()));
 
                     // 1/f * df/dx
                     Ok(Node::Multiply(
@@ -375,9 +373,9 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     let operand_derivative = differentiate(operand, var_name)?;
 
                     // 1/(f*ln(10))
-                    let ln10 = Node::Number(std::f64::consts::LN_10);
+                    let ln10 = Node::Num(ExactNum::Float(std::f64::consts::LN_10));
                     let coefficient = Node::Divide(
-                        Box::new(Node::Number(1.0)),
+                        Box::new(Node::Num(ExactNum::one())),
                         Box::new(Node::Multiply(Box::new(operand.clone()), Box::new(ln10))),
                     );
 

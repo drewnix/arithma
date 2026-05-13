@@ -60,7 +60,7 @@ pub fn substitute_latex(
 /// Substitute a variable in an expression with the provided value
 pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<Node, String> {
     match node {
-        Node::Number(_) => Ok(node.clone()),
+        Node::Num(_) => Ok(node.clone()),
         Node::Variable(name) => {
             if name == var_name {
                 Ok(value.clone())
@@ -68,9 +68,6 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
                 Ok(node.clone())
             }
         }
-        Node::Rational(_, _) => Ok(node.clone()),
-        Node::ClosingParen | Node::ClosingBrace => Ok(node.clone()),
-
         Node::Add(left, right) => {
             let left_subst = substitute_variable(left, var_name, value)?;
             let right_subst = substitute_variable(right, var_name, value)?;

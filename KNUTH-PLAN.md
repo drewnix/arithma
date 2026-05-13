@@ -9,40 +9,40 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 08 Cleanup)
+## Current State (Post Session 09)
 
-The foundation is sound: LaTeX tokenizer → parser → AST → manipulation → evaluation → WASM. Differentiation, basic integration, matrix operations, composition, substitution, and simplification all work. The derivative engine is now clean — nine hardcoded special cases removed, general algorithms verified correct. A `differentiate_and_evaluate` function bypasses the lossy Display round-trip.
+**Phase 1 substantially complete.** The AST now carries exact rational arithmetic. `ExactNum` enum (`Rational(BigRational)` | `Float(f64)`) replaces both `Node::Number(f64)` and `Node::Rational(i64, i64)`. All 161 tests pass. Integer literals are promoted to exact rationals at parse time; `e` and `pi` remain as `Float`. `\frac{a}{b}` with integer arguments produces `ExactNum::rational(a, b)` directly.
 
 ### Known Issues
 - `Display` implementation doesn't produce correctly parenthesized output (affects `differentiate_latex` string round-trip)
-- `Node` type contains `ClosingParen`/`ClosingBrace` — token artifacts in the AST
-- All numeric computation uses `f64` — no exact arithmetic
+- Parser: `\frac{a}{b} + \frac{c}{d}` misparsed — the shunting-yard algorithm doesn't properly delimit `\frac`'s two brace-group arguments when `\frac` appears as the first operand (pre-existing bug, not introduced by ExactNum)
 - Simplifier only handles linear combinations of single variables
 - 22 matrix tests ignored (determinant, eigenvalues, inverse, rank, multiplication, RREF, linear systems)
+- Evaluator still converts to `f64` at the end — `evaluate_exact()` not yet implemented
 
 ## Phase 1: Exact Arithmetic Foundation
 
 **Goal:** Replace `f64` as the primary numeric representation with exact rationals.
 
-### 1.1 — BigRational integration
-- Add `num` crate (`num-bigint`, `num-rational`) as dependencies
-- Introduce `ExactNum` enum: `Rational(BigRational)`, `Float(f64)`, `Integer(BigInt)`
+### 1.1 — BigRational integration ✅ (Session 09)
+- Added `num-bigint`, `num-rational`, `num-traits`, `num-integer` as dependencies
+- Introduced `ExactNum` enum: `Rational(BigRational)`, `Float(f64)`
 - `Rational` is the default for all symbolic operations
-- `Float` is used only at the evaluation boundary or when the user explicitly requests decimal
-- `Integer` is an optimization for the common case (avoids carrying denominator 1)
+- `Float` is used for transcendentals (`e`, `pi`) and results of transcendental functions
+- Dropped the planned `Integer(BigInt)` variant — `BigRational` with denominator 1 handles integers efficiently enough; premature optimization avoided
 
-### 1.2 — Node numeric restructuring
-- Replace `Node::Number(f64)` with `Node::Num(ExactNum)`
-- Replace `Node::Rational(i64, i64)` — subsumed by `ExactNum::Rational`
-- Remove `Node::ClosingParen` and `Node::ClosingBrace` — these belong in the tokenizer
-- Update all pattern matches across the codebase
+### 1.2 — Node numeric restructuring ✅ (Session 09)
+- Replaced `Node::Number(f64)` and `Node::Rational(i64, i64)` with `Node::Num(ExactNum)`
+- Removed `Node::ClosingParen` and `Node::ClosingBrace` — dead code, never produced by parser
+- Updated all pattern matches across 14 source and test files
+- Parser collapses `\frac{a}{b}` with integer arguments to `Node::Num(ExactNum::rational(a, b))`
 
-### 1.3 — Evaluator split
+### 1.3 — Evaluator split (next)
 - `evaluate_exact(node, env) -> ExactNum` — stays in the exact domain
 - `evaluate_f64(node, env) -> f64` — converts to float at the end
 - The WASM API calls `evaluate_f64`; internal symbolic operations use `evaluate_exact`
 
-**Estimated effort:** 1-2 sessions. Tests: all existing tests should pass with `f64` evaluation unchanged; new tests for exact arithmetic.
+**Estimated remaining effort:** 1 session for evaluator split.
 
 ## Phase 2: Display and LaTeX Round-Trip
 

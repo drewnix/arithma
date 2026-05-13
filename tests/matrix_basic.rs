@@ -1,6 +1,7 @@
 use arithma::matrix::Matrix;
 use arithma::Environment;
 use arithma::Evaluator;
+use arithma::ExactNum;
 use arithma::Node;
 
 #[test]
@@ -9,10 +10,10 @@ fn test_basic_matrix_determinant() {
 
     // Create a simple 2x2 matrix
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
     ];
 
     let matrix = Matrix::new(2, 2, elements).unwrap();

@@ -1,41 +1,46 @@
 #[cfg(test)]
 mod test_simplify {
+    use arithma::exact::ExactNum;
     use arithma::simplify::Simplifiable;
     use arithma::{Environment, Evaluator, Node}; // Import the trait
 
     #[test]
     fn test_simplify_addition() {
         let env = Environment::new();
-        let expr = Node::Add(Box::new(Node::Number(2.0)), Box::new(Node::Number(2.0)));
+        let expr = Node::Add(
+            Box::new(Node::Num(ExactNum::from_f64(2.0))),
+            Box::new(Node::Num(ExactNum::from_f64(2.0))),
+        );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Number(4.0));
+        assert_eq!(simplified, Node::Num(ExactNum::from_f64(4.0)));
     }
 
     #[test]
     fn test_simplify_fraction() {
         let env = Environment::new();
-        let expr = Node::Rational(6, 8);
+        let expr = Node::Num(ExactNum::rational(6, 8));
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Rational(3, 4));
+        // BigRational automatically reduces 6/8 to 3/4
+        assert_eq!(simplified, Node::Num(ExactNum::rational(3, 4)));
     }
 
     #[test]
     fn test_simplify_fraction_to_integer() {
         let env = Environment::new();
-        let expr = Node::Rational(8, 4);
+        let expr = Node::Num(ExactNum::rational(8, 4));
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Number(2.0)); // 8/4 simplifies to 2
+        assert_eq!(simplified, Node::Num(ExactNum::integer(2))); // 8/4 simplifies to 2
     }
 
     #[test]
     fn test_multiply_rational() {
         let env = Environment::new();
         let expr = Node::Multiply(
-            Box::new(Node::Rational(2, 3)),
-            Box::new(Node::Rational(3, 4)),
+            Box::new(Node::Num(ExactNum::rational(2, 3))),
+            Box::new(Node::Num(ExactNum::rational(3, 4))),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Rational(1, 2)); // (2/3) * (3/4) = 6/12 = 1/2
+        assert_eq!(simplified, Node::Num(ExactNum::rational(1, 2))); // (2/3) * (3/4) = 6/12 = 1/2
     }
 
     #[test]
@@ -43,10 +48,10 @@ mod test_simplify {
         let env = Environment::new();
         let expr = Node::Multiply(
             Box::new(Node::Variable("x".to_string())),
-            Box::new(Node::Number(0.0)),
+            Box::new(Node::Num(ExactNum::zero())),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Number(0.0));
+        assert_eq!(simplified, Node::Num(ExactNum::zero()));
     }
 
     #[test]
@@ -54,7 +59,7 @@ mod test_simplify {
         let env = Environment::new();
         let expr = Node::Multiply(
             Box::new(Node::Variable("x".to_string())),
-            Box::new(Node::Number(1.0)),
+            Box::new(Node::Num(ExactNum::one())),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
@@ -65,7 +70,7 @@ mod test_simplify {
         let env = Environment::new();
         let expr = Node::Divide(
             Box::new(Node::Variable("x".to_string())),
-            Box::new(Node::Number(1.0)),
+            Box::new(Node::Num(ExactNum::one())),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
@@ -76,10 +81,10 @@ mod test_simplify {
         let env = Environment::new();
         let expr = Node::Power(
             Box::new(Node::Variable("x".to_string())),
-            Box::new(Node::Number(0.0)),
+            Box::new(Node::Num(ExactNum::zero())),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert_eq!(simplified, Node::Number(1.0));
+        assert_eq!(simplified, Node::Num(ExactNum::one()));
     }
 
     #[test]
@@ -87,7 +92,7 @@ mod test_simplify {
         let env = Environment::new();
         let expr = Node::Power(
             Box::new(Node::Variable("x".to_string())),
-            Box::new(Node::Number(1.0)),
+            Box::new(Node::Num(ExactNum::one())),
         );
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(simplified, Node::Variable("x".to_string()));
@@ -96,20 +101,25 @@ mod test_simplify {
     #[test]
     fn test_divide_by_zero_in_rational() {
         let env = Environment::new();
-        let expr = Node::Rational(5, 0);
+        let expr = Node::Num(ExactNum::rational(5, 0));
         let simplified = Evaluator::simplify(&expr, &env).unwrap();
-        assert!(matches!(simplified, Node::Number(n) if n.is_nan()));
+        // ExactNum::rational(5, 0) returns ExactNum::Float(NaN)
+        if let Node::Num(n) = &simplified {
+            assert!(n.to_f64().is_nan());
+        } else {
+            panic!("Expected Node::Num with NaN");
+        }
     }
 
     #[test]
     fn test_simplify_like_terms() {
         let expr = Node::Add(
             Box::new(Node::Multiply(
-                Box::new(Node::Number(2.0)),
+                Box::new(Node::Num(ExactNum::from_f64(2.0))),
                 Box::new(Node::Variable("x".to_string())),
             )),
             Box::new(Node::Multiply(
-                Box::new(Node::Number(3.0)),
+                Box::new(Node::Num(ExactNum::from_f64(3.0))),
                 Box::new(Node::Variable("x".to_string())),
             )),
         );
@@ -126,27 +136,27 @@ mod test_simplify {
             Box::new(Node::Add(
                 Box::new(Node::Add(
                     Box::new(Node::Multiply(
-                        Box::new(Node::Number(5.0)),
+                        Box::new(Node::Num(ExactNum::from_f64(5.0))),
                         Box::new(Node::Variable("x".to_string())),
                     )),
                     Box::new(Node::Multiply(
-                        Box::new(Node::Number(3.0)),
+                        Box::new(Node::Num(ExactNum::from_f64(3.0))),
                         Box::new(Node::Variable("x".to_string())),
                     )),
                 )),
                 Box::new(Node::Add(
                     Box::new(Node::Multiply(
-                        Box::new(Node::Number(10.0)),
+                        Box::new(Node::Num(ExactNum::from_f64(10.0))),
                         Box::new(Node::Variable("y".to_string())),
                     )),
                     Box::new(Node::Multiply(
-                        Box::new(Node::Number(15.0)),
+                        Box::new(Node::Num(ExactNum::from_f64(15.0))),
                         Box::new(Node::Variable("y".to_string())),
                     )),
                 )),
             )),
             Box::new(Node::Multiply(
-                Box::new(Node::Number(10.0)),
+                Box::new(Node::Num(ExactNum::from_f64(10.0))),
                 Box::new(Node::Variable("x".to_string())),
             )),
         );
@@ -174,11 +184,11 @@ mod test_simplify {
         // Expected: 18x + 25y
         let expected = Node::Add(
             Box::new(Node::Multiply(
-                Box::new(Node::Number(18.0)),
+                Box::new(Node::Num(ExactNum::from_f64(18.0))),
                 Box::new(Node::Variable("x".to_string())),
             )),
             Box::new(Node::Multiply(
-                Box::new(Node::Number(25.0)),
+                Box::new(Node::Num(ExactNum::from_f64(25.0))),
                 Box::new(Node::Variable("y".to_string())),
             )),
         );

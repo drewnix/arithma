@@ -36,8 +36,8 @@ fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
         multiplier: f64, // Apply multiplier for cases like (x + 2) * 3
     ) -> Result<(), String> {
         match node {
-            Node::Number(num) => {
-                *constant += multiplier * *num; // Apply multiplier to constants
+            Node::Num(num) => {
+                *constant += multiplier * num.to_f64(); // Apply multiplier to constants
             }
             Node::Variable(var_name) => {
                 if var_name == target_var {
@@ -57,12 +57,12 @@ fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
                 // Apply negation to the right
             }
             Node::Multiply(left, right) => {
-                if let Node::Number(num) = **left {
+                if let Node::Num(num) = &**left {
                     // If the left node is a number, it's a multiplier for the right side
-                    traverse(right, target_var, coefficient, constant, multiplier * num)?;
-                } else if let Node::Number(num) = **right {
+                    traverse(right, target_var, coefficient, constant, multiplier * num.to_f64())?;
+                } else if let Node::Num(num) = &**right {
                     // If the right node is a number, it's a multiplier for the left side
-                    traverse(left, target_var, coefficient, constant, multiplier * num)?;
+                    traverse(left, target_var, coefficient, constant, multiplier * num.to_f64())?;
                 } else {
                     return Err(
                         "Expected one operand to be a number in multiplication.".to_string()

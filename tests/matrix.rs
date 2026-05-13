@@ -1,15 +1,16 @@
 use arithma::matrix::{parse_latex_matrix, Matrix};
 use arithma::Environment;
 use arithma::Evaluator;
+use arithma::ExactNum;
 use arithma::Node;
 
 #[test]
 fn test_matrix_creation() {
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
 
@@ -25,11 +26,11 @@ fn test_matrix_identity() {
     for i in 0..3 {
         for j in 0..3 {
             match identity.get(i, j).unwrap() {
-                Node::Number(n) => {
+                Node::Num(n) => {
                     if i == j {
-                        assert_eq!(*n, 1.0);
+                        assert_eq!(n.to_f64(), 1.0);
                     } else {
-                        assert_eq!(*n, 0.0);
+                        assert_eq!(n.to_f64(), 0.0);
                     }
                 }
                 _ => panic!("Expected Number node"),
@@ -41,12 +42,12 @@ fn test_matrix_identity() {
 #[test]
 fn test_matrix_transpose() {
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
-        Node::Number(5.0),
-        Node::Number(6.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(5)),
+        Node::Num(ExactNum::integer(6)),
     ];
 
     let matrix = Matrix::new(2, 3, elements).unwrap();
@@ -57,17 +58,17 @@ fn test_matrix_transpose() {
 
     // Check specific elements
     match transposed.get(0, 0).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 1.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 1.0),
         _ => panic!("Expected Number node"),
     }
 
     match transposed.get(0, 1).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 4.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 4.0),
         _ => panic!("Expected Number node"),
     }
 
     match transposed.get(1, 0).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 2.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 2.0),
         _ => panic!("Expected Number node"),
     }
 }
@@ -79,10 +80,10 @@ fn test_matrix_determinant() {
 
     // Test a 2x2 matrix
     let elements = vec![
-        Node::Number(4.0),
-        Node::Number(3.0),
-        Node::Number(2.0),
-        Node::Number(1.0),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(1)),
     ];
 
     let matrix = Matrix::new(2, 2, elements).unwrap();
@@ -94,15 +95,15 @@ fn test_matrix_determinant() {
 
     // Test a 3x3 matrix with non-zero determinant
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(0.0),
-        Node::Number(1.0),
-        Node::Number(4.0),
-        Node::Number(5.0),
-        Node::Number(6.0),
-        Node::Number(0.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(0)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(5)),
+        Node::Num(ExactNum::integer(6)),
+        Node::Num(ExactNum::integer(0)),
     ];
 
     let matrix = Matrix::new(3, 3, elements).unwrap();
@@ -120,23 +121,23 @@ fn test_matrix_multiplication() {
 
     // Define a 2x3 matrix A
     let elements_a = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
-        Node::Number(5.0),
-        Node::Number(6.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(5)),
+        Node::Num(ExactNum::integer(6)),
     ];
     let matrix_a = Matrix::new(2, 3, elements_a).unwrap();
 
     // Define a 3x2 matrix B
     let elements_b = vec![
-        Node::Number(7.0),
-        Node::Number(8.0),
-        Node::Number(9.0),
-        Node::Number(10.0),
-        Node::Number(11.0),
-        Node::Number(12.0),
+        Node::Num(ExactNum::integer(7)),
+        Node::Num(ExactNum::integer(8)),
+        Node::Num(ExactNum::integer(9)),
+        Node::Num(ExactNum::integer(10)),
+        Node::Num(ExactNum::integer(11)),
+        Node::Num(ExactNum::integer(12)),
     ];
     let matrix_b = Matrix::new(3, 2, elements_b).unwrap();
 
@@ -174,10 +175,10 @@ fn test_matrix_inverse() {
 
     // Define a 2x2 invertible matrix
     let elements = vec![
-        Node::Number(4.0),
-        Node::Number(7.0),
-        Node::Number(2.0),
-        Node::Number(6.0),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(7)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(6)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
 
@@ -190,22 +191,22 @@ fn test_matrix_inverse() {
 
     // For matrix [4 7; 2 6], the inverse should be [0.6 -0.7; -0.2 0.4]
     match inverse.get(0, 0).unwrap() {
-        Node::Number(n) => assert!((n - 0.6).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() - 0.6).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 
     match inverse.get(0, 1).unwrap() {
-        Node::Number(n) => assert!((n + 0.7).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() + 0.7).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 
     match inverse.get(1, 0).unwrap() {
-        Node::Number(n) => assert!((n + 0.2).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() + 0.2).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 
     match inverse.get(1, 1).unwrap() {
-        Node::Number(n) => assert!((n - 0.4).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() - 0.4).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 
@@ -215,11 +216,11 @@ fn test_matrix_inverse() {
     for i in 0..2 {
         for j in 0..2 {
             match product.get(i, j).unwrap() {
-                Node::Number(n) => {
+                Node::Num(n) => {
                     if i == j {
-                        assert!((n - 1.0).abs() < 1e-10);
+                        assert!((n.to_f64() - 1.0).abs() < 1e-10);
                     } else {
-                        assert!(n.abs() < 1e-10);
+                        assert!(n.to_f64().abs() < 1e-10);
                     }
                 }
                 _ => panic!("Expected Number node"),
@@ -235,10 +236,10 @@ fn test_singular_matrix() {
 
     // Define a singular 2x2 matrix (determinant = 0)
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(2.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(4)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
 
@@ -258,35 +259,35 @@ fn test_matrix_rank() {
 
     // Full rank 2x2 matrix
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
     assert_eq!(matrix.rank(&env).unwrap(), 2);
 
     // Rank 1 matrix (second row is multiple of first)
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(2.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(4)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
     assert_eq!(matrix.rank(&env).unwrap(), 1);
 
     // Rank 2 matrix (3x3 but not full rank)
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(0.0),
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(1.0),
-        Node::Number(3.0),
-        Node::Number(3.0),
-        Node::Number(1.0),
-        Node::Number(4.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(0)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(4)),
     ];
     let matrix = Matrix::new(3, 3, elements).unwrap();
     assert_eq!(matrix.rank(&env).unwrap(), 2);
@@ -306,22 +307,22 @@ fn test_matrix_latex_parse() {
 
     // Check elements
     match matrix.get(0, 0).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 1.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 1.0),
         _ => panic!("Expected Number node"),
     }
 
     match matrix.get(0, 1).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 2.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 2.0),
         _ => panic!("Expected Number node"),
     }
 
     match matrix.get(1, 0).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 3.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 3.0),
         _ => panic!("Expected Number node"),
     }
 
     match matrix.get(1, 1).unwrap() {
-        Node::Number(n) => assert_eq!(*n, 4.0),
+        Node::Num(n) => assert_eq!(n.to_f64(), 4.0),
         _ => panic!("Expected Number node"),
     }
 
@@ -347,10 +348,10 @@ fn test_matrix_eigenvalues() {
 
     // Define a 2x2 matrix with known eigenvalues 1 and 3
     let elements = vec![
-        Node::Number(2.0),
-        Node::Number(-1.0),
-        Node::Number(-1.0),
-        Node::Number(2.0),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(-1)),
+        Node::Num(ExactNum::integer(-1)),
+        Node::Num(ExactNum::integer(2)),
     ];
     let matrix = Matrix::new(2, 2, elements).unwrap();
 
@@ -364,7 +365,7 @@ fn test_matrix_eigenvalues() {
     let mut values = Vec::new();
     for ev in eigenvalues {
         match ev {
-            Node::Number(n) => values.push(n),
+            Node::Num(n) => values.push(n.to_f64()),
             _ => panic!("Expected Number node for eigenvalue"),
         }
     }
@@ -384,14 +385,14 @@ fn test_linear_system_solve() {
     // Matrix A = [2 1; 1 3], b = [5; 7]
 
     let matrix_a_elements = vec![
-        Node::Number(2.0),
-        Node::Number(1.0),
-        Node::Number(1.0),
-        Node::Number(3.0),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(3)),
     ];
     let matrix_a = Matrix::new(2, 2, matrix_a_elements).unwrap();
 
-    let vector_b_elements = vec![Node::Number(5.0), Node::Number(7.0)];
+    let vector_b_elements = vec![Node::Num(ExactNum::integer(5)), Node::Num(ExactNum::integer(7))];
     let vector_b = Matrix::new(2, 1, vector_b_elements).unwrap();
 
     // Solve the system
@@ -403,12 +404,12 @@ fn test_linear_system_solve() {
 
     // The solution should be x = 2, y = 1
     match solution.get(0, 0).unwrap() {
-        Node::Number(n) => assert!((n - 2.0).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() - 2.0).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 
     match solution.get(1, 0).unwrap() {
-        Node::Number(n) => assert!((n - 1.0).abs() < 1e-10),
+        Node::Num(n) => assert!((n.to_f64() - 1.0).abs() < 1e-10),
         _ => panic!("Expected Number node"),
     }
 }
@@ -423,15 +424,15 @@ fn test_rref() {
     // [4 5 6]
     // [7 8 9]
     let elements = vec![
-        Node::Number(1.0),
-        Node::Number(2.0),
-        Node::Number(3.0),
-        Node::Number(4.0),
-        Node::Number(5.0),
-        Node::Number(6.0),
-        Node::Number(7.0),
-        Node::Number(8.0),
-        Node::Number(9.0),
+        Node::Num(ExactNum::integer(1)),
+        Node::Num(ExactNum::integer(2)),
+        Node::Num(ExactNum::integer(3)),
+        Node::Num(ExactNum::integer(4)),
+        Node::Num(ExactNum::integer(5)),
+        Node::Num(ExactNum::integer(6)),
+        Node::Num(ExactNum::integer(7)),
+        Node::Num(ExactNum::integer(8)),
+        Node::Num(ExactNum::integer(9)),
     ];
     let matrix = Matrix::new(3, 3, elements).unwrap();
 
@@ -449,9 +450,9 @@ fn test_rref() {
     for i in 0..3 {
         for j in 0..3 {
             match rref.get(i, j).unwrap() {
-                Node::Number(n) => {
+                Node::Num(n) => {
                     let idx = i * 3 + j;
-                    assert!((n - expected[idx]).abs() < 1e-10);
+                    assert!((n.to_f64() - expected[idx]).abs() < 1e-10);
                 }
                 _ => panic!("Expected Number node at ({}, {})", i, j),
             }

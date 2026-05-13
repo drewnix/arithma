@@ -1,14 +1,11 @@
+use crate::exact::ExactNum;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum Node {
-    // Leaf nodes: numbers or variables
-    Number(f64),
+    Num(ExactNum),
     Variable(String),
-    Rational(i64, i64), // Numerator and denominator
-    ClosingParen,       // Add this to handle ')'
-    ClosingBrace,       // Add this to handle '}'
 
     // Internal nodes: operators with children (operands)
     Add(Box<Node>, Box<Node>),
@@ -43,25 +40,26 @@ pub enum Node {
 impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Node::Number(n) => write!(f, "{}", n),
+            Node::Num(n) => write!(f, "{}", n),
             Node::Variable(v) => write!(f, "{}", v),
-            Node::Rational(numerator, denominator) => {
-                write!(f, "\\frac{{{}}}{{{}}}", numerator, denominator)
-            }
             Node::Add(left, right) => {
-                // Ensure simple addition is presented clearly
-                if let Node::Number(0.0) = **right {
-                    write!(f, "{}", left) // Eliminate unnecessary + 0
-                } else {
-                    write!(f, "{} + {}", left, right)
+                if let Node::Num(n) = &**right {
+                    if n.is_zero() {
+                        return write!(f, "{}", left);
+                    }
                 }
+                write!(f, "{} + {}", left, right)
             }
             Node::Multiply(left, right) => {
-                if let Node::Number(1.0) = **left {
-                    write!(f, "{}", right) // Eliminate unnecessary 1 * x
-                } else if let Node::Number(0.0) = **left {
-                    write!(f, "0") // Return 0 for 0 * x
-                } else if let (Node::Number(l), Node::Variable(r)) = (&**left, &**right) {
+                if let Node::Num(n) = &**left {
+                    if n.is_one() {
+                        return write!(f, "{}", right);
+                    }
+                    if n.is_zero() {
+                        return write!(f, "0");
+                    }
+                }
+                if let (Node::Num(l), Node::Variable(r)) = (&**left, &**right) {
                     write!(f, "{}{}", l, r)
                 } else {
                     write!(f, "{} \\cdot {}", left, right)
@@ -79,7 +77,6 @@ impl fmt::Display for Node {
             Node::LessEqual(left, right) => write!(f, "({} <= {})", left, right),
             Node::Equal(left, right) => write!(f, "({} == {})", left, right),
             Node::Equation(left, right) => write!(f, "{} = {}", left, right),
-            Node::ClosingParen | Node::ClosingBrace => Ok(()), // Add this to ignore them in formatting
             Node::Piecewise(conditions) => {
                 let mut formatted_conditions = String::new();
                 for (expr, cond) in conditions {

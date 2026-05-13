@@ -1,3 +1,4 @@
+use crate::exact::ExactNum;
 use crate::functions::FUNCTION_REGISTRY;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
@@ -121,10 +122,6 @@ pub fn get_precedence(op: &str) -> i32 {
     }
 }
 
-fn is_argument_terminator(arg: &Node) -> bool {
-    matches!(arg, Node::ClosingParen | Node::ClosingBrace)
-}
-
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     log::debug!("Building expression tree from tokens: {:?}", tokens);
 
@@ -141,9 +138,8 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
         log::debug!("Processing token: {}", token);
 
         if let Ok(num) = token.parse::<f64>() {
-            // Push numbers directly onto the stack
             log::debug!("Pushing number: {}", num);
-            stack.push(Node::Number(num));
+            stack.push(Node::Num(ExactNum::from_f64(num)));
         } else if token == "ABS" {
             let operand = stack
                 .pop()
@@ -212,26 +208,28 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                         .ok_or_else(|| format!("Not enough operands for function {}", token))?;
                     args.push(arg);
                 }
-                args.reverse(); // Reverse to maintain order
-                stack.push(Node::Function(token.clone(), args)); // Use the token as function name
-            } else {
-                // Variable-argument function (pop until we find a closing delimiter or hit an error)
-                let mut args = Vec::new();
-                while let Some(arg) = stack.pop() {
-                    if is_argument_terminator(&arg) {
-                        break;
-                    }
-                    args.push(arg);
-                }
                 args.reverse();
-                stack.push(Node::Function(token.clone(), args)); // Use the token as function name
+                if token == "frac" && args.len() == 2 {
+                    if let (Node::Num(ref n), Node::Num(ref d)) = (&args[0], &args[1]) {
+                        if let (Some(ni), Some(di)) = (n.to_i64(), d.to_i64()) {
+                            stack.push(Node::Num(ExactNum::rational(ni, di)));
+                            continue;
+                        }
+                    }
+                }
+                stack.push(Node::Function(token.clone(), args));
+            } else {
+                // Variable-argument function: collect all remaining stack items as arguments
+                let mut args: Vec<Node> = stack.drain(..).collect();
+                args.reverse();
+                stack.push(Node::Function(token.clone(), args));
             }
         } else if token.chars().all(|c| c.is_alphabetic()) {
             // Handle variables directly (e.g., `x`, `y`)
             if token == "e" || token == "EULER" {
-                stack.push(Node::Number(std::f64::consts::E)); // Euler's number
+                stack.push(Node::Num(ExactNum::Float(std::f64::consts::E)));
             } else if token == "\\pi" || token == "PI" {
-                stack.push(Node::Number(std::f64::consts::PI));
+                stack.push(Node::Num(ExactNum::Float(std::f64::consts::PI)));
             } else {
                 log::debug!("Pushing variable: {}", token);
                 stack.push(Node::Variable(token));

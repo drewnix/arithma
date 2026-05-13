@@ -1,4 +1,3 @@
-// src/evaluator.rs
 use crate::environment::Environment;
 use crate::functions::call_function;
 use crate::node::Node;
@@ -7,22 +6,14 @@ use crate::simplify::Simplifiable;
 pub struct Evaluator;
 
 impl Evaluator {
-    // Evaluate a Node with the given environment
     pub fn evaluate(node: &Node, env: &Environment) -> Result<f64, String> {
         match node {
-            Node::Number(n) => Ok(*n),
+            Node::Num(n) => Ok(n.to_f64()),
             Node::Variable(ref var) => {
                 if let Some(val) = env.get(var) {
                     Ok(val)
                 } else {
                     Err(format!("Variable '{}' is not defined.", var))
-                }
-            }
-            Node::Rational(numerator, denominator) => {
-                if *denominator == 0 {
-                    Ok(f64::NAN) // Return NaN for division by zero
-                } else {
-                    Ok(*numerator as f64 / *denominator as f64)
                 }
             }
             Node::Negate(expr) => {
@@ -141,9 +132,6 @@ impl Evaluator {
                 // Call the function using the centralized registry
                 call_function(name, evaluated_args)
             }
-            Node::ClosingParen | Node::ClosingBrace => {
-                Err("Unexpected closing delimiter.".to_string())
-            } // Add this match arm to return error
         }
     }
 

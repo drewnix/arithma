@@ -1,3 +1,4 @@
+use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::tokenizer::Tokenizer;
@@ -15,14 +16,14 @@ use crate::tokenizer::Tokenizer;
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     match expr {
         // Constants: ∫k dx = k*x + C
-        Node::Number(k) => {
-            if *k == 0.0 {
+        Node::Num(k) => {
+            if k.is_zero() {
                 // ∫0 dx = 0 + C, but we'll just return 0
-                Ok(Node::Number(0.0))
+                Ok(Node::Num(ExactNum::zero()))
             } else {
                 // ∫k dx = k*x + C
                 Ok(Node::Multiply(
-                    Box::new(Node::Number(*k)),
+                    Box::new(Node::Num(k.clone())),
                     Box::new(Node::Variable(var_name.to_string())),
                 ))
             }
@@ -34,12 +35,12 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 // ∫x dx = x²/2 + C
                 let x_squared = Node::Power(
                     Box::new(Node::Variable(name.clone())),
-                    Box::new(Node::Number(2.0)),
+                    Box::new(Node::Num(ExactNum::from_f64(2.0))),
                 );
 
                 Ok(Node::Divide(
                     Box::new(x_squared),
-                    Box::new(Node::Number(2.0)),
+                    Box::new(Node::Num(ExactNum::from_f64(2.0))),
                 ))
             } else {
                 // ∫y dx = y*x + C (y is a constant with respect to x)
@@ -73,8 +74,9 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
         Node::Power(base, exponent) => {
             if let Node::Variable(base_var) = &**base {
                 if base_var == var_name {
-                    if let Node::Number(n) = &**exponent {
-                        if (n + 1.0).abs() < 1e-10 {
+                    if let Node::Num(n) = &**exponent {
+                        let new_exp = n.clone() + ExactNum::one();
+                        if new_exp.to_f64().abs() < 1e-10 {
                             // Special case: n = -1, integral is ln|x|
                             return Ok(Node::Function(
                                 "ln".to_string(),
@@ -84,18 +86,18 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                             // Standard power rule: ∫x^n dx = x^(n+1)/(n+1) + C
                             let new_power = Node::Power(
                                 Box::new(Node::Variable(var_name.to_string())),
-                                Box::new(Node::Number(n + 1.0)),
+                                Box::new(Node::Num(new_exp.clone())),
                             );
 
                             return Ok(Node::Divide(
                                 Box::new(new_power),
-                                Box::new(Node::Number(n + 1.0)),
+                                Box::new(Node::Num(new_exp)),
                             ));
                         }
                     } else if let Node::Negate(inner_exp) = &**exponent {
                         // Handle x^(-n) forms
-                        if let Node::Number(n) = &**inner_exp {
-                            if *n == 1.0 {
+                        if let Node::Num(n) = &**inner_exp {
+                            if n.is_one() {
                                 // Special case: x^(-1) = 1/x, integral is ln|x|
                                 return Ok(Node::Function(
                                     "ln".to_string(),
@@ -103,14 +105,15 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                                 ));
                             } else {
                                 // Standard power rule with negative exponent: ∫x^(-n) dx = x^(-n+1)/(-n+1) + C
+                                let new_exp = ExactNum::one() - n.clone();
                                 let new_power = Node::Power(
                                     Box::new(Node::Variable(var_name.to_string())),
-                                    Box::new(Node::Number(1.0 - *n)),
+                                    Box::new(Node::Num(new_exp.clone())),
                                 );
 
                                 return Ok(Node::Divide(
                                     Box::new(new_power),
-                                    Box::new(Node::Number(1.0 - *n)),
+                                    Box::new(Node::Num(new_exp)),
                                 ));
                             }
                         }
@@ -124,18 +127,18 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
         // Multiplication by a constant: ∫(k*f) dx = k*∫f dx
         Node::Multiply(left, right) => {
-            if let Node::Number(k) = &**left {
+            if let Node::Num(k) = &**left {
                 // Factor out the constant k
                 let right_integral = integrate(right, var_name)?;
                 return Ok(Node::Multiply(
-                    Box::new(Node::Number(*k)),
+                    Box::new(Node::Num(k.clone())),
                     Box::new(right_integral),
                 ));
-            } else if let Node::Number(k) = &**right {
+            } else if let Node::Num(k) = &**right {
                 // Factor out the constant k
                 let left_integral = integrate(left, var_name)?;
                 return Ok(Node::Multiply(
-                    Box::new(Node::Number(*k)),
+                    Box::new(Node::Num(k.clone())),
                     Box::new(left_integral),
                 ));
             }
@@ -146,8 +149,8 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
         // Division: Special case for 1/x
         Node::Divide(left, right) => {
-            if let (Node::Number(k), Node::Variable(var)) = (&**left, &**right) {
-                if *k == 1.0 && var == var_name {
+            if let (Node::Num(k), Node::Variable(var)) = (&**left, &**right) {
+                if k.is_one() && var == var_name {
                     // ∫(1/x) dx = ln|x|
                     return Ok(Node::Function(
                         "ln".to_string(),

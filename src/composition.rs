@@ -163,6 +163,7 @@ pub fn compose_multiple(functions: &[(Node, String)]) -> Result<Node, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exact::ExactNum;
     use crate::evaluator::Evaluator;
     use crate::Environment;
 
@@ -345,18 +346,17 @@ mod tests {
 
         // Create f(1) = 1 + 2 = 3
         let f_of_1 = Node::Add(
-            Box::new(Node::Number(1.0)), // x = 1
-            Box::new(Node::Number(2.0)), // + 2
+            Box::new(Node::Num(ExactNum::one())),
+            Box::new(Node::Num(ExactNum::two())),
         );
 
-        // First, evaluate f(1) to verify it's correct
         let f_result = Evaluator::evaluate(&f_of_1, &env).unwrap();
         assert_eq!(f_result, 3.0, "f(1) should be 3.0");
 
         // Now compute g(f(1)) by substituting the value 3 into g(x) = x * 3
         let g_of_f_of_1 = Node::Multiply(
-            Box::new(Node::Number(f_result)), // value of f(1) = 3
-            Box::new(Node::Number(3.0)),      // * 3
+            Box::new(Node::Num(ExactNum::from_f64(f_result))),
+            Box::new(Node::Num(ExactNum::integer(3))),
         );
 
         // Evaluate g(f(1))
