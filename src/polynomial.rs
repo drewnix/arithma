@@ -235,6 +235,99 @@ impl Polynomial {
         a.make_monic()
     }
 
+    /// Formal derivative: d/dx(a_n x^n + ... + a_0) = n*a_n x^(n-1) + ...
+    pub fn derivative(&self) -> Self {
+        if self.coeffs.len() <= 1 {
+            return Self::zero(&self.variable);
+        }
+        let coeffs = self
+            .coeffs
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, c)| c * &BigRational::from_integer(BigInt::from(i)))
+            .collect();
+        Polynomial {
+            coeffs,
+            variable: self.variable.clone(),
+        }
+    }
+
+    /// Formal integral: ∫(a_n x^n + ... + a_0) dx = a_n/(n+1) x^(n+1) + ... + a_0 x
+    /// The constant of integration is zero.
+    pub fn integral(&self) -> Self {
+        if self.is_zero() {
+            return self.clone();
+        }
+        let mut coeffs = Vec::with_capacity(self.coeffs.len() + 1);
+        coeffs.push(BigRational::zero());
+        for (i, c) in self.coeffs.iter().enumerate() {
+            coeffs.push(c / &BigRational::from_integer(BigInt::from(i + 1)));
+        }
+        Polynomial {
+            coeffs,
+            variable: self.variable.clone(),
+        }
+    }
+
+    /// Square-free factorization. Returns the square-free part of the polynomial:
+    /// the largest factor with no repeated roots.
+    /// For f(x), the square-free part is f(x) / gcd(f(x), f'(x)).
+    pub fn square_free_part(&self) -> Self {
+        if self.degree().unwrap_or(0) <= 1 {
+            return self.clone();
+        }
+        let deriv = self.derivative();
+        let g = self.gcd(&deriv);
+        if g.is_constant() {
+            return self.make_monic();
+        }
+        let (q, _) = self.div_rem(&g).unwrap();
+        q.make_monic()
+    }
+
+    /// Full square-free decomposition: f = a_1 * a_2^2 * a_3^3 * ...
+    /// Returns vec of (factor, multiplicity) pairs where each factor is square-free
+    /// and coprime to all others.
+    pub fn square_free_decomposition(&self) -> Vec<(Polynomial, usize)> {
+        if self.is_zero() {
+            return vec![];
+        }
+        if self.degree().unwrap_or(0) == 0 {
+            return vec![(self.make_monic(), 1)];
+        }
+
+        let mut factors = Vec::new();
+        let mut f = self.make_monic();
+        let mut g = self.gcd(&self.derivative());
+        let mut h = {
+            let (q, _) = f.div_rem(&g).unwrap();
+            q
+        };
+        let mut multiplicity = 1;
+
+        while !h.is_constant() {
+            let next_g = h.gcd(&g);
+            let factor = {
+                let (q, _) = h.div_rem(&next_g).unwrap();
+                q
+            };
+            if !factor.is_constant() {
+                factors.push((factor.make_monic(), multiplicity));
+            }
+            h = next_g.clone();
+            let (new_g, _) = g.div_rem(&next_g).unwrap();
+            g = new_g;
+            multiplicity += 1;
+        }
+
+        if !g.is_constant() {
+            factors.push((g.make_monic(), multiplicity));
+        }
+
+        factors
+    }
+
     /// Convert a Node AST into a polynomial, if the expression is polynomial
     /// in the given variable.
     pub fn from_node(node: &Node, var: &str) -> Result<Self, String> {
@@ -708,5 +801,100 @@ mod tests {
     fn test_display_zero() {
         let p = Polynomial::zero("x");
         assert_eq!(format!("{}", p), "0");
+    }
+
+    #[test]
+    fn test_derivative() {
+        // d/dx(3x^2 + 2x + 1) = 6x + 2
+        let p = Polynomial::from_coeffs(vec![int(1), int(2), int(3)], "x");
+        let dp = p.derivative();
+        assert_eq!(format!("{}", dp), "6x + 2");
+    }
+
+    #[test]
+    fn test_derivative_constant() {
+        let p = Polynomial::from_coeffs(vec![int(5)], "x");
+        assert!(p.derivative().is_zero());
+    }
+
+    #[test]
+    fn test_derivative_linear() {
+        // d/dx(3x + 1) = 3
+        let p = Polynomial::from_coeffs(vec![int(1), int(3)], "x");
+        let dp = p.derivative();
+        assert_eq!(format!("{}", dp), "3");
+    }
+
+    #[test]
+    fn test_integral() {
+        // ∫(6x + 2) dx = 3x^2 + 2x
+        let p = Polynomial::from_coeffs(vec![int(2), int(6)], "x");
+        let ip = p.integral();
+        assert_eq!(format!("{}", ip), "3x^2 + 2x");
+    }
+
+    #[test]
+    fn test_integral_of_derivative() {
+        // ∫(d/dx(x^3 + x)) dx = x^3 + x (up to constant)
+        let p = Polynomial::from_coeffs(vec![int(0), int(1), int(0), int(1)], "x");
+        let dp = p.derivative();
+        let idp = dp.integral();
+        assert_eq!(format!("{}", idp), "x^3 + x");
+    }
+
+    #[test]
+    fn test_integral_rational() {
+        // ∫x^2 dx = (1/3)x^3
+        let p = Polynomial::from_coeffs(vec![int(0), int(0), int(1)], "x");
+        let ip = p.integral();
+        assert_eq!(ip.coeff(3), rat(1, 3));
+    }
+
+    #[test]
+    fn test_square_free_part_no_repeats() {
+        // x^2 - 1 = (x-1)(x+1) — already square-free
+        let p = Polynomial::from_coeffs(vec![int(-1), int(0), int(1)], "x");
+        let sf = p.square_free_part();
+        assert_eq!(sf.degree(), Some(2));
+    }
+
+    #[test]
+    fn test_square_free_part_with_repeats() {
+        // (x+1)^2 = x^2 + 2x + 1 → square-free part = x + 1
+        let p = Polynomial::from_coeffs(vec![int(1), int(2), int(1)], "x");
+        let sf = p.square_free_part();
+        assert_eq!(format!("{}", sf), "x + 1");
+    }
+
+    #[test]
+    fn test_square_free_decomposition_simple() {
+        // (x+1)^2 * (x-1) = x^3 + x^2 - x - 1
+        let x_plus_1 = Polynomial::from_coeffs(vec![int(1), int(1)], "x");
+        let x_minus_1 = Polynomial::from_coeffs(vec![int(-1), int(1)], "x");
+        let f = &(&x_plus_1 * &x_plus_1) * &x_minus_1;
+
+        let decomp = f.square_free_decomposition();
+        assert_eq!(decomp.len(), 2);
+
+        let (f1, m1) = &decomp[0];
+        assert_eq!(*m1, 1);
+        assert_eq!(format!("{}", f1), "x - 1");
+
+        let (f2, m2) = &decomp[1];
+        assert_eq!(*m2, 2);
+        assert_eq!(format!("{}", f2), "x + 1");
+    }
+
+    #[test]
+    fn test_square_free_decomposition_cube() {
+        // (x+1)^3 = x^3 + 3x^2 + 3x + 1
+        let x_plus_1 = Polynomial::from_coeffs(vec![int(1), int(1)], "x");
+        let f = &(&x_plus_1 * &x_plus_1) * &x_plus_1;
+
+        let decomp = f.square_free_decomposition();
+        assert_eq!(decomp.len(), 1);
+        let (factor, mult) = &decomp[0];
+        assert_eq!(*mult, 3);
+        assert_eq!(format!("{}", factor), "x + 1");
     }
 }
