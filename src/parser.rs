@@ -12,7 +12,9 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     for token in tokens {
         log::debug!("Processing token: {}", token);
 
-        if token.parse::<f64>().is_ok() {
+        if token.parse::<f64>().is_ok()
+            && token.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+        {
             log::debug!("Token is a number: {}", token);
             output_queue.push(token);
         } else if token == "NEG" {
@@ -119,9 +121,11 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     for token in rpn {
         log::debug!("Processing token: {}", token);
 
-        if let Ok(num) = token.parse::<f64>() {
-            log::debug!("Pushing number: {}", num);
-            stack.push(Node::Num(ExactNum::from_f64(num)));
+        if token.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
+            if let Ok(num) = token.parse::<f64>() {
+                log::debug!("Pushing number: {}", num);
+                stack.push(Node::Num(ExactNum::from_f64(num)));
+            }
         } else if token == "ABS" {
             let operand = stack
                 .pop()

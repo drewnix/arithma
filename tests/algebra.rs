@@ -335,15 +335,11 @@ mod algebra_tests {
     // }
 
     #[test]
-    #[ignore]
     fn test_sec_function() {
-        let sec_expr = "\\sec(1.5708)"; // Approximate value of pi/2, where sec(x) is undefined
-        let env = Environment::new();
-
-        let result = evaluate_expression_with_env(sec_expr, &env).unwrap();
+        let result = evaluate_expression("\\sec{\\frac{\\pi}{2}}").unwrap();
         assert!(
             result.is_nan(),
-            "Expected NaN for \\sec(pi/2), got {:?}",
+            "Expected NaN for \\sec(π/2), got {:?}",
             result
         );
     }

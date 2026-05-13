@@ -30,7 +30,6 @@ mod function_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_sec_function_undefined() {
         // Test sec(π/2), which should result in an undefined value (NaN)
         let result = evaluate_expression("\\sec{\\frac{\\pi}{2}}").unwrap();
@@ -60,10 +59,13 @@ mod function_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_cot_function() {
-        let result = evaluate_expression("\\cot{\\frac{\\pi}{4}}").unwrap(); // cot(π/4) = 1
-        assert_eq!(result, 1.0);
+        let result = evaluate_expression("\\cot{\\frac{\\pi}{4}}").unwrap();
+        assert!(
+            (result - 1.0).abs() < 1e-10,
+            "cot(π/4) should be 1.0, got {}",
+            result
+        );
     }
 
     #[test]
@@ -73,7 +75,6 @@ mod function_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_inf_function() {
         let result = evaluate_expression("\\inf{3, 1, 4, 2}").unwrap(); // inf(3, 1, 4, 2) = 1
         assert_eq!(result, 1.0);
@@ -92,10 +93,10 @@ mod function_tests {
     }
 
     #[test]
-    #[ignore]
+    #[ignore = "Limit evaluation not implemented"]
     fn test_lim_function() {
-        let result = evaluate_expression("\\lim{f(x), 0}").unwrap(); // Evaluate at a point
-        assert_eq!(result, 0.0); // Placeholder
+        let result = evaluate_expression("\\lim{f(x), 0}").unwrap();
+        assert_eq!(result, 0.0);
     }
 
     #[test]

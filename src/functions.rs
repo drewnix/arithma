@@ -229,10 +229,11 @@ impl FunctionHandler for SecFunction {
         if args.len() != 1 {
             return Err("\\sec requires exactly one argument.".to_string());
         }
-        if args[0].cos() == 0.0 {
-            return Ok(f64::NAN); // Return NaN for undefined result
+        let cos_val = args[0].cos();
+        if cos_val.abs() < 1e-15 {
+            return Ok(f64::NAN);
         }
-        Ok(1.0 / args[0].cos())
+        Ok(1.0 / cos_val)
     }
 
     fn get_arg_count(&self) -> Option<usize> {
