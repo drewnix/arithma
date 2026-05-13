@@ -5,3 +5,5 @@
 debug/
 frontend/public/pkg/
 .mcp.json
+.claude
+.DS_Store
