@@ -3,6 +3,9 @@ use crate::node::Node;
 use crate::polynomial::Polynomial;
 
 pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
+    let env = crate::environment::Environment::new();
+    let expr = &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+
     if let Ok(poly) = Polynomial::from_node(expr, var_name) {
         return Ok(poly.derivative().to_node());
     }
@@ -611,18 +614,14 @@ mod tests {
         let result = evaluate_expression(&derivative, &env).unwrap();
         assert_eq!(result, 12.0); // 3*2^2 = 12
 
-        // For now, skip the non-constant exponent test since it's not implemented yet
-        // We'll comment this out until the feature is implemented
-        /*
         // d/dx(x^(-1)) = -x^(-2)
-        let expr = parse_expression("x^(-1)").unwrap();
+        let expr = parse_expression("x^{-1}").unwrap();
         let derivative = differentiate(&expr, "x").unwrap();
 
         let mut env = Environment::new();
         env.set("x", 2.0);
         let result = evaluate_expression(&derivative, &env).unwrap();
         assert_eq!(result, -0.25); // -1/4
-        */
     }
 
     #[test]
