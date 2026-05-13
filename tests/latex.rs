@@ -212,4 +212,24 @@ mod latex_parser_tests {
         let result = eval_latex_expression_with_env("2 * x + 3", &env).unwrap();
         assert_eq!(result, 13.0); // 2 * 5 + 3 = 13
     }
+
+    #[test]
+    fn test_implicit_mul_frac_var() {
+        let mut env = Environment::new();
+        env.set("x", 6.0);
+        let result = eval_latex_expression_with_env("\\frac{1}{3}x", &env).unwrap();
+        assert_eq!(result, 2.0); // (1/3) * 6 = 2
+    }
+
+    #[test]
+    fn test_implicit_mul_number_paren() {
+        let result = eval_latex_expression("2(3 + 4)").unwrap();
+        assert_eq!(result, 14.0); // 2 * 7 = 14
+    }
+
+    #[test]
+    fn test_implicit_mul_paren_paren() {
+        let result = eval_latex_expression("(2 + 3)(4 + 1)").unwrap();
+        assert_eq!(result, 25.0); // 5 * 5 = 25
+    }
 }

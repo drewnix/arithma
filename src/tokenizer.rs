@@ -26,6 +26,11 @@ impl<'a> Tokenizer<'a> {
 
             // Handle numbers
             if c.is_ascii_digit() || c == '.' {
+                if let Some(last) = last_token.as_ref() {
+                    if last == ")" {
+                        tokens.push("*".to_string());
+                    }
+                }
                 self.tokenize_numbers(&mut tokens, &mut current_token, c);
             }
             // Handle LaTeX commands
@@ -34,6 +39,13 @@ impl<'a> Tokenizer<'a> {
             }
             // Handle operators and parentheses
             else if "+*/(){}".contains(c) {
+                if c == '(' {
+                    if let Some(last) = last_token.as_ref() {
+                        if last == ")" || last.chars().all(char::is_numeric) {
+                            tokens.push("*".to_string());
+                        }
+                    }
+                }
                 self.tokenize_operator_or_paren(&mut tokens, &mut current_token, c);
             }
             // Handle special tokens for summation bounds
@@ -59,8 +71,8 @@ impl<'a> Tokenizer<'a> {
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
                 if let Some(last) = last_token.as_ref() {
-                    if last.chars().all(char::is_numeric) {
-                        tokens.push("*".to_string()); // Implicit multiplication before variables
+                    if last.chars().all(char::is_numeric) || last == ")" {
+                        tokens.push("*".to_string());
                     }
                 }
                 current_token.push(c);
@@ -402,6 +414,58 @@ mod tests {
         let mut tokenizer = Tokenizer::new("2x + 3y");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["2", "*", "x", "+", "3", "*", "y"]);
+    }
+
+    #[test]
+    fn test_tokenize_implicit_mul_frac_var() {
+        // \frac{1}{3}x → (1)/(3) * x
+        let mut tokenizer = Tokenizer::new("\\frac{1}{3}x");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "1", ")", "/", "(", "3", ")", "*", "x"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_implicit_mul_paren_paren() {
+        // (x+1)(x-1) → (x+1)*(x-1)
+        let mut tokenizer = Tokenizer::new("(x+1)(x-1)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "x", "+", "1", ")", "*", "(", "x", "-", "1", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_implicit_mul_number_paren() {
+        // 2(x+1) → 2*(x+1)
+        let mut tokenizer = Tokenizer::new("2(x+1)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["2", "*", "(", "x", "+", "1", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_implicit_mul_paren_number() {
+        // (x+1)3 → (x+1)*3
+        let mut tokenizer = Tokenizer::new("(x+1)3");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "x", "+", "1", ")", "*", "3"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_function_no_implicit_mul() {
+        // \sin(x) should NOT get implicit multiplication
+        let mut tokenizer = Tokenizer::new("\\sin(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["sin", "(", "x", ")"]);
     }
 
     #[test]

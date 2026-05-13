@@ -1,6 +1,6 @@
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{One, Signed, Zero};
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::fmt;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -401,6 +401,76 @@ impl Polynomial {
         }
     }
 
+    /// Synthetic division: divide by (x - root), assuming root is a root of self.
+    /// Returns the quotient polynomial of degree (n - 1).
+    pub fn deflate(&self, root: &BigRational) -> Self {
+        let n = self.coeffs.len();
+        if n <= 1 {
+            return Self::zero(&self.variable);
+        }
+        let mut result = vec![BigRational::zero(); n - 1];
+        result[n - 2] = self.coeffs[n - 1].clone();
+        for i in (0..n - 2).rev() {
+            result[i] = &self.coeffs[i + 1] + root * &result[i + 1];
+        }
+        Polynomial::from_coeffs(result, &self.variable)
+    }
+
+    /// Find all rational roots using the rational root theorem.
+    /// For p(x) with integer coefficients, any rational root p/q (in lowest terms)
+    /// has p | a_0 and q | a_n. We convert to primitive part first to ensure
+    /// integer coefficients.
+    pub fn rational_roots(&self) -> Vec<BigRational> {
+        if self.is_zero() || self.is_constant() {
+            return vec![];
+        }
+
+        let prim = self.primitive_part();
+
+        if prim.coeff(0).is_zero() {
+            let mut roots = vec![BigRational::zero()];
+            let deflated = prim.deflate(&BigRational::zero());
+            roots.extend(deflated.rational_roots());
+            return roots;
+        }
+
+        let a0 = prim.coeff(0);
+        let an = prim.leading_coeff().unwrap().clone();
+
+        let a0_i64 = match a0.numer().to_i64() {
+            Some(v) => v,
+            None => return vec![],
+        };
+        let an_i64 = match an.numer().to_i64() {
+            Some(v) => v,
+            None => return vec![],
+        };
+
+        let p_divs = divisors_i64(a0_i64);
+        let q_divs = divisors_i64(an_i64);
+
+        let mut roots = Vec::new();
+        let mut seen = Vec::new();
+
+        for p in &p_divs {
+            for q in &q_divs {
+                for sign in &[1i64, -1i64] {
+                    let candidate =
+                        BigRational::new(BigInt::from(sign * p), BigInt::from(*q));
+                    if seen.contains(&candidate) {
+                        continue;
+                    }
+                    seen.push(candidate.clone());
+                    if self.evaluate(&candidate).is_zero() {
+                        roots.push(candidate);
+                    }
+                }
+            }
+        }
+
+        roots
+    }
+
     /// Convert back to a Node AST.
     pub fn to_node(&self) -> Node {
         if self.is_zero() {
@@ -481,6 +551,25 @@ fn exact_to_rational(n: &ExactNum) -> Result<BigRational, String> {
             Err("Cannot convert float to exact rational for polynomial".to_string())
         }
     }
+}
+
+fn divisors_i64(n: i64) -> Vec<i64> {
+    let n = n.abs();
+    if n == 0 {
+        return vec![];
+    }
+    let mut result = Vec::new();
+    let mut i = 1i64;
+    while i * i <= n {
+        if n % i == 0 {
+            result.push(i);
+            if i != n / i {
+                result.push(n / i);
+            }
+        }
+        i += 1;
+    }
+    result
 }
 
 fn gcd_bigint(a: &BigInt, b: &BigInt) -> BigInt {
@@ -860,6 +949,65 @@ mod tests {
         let p = Polynomial::from_coeffs(vec![int(0), int(0), int(1)], "x");
         let ip = p.integral();
         assert_eq!(ip.coeff(3), rat(1, 3));
+    }
+
+    #[test]
+    fn test_deflate() {
+        // (x^2 - 5x + 6) = (x-2)(x-3), deflate by root 2 → (x-3)
+        let p = Polynomial::from_coeffs(vec![int(6), int(-5), int(1)], "x");
+        let q = p.deflate(&int(2));
+        assert_eq!(format!("{}", q), "x - 3");
+    }
+
+    #[test]
+    fn test_deflate_cubic() {
+        // x^3 - 6x^2 + 11x - 6 = (x-1)(x-2)(x-3), deflate by 1
+        let p = Polynomial::from_coeffs(vec![int(-6), int(11), int(-6), int(1)], "x");
+        let q = p.deflate(&int(1));
+        assert_eq!(format!("{}", q), "x^2 - 5x + 6");
+    }
+
+    #[test]
+    fn test_rational_roots_cubic() {
+        // x^3 - 6x^2 + 11x - 6 = (x-1)(x-2)(x-3)
+        let p = Polynomial::from_coeffs(vec![int(-6), int(11), int(-6), int(1)], "x");
+        let mut roots = p.rational_roots();
+        roots.sort();
+        assert_eq!(roots, vec![int(1), int(2), int(3)]);
+    }
+
+    #[test]
+    fn test_rational_roots_with_zero() {
+        // x^2 - x = x(x-1)
+        let p = Polynomial::from_coeffs(vec![int(0), int(-1), int(1)], "x");
+        let mut roots = p.rational_roots();
+        roots.sort();
+        assert_eq!(roots, vec![int(0), int(1)]);
+    }
+
+    #[test]
+    fn test_rational_roots_none() {
+        // x^2 + 1 has no rational roots
+        let p = Polynomial::from_coeffs(vec![int(1), int(0), int(1)], "x");
+        let roots = p.rational_roots();
+        assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn test_rational_roots_fractional() {
+        // 2x - 1 has root 1/2
+        let p = Polynomial::from_coeffs(vec![int(-1), int(2)], "x");
+        let roots = p.rational_roots();
+        assert_eq!(roots, vec![rat(1, 2)]);
+    }
+
+    #[test]
+    fn test_rational_roots_quartic() {
+        // x^4 - 5x^2 + 4 = (x-1)(x+1)(x-2)(x+2)
+        let p = Polynomial::from_coeffs(vec![int(4), int(0), int(-5), int(0), int(1)], "x");
+        let mut roots = p.rational_roots();
+        roots.sort();
+        assert_eq!(roots, vec![int(-2), int(-1), int(1), int(2)]);
     }
 
     #[test]

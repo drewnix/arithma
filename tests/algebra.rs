@@ -628,6 +628,110 @@ mod algebra_tests {
     }
 
     #[test]
+    fn test_solve_cubic_all_rational() {
+        // x³ - 6x² + 11x - 6 = 0  →  (x-1)(x-2)(x-3) = 0
+        let mut tokenizer = Tokenizer::new("x^{3} - 6*x^{2} + 11*x - 6 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals.len(), 3);
+        assert!(approx_eq(vals[0], 1.0, 1e-10));
+        assert!(approx_eq(vals[1], 2.0, 1e-10));
+        assert!(approx_eq(vals[2], 3.0, 1e-10));
+    }
+
+    #[test]
+    fn test_solve_cubic_one_rational_two_irrational() {
+        // x³ + x² - 2 = 0  →  x = 1 is a rational root; remaining x² + 2x + 2 has
+        // negative discriminant, so only one real root: x = 1
+        let mut tokenizer = Tokenizer::new("x^{3} + x^{2} - 2 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert_eq!(solutions[0], arithma::ExactNum::integer(1));
+    }
+
+    #[test]
+    fn test_solve_cubic_cardano() {
+        // x³ - 2 = 0  →  x = ∛2 ≈ 1.2599
+        let mut tokenizer = Tokenizer::new("x^{3} - 2 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 1);
+        assert!(approx_eq(solutions[0].to_f64(), 2.0_f64.cbrt(), 1e-10));
+    }
+
+    #[test]
+    fn test_solve_cubic_three_real_cardano() {
+        // x³ - 3x + 1 = 0  →  three irrational real roots
+        let mut tokenizer = Tokenizer::new("x^{3} - 3*x + 1 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 3);
+        for s in &solutions {
+            let x = s.to_f64();
+            let val = x * x * x - 3.0 * x + 1.0;
+            assert!(
+                val.abs() < 1e-8,
+                "x={} does not satisfy x³ - 3x + 1 = 0 (got {})",
+                x,
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_solve_quartic_all_rational() {
+        // x⁴ - 5x² + 4 = 0  →  (x-1)(x+1)(x-2)(x+2) = 0
+        let mut tokenizer = Tokenizer::new("x^{4} - 5*x^{2} + 4 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals.len(), 4);
+        assert!(approx_eq(vals[0], -2.0, 1e-10));
+        assert!(approx_eq(vals[1], -1.0, 1e-10));
+        assert!(approx_eq(vals[2], 1.0, 1e-10));
+        assert!(approx_eq(vals[3], 2.0, 1e-10));
+    }
+
+    #[test]
+    fn test_solve_quintic_rational_roots() {
+        // x⁵ - x = 0  →  x(x⁴-1) = x(x-1)(x+1)(x²+1) = 0
+        // Rational roots: 0, 1, -1
+        let mut tokenizer = Tokenizer::new("x^{5} - x = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals.len(), 3);
+        assert!(approx_eq(vals[0], -1.0, 1e-10));
+        assert!(approx_eq(vals[1], 0.0, 1e-10));
+        assert!(approx_eq(vals[2], 1.0, 1e-10));
+    }
+
+    #[test]
+    fn test_solve_cubic_double_root() {
+        // x³ - 3x + 2 = 0  →  (x-1)²(x+2) = 0
+        let mut tokenizer = Tokenizer::new("x^{3} - 3*x + 2 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals.len(), 2);
+        assert!(approx_eq(vals[0], -2.0, 1e-10));
+        assert!(approx_eq(vals[1], 1.0, 1e-10));
+    }
+
+    #[test]
     fn test_det_function() {
         let env = Environment::new();
 

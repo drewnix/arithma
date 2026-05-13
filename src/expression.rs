@@ -4,7 +4,7 @@ use crate::polynomial::Polynomial;
 use crate::Tokenizer;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{Signed, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 pub fn extract_variable(expr: &str) -> Option<String> {
     let mut tokenizer = Tokenizer::new(expr);
@@ -41,61 +41,153 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
         .map_err(|e| format!("Cannot convert to polynomial: {}", e))?;
 
     match poly.degree() {
-        None => {
-            // Zero polynomial — every value is a solution
-            Err("Equation is trivially true for all values".to_string())
-        }
-        Some(0) => {
-            // Nonzero constant — no solutions
-            Err("No solution (contradiction)".to_string())
-        }
+        None => return Err("Equation is trivially true for all values".to_string()),
+        Some(0) => return Err("No solution (contradiction)".to_string()),
+        _ => {}
+    }
+
+    let mut roots: Vec<ExactNum> = Vec::new();
+
+    let rat_roots = poly.rational_roots();
+    let mut remaining = poly.clone();
+    for root in &rat_roots {
+        roots.push(rational_to_exact(root));
+        remaining = remaining.deflate(root);
+    }
+
+    match remaining.degree() {
+        None | Some(0) => {}
         Some(1) => {
-            // ax + b = 0  →  x = -b/a
-            let a = poly.coeff(1);
-            let b = poly.coeff(0);
+            let a = remaining.coeff(1);
+            let b = remaining.coeff(0);
             let root = -b / a;
-            Ok(vec![rational_to_exact(&root)])
+            roots.push(rational_to_exact(&root));
         }
         Some(2) => {
-            // ax² + bx + c = 0  →  x = (-b ± √(b²-4ac)) / 2a
-            let a = poly.coeff(2);
-            let b = poly.coeff(1);
-            let c = poly.coeff(0);
-            let discriminant = &b * &b - BigRational::from_integer(BigInt::from(4)) * &a * &c;
-
-            if discriminant.is_negative() {
-                return Err("No real solutions (negative discriminant)".to_string());
-            }
-
-            if discriminant.is_zero() {
-                let root = -b / (BigRational::from_integer(BigInt::from(2)) * a);
-                return Ok(vec![rational_to_exact(&root)]);
-            }
-
-            // Check if discriminant is a perfect square
-            let two_a = BigRational::from_integer(BigInt::from(2)) * &a;
-            if let Some(sqrt_d) = exact_rational_sqrt(&discriminant) {
-                let r1 = (-&b + &sqrt_d) / &two_a;
-                let r2 = (-&b - &sqrt_d) / &two_a;
-                Ok(vec![rational_to_exact(&r1), rational_to_exact(&r2)])
-            } else {
-                let disc_f64 = discriminant.numer().to_string().parse::<f64>().unwrap_or(0.0)
-                    / discriminant.denom().to_string().parse::<f64>().unwrap_or(1.0);
-                let sqrt_d = disc_f64.sqrt();
-                let b_f64 = b.numer().to_string().parse::<f64>().unwrap_or(0.0)
-                    / b.denom().to_string().parse::<f64>().unwrap_or(1.0);
-                let two_a_f64 = two_a.numer().to_string().parse::<f64>().unwrap_or(0.0)
-                    / two_a.denom().to_string().parse::<f64>().unwrap_or(1.0);
-                let r1 = (-b_f64 + sqrt_d) / two_a_f64;
-                let r2 = (-b_f64 - sqrt_d) / two_a_f64;
-                Ok(vec![ExactNum::from_f64(r1), ExactNum::from_f64(r2)])
+            roots.extend(solve_quadratic(&remaining)?);
+        }
+        Some(3) => {
+            roots.extend(solve_cubic_cardano(&remaining));
+        }
+        Some(d) => {
+            if roots.is_empty() {
+                return Err(format!(
+                    "Polynomial degree {} — cannot solve (no rational roots found)",
+                    d
+                ));
             }
         }
-        Some(d) => Err(format!(
-            "Polynomial degree {} — only linear and quadratic equations are supported",
-            d
-        )),
     }
+
+    if roots.is_empty() {
+        return Err("No real solutions".to_string());
+    }
+
+    let mut unique = Vec::new();
+    for root in roots {
+        if !unique.contains(&root) {
+            unique.push(root);
+        }
+    }
+
+    Ok(unique)
+}
+
+fn solve_quadratic(poly: &Polynomial) -> Result<Vec<ExactNum>, String> {
+    let a = poly.coeff(2);
+    let b = poly.coeff(1);
+    let c = poly.coeff(0);
+    let discriminant = &b * &b - BigRational::from_integer(BigInt::from(4)) * &a * &c;
+
+    if discriminant.is_negative() {
+        return Ok(vec![]);
+    }
+
+    if discriminant.is_zero() {
+        let root = -b / (BigRational::from_integer(BigInt::from(2)) * a);
+        return Ok(vec![rational_to_exact(&root)]);
+    }
+
+    let two_a = BigRational::from_integer(BigInt::from(2)) * &a;
+    if let Some(sqrt_d) = exact_rational_sqrt(&discriminant) {
+        let r1 = (-&b + &sqrt_d) / &two_a;
+        let r2 = (-&b - &sqrt_d) / &two_a;
+        Ok(vec![rational_to_exact(&r1), rational_to_exact(&r2)])
+    } else {
+        let disc_f64 = rational_to_f64(&discriminant);
+        let sqrt_d = disc_f64.sqrt();
+        let b_f64 = rational_to_f64(&b);
+        let two_a_f64 = rational_to_f64(&two_a);
+        let r1 = (-b_f64 + sqrt_d) / two_a_f64;
+        let r2 = (-b_f64 - sqrt_d) / two_a_f64;
+        Ok(vec![ExactNum::from_f64(r1), ExactNum::from_f64(r2)])
+    }
+}
+
+/// Cardano's formula for an irreducible cubic (no rational roots).
+/// Input: polynomial of degree 3.
+/// Returns real roots as f64-backed ExactNum values.
+fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
+    let a3 = rational_to_f64(&poly.coeff(3));
+    let a2 = rational_to_f64(&poly.coeff(2));
+    let a1 = rational_to_f64(&poly.coeff(1));
+    let a0 = rational_to_f64(&poly.coeff(0));
+
+    // Convert to depressed cubic t³ + pt + q = 0 via x = t - a2/(3·a3)
+    let shift = a2 / (3.0 * a3);
+    let p = (a1 / a3) - (a2 * a2) / (3.0 * a3 * a3);
+    let q = (a0 / a3) + (2.0 * a2 * a2 * a2) / (27.0 * a3 * a3 * a3)
+        - (a2 * a1) / (3.0 * a3 * a3);
+
+    let h = q * q / 4.0 + p * p * p / 27.0;
+
+    let roots = if h.abs() < 1e-14 && p.abs() < 1e-14 && q.abs() < 1e-14 {
+        // Triple root
+        vec![0.0]
+    } else if h.abs() < 1e-14 {
+        // Double root: two distinct values
+        let t1 = 3.0 * q / p;
+        let t2 = -3.0 * q / (2.0 * p);
+        vec![t1, t2]
+    } else if h > 0.0 {
+        // One real root
+        let sqrt_h = h.sqrt();
+        let s = cbrt(-q / 2.0 + sqrt_h);
+        let t = cbrt(-q / 2.0 - sqrt_h);
+        vec![s + t]
+    } else {
+        // Three real roots — casus irreducibilis, use trigonometric method
+        let m = 2.0 * (-p / 3.0).sqrt();
+        let theta = (1.0 / 3.0) * (3.0 * q / (p * m)).acos();
+        let pi = std::f64::consts::PI;
+        vec![
+            m * theta.cos(),
+            m * (theta + 2.0 * pi / 3.0).cos(),
+            m * (theta + 4.0 * pi / 3.0).cos(),
+        ]
+    };
+
+    roots
+        .into_iter()
+        .map(|t| ExactNum::from_f64(t - shift))
+        .collect()
+}
+
+fn cbrt(x: f64) -> f64 {
+    if x >= 0.0 {
+        x.powf(1.0 / 3.0)
+    } else {
+        -(-x).powf(1.0 / 3.0)
+    }
+}
+
+fn rational_to_f64(r: &BigRational) -> f64 {
+    r.to_f64().unwrap_or_else(|| {
+        r.numer()
+            .to_f64()
+            .unwrap_or(0.0)
+            / r.denom().to_f64().unwrap_or(1.0)
+    })
 }
 
 fn rational_to_exact(r: &BigRational) -> ExactNum {
