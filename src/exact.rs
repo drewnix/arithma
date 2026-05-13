@@ -291,9 +291,8 @@ mod tests {
 
     #[test]
     fn test_frac_parsed_exactly() {
-        let mut tokenizer = crate::tokenizer::Tokenizer::new("\\frac{1}{3}");
-        let tokens = tokenizer.tokenize();
-        let expr = crate::parser::build_expression_tree(tokens).unwrap();
+        let env = crate::environment::Environment::new();
+        let expr = crate::parser::parse_latex("\\frac{1}{3}", &env).unwrap();
         match &expr {
             crate::node::Node::Num(n) => {
                 assert!(

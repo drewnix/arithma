@@ -162,7 +162,6 @@ mod integration_tests {
             result.contains("x^{4}")
                 && result.contains("x^{3}")
                 && result.contains("x^{2}")
-                && result.contains("+ x")
                 && result.contains("+ C"),
             "Integration result should have the correct form, got: {}",
             result

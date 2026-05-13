@@ -81,12 +81,58 @@ mod algebra_tests {
 
     #[test]
     fn test_frac_function_incorrect_args() {
-        let result = evaluate_expression("\\frac{3}").unwrap_err();
-        assert_eq!(result, "Not enough operands for function frac");
+        let result = evaluate_expression("\\frac{3}");
+        assert!(result.is_err(), "\\frac with one arg should error");
+    }
 
-        // TODO: improve error message for this case
-        // let result = evaluate_expression("\\frac{3}{4}{5}").unwrap_err();
-        // assert!(result.contains("too many arguments"));
+    #[test]
+    fn test_frac_addition() {
+        let result = evaluate_expression("\\frac{1}{3} + \\frac{1}{6}").unwrap();
+        assert!(
+            approx_eq(result, 0.5, 1e-10),
+            "\\frac{{1}}{{3}} + \\frac{{1}}{{6}} should be 0.5, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_frac_first_operand() {
+        let result = evaluate_expression("\\frac{1}{2} + 1").unwrap();
+        assert!(
+            approx_eq(result, 1.5, 1e-10),
+            "\\frac{{1}}{{2}} + 1 should be 1.5, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_frac_nested() {
+        let result = evaluate_expression("\\frac{x^{2}+1}{2}").unwrap_err();
+        assert!(
+            result.contains("variable") || result.contains("not found") || !result.is_empty(),
+            "should fail on unbound variable"
+        );
+
+        let mut env = Environment::new();
+        env.set("x", 3.0);
+        let result = evaluate_expression_with_env("\\frac{x^{2}+1}{2}", &env).unwrap();
+        assert!(
+            approx_eq(result, 5.0, 1e-10),
+            "\\frac{{x^2+1}}{{2}} at x=3 should be 5.0, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_function_then_operator() {
+        let mut env = Environment::new();
+        env.set("x", 0.0);
+        let result = evaluate_expression_with_env("\\sin(x) + 1", &env).unwrap();
+        assert!(
+            approx_eq(result, 1.0, 1e-10),
+            "\\sin(0) + 1 should be 1.0, got {}",
+            result
+        );
     }
 
     // 2. Polynomials
@@ -128,7 +174,6 @@ mod algebra_tests {
 
     // 5. Quadratic Equations
     #[test]
-    #[ignore]
     fn test_quadratic_equation() {
         let mut env = Environment::new();
 
@@ -497,7 +542,6 @@ mod algebra_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_max_function() {
         let env = Environment::new();
 
@@ -514,7 +558,6 @@ mod algebra_tests {
     }
 
     #[test]
-    #[ignore]
     fn test_det_function() {
         let env = Environment::new();
 

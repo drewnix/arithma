@@ -1,4 +1,103 @@
 #[cfg(test)]
+mod round_trip_tests {
+    use arithma::{parse_latex, Environment, Evaluator};
+
+    fn round_trip(latex: &str) -> (String, String) {
+        let env = Environment::new();
+        let expr = parse_latex(latex, &env).unwrap();
+        let display1 = format!("{}", expr);
+        let expr2 = parse_latex(&display1, &env).unwrap();
+        let display2 = format!("{}", expr2);
+        (display1, display2)
+    }
+
+    fn assert_round_trip(latex: &str) {
+        let (d1, d2) = round_trip(latex);
+        assert_eq!(
+            d1, d2,
+            "Round-trip failed for '{}': first='{}', second='{}'",
+            latex, d1, d2
+        );
+    }
+
+    fn assert_round_trip_value(latex: &str, expected: f64, env: &Environment) {
+        let expr = parse_latex(latex, env).unwrap();
+        let display1 = format!("{}", expr);
+        let val1 = Evaluator::evaluate(&expr, env).unwrap();
+        let expr2 = parse_latex(&display1, env).unwrap();
+        let val2 = Evaluator::evaluate(&expr2, env).unwrap();
+        assert!(
+            (val1 - val2).abs() < 1e-10,
+            "Round-trip value mismatch for '{}': {} vs {}",
+            latex,
+            val1,
+            val2
+        );
+        assert!(
+            (val1 - expected).abs() < 1e-10,
+            "Value mismatch for '{}': expected {}, got {}",
+            latex,
+            expected,
+            val1
+        );
+    }
+
+    #[test]
+    fn test_round_trip_integer() {
+        assert_round_trip("42");
+    }
+
+    #[test]
+    fn test_round_trip_fraction() {
+        assert_round_trip("\\frac{1}{3}");
+    }
+
+    #[test]
+    fn test_round_trip_addition() {
+        assert_round_trip("3 + 5");
+    }
+
+    #[test]
+    fn test_round_trip_polynomial() {
+        let mut env = Environment::new();
+        env.set("x", 2.0);
+        assert_round_trip_value("x^{2} + 3x + 1", 11.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_frac_addition() {
+        let env = Environment::new();
+        assert_round_trip_value("\\frac{1}{3} + \\frac{1}{6}", 0.5, &env);
+    }
+
+    #[test]
+    fn test_round_trip_nested_frac() {
+        let mut env = Environment::new();
+        env.set("x", 4.0);
+        assert_round_trip_value("\\frac{x + 1}{x - 1}", 5.0 / 3.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_power() {
+        let mut env = Environment::new();
+        env.set("x", 3.0);
+        assert_round_trip_value("x^{2}", 9.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_negate() {
+        assert_round_trip("-5");
+    }
+
+    #[test]
+    fn test_round_trip_function_plus_constant() {
+        let mut env = Environment::new();
+        env.set("x", 0.0);
+        assert_round_trip_value("\\sin(x) + 1", 1.0, &env);
+    }
+}
+
+#[cfg(test)]
 mod latex_parser_tests {
     use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
 

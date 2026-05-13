@@ -92,6 +92,12 @@ impl fmt::Display for Node {
             }
             Node::Multiply(left, right) => {
                 if let (Node::Num(l), Node::Variable(r)) = (&**left, &**right) {
+                    if l.is_one() {
+                        return write!(f, "{}", r);
+                    }
+                    if *l == ExactNum::integer(-1) {
+                        return write!(f, "-{}", r);
+                    }
                     return write!(f, "{}{}", l, r);
                 }
                 self.fmt_child(left, 3, false, f)?;
@@ -99,9 +105,7 @@ impl fmt::Display for Node {
                 self.fmt_child(right, 3, true, f)
             }
             Node::Divide(left, right) => {
-                self.fmt_child(left, 3, false, f)?;
-                write!(f, " / ")?;
-                self.fmt_child(right, 3, true, f)
+                write!(f, "\\frac{{{}}}{{{}}}", left, right)
             }
             Node::Power(base, exp) => {
                 let base_needs_parens = matches!(

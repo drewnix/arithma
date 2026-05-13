@@ -8,29 +8,26 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
 
     let mut output_queue: Vec<String> = Vec::new();
     let mut operator_stack: Vec<String> = Vec::new();
-    let mut function_brace_stack: Vec<String> = Vec::new(); // Stack to track function-specific braces
 
     for token in tokens {
         log::debug!("Processing token: {}", token);
 
         if token.parse::<f64>().is_ok() {
-            // If token is a number, add it directly to the output queue
             log::debug!("Token is a number: {}", token);
             output_queue.push(token);
         } else if token == "NEG" {
-            // Handle unary minus: push it to operator stack with precedence handling
             log::debug!("Unary minus detected, pushing to operator stack");
-            operator_stack.push(token); // No need to pop for precedence because it's unary
+            operator_stack.push(token);
         } else if token == "ABS_START" {
-            operator_stack.push(token); // Treat absolute value as a grouping operation
+            operator_stack.push(token);
         } else if token == "ABS_END" {
             while let Some(op) = operator_stack.pop() {
                 if op == "ABS_START" {
-                    break; // Close the absolute value group
+                    break;
                 }
                 output_queue.push(op);
             }
-            output_queue.push("ABS".to_string()); // Add ABS function to the output
+            output_queue.push("ABS".to_string());
         } else if token == ">"
             || token == "<"
             || token == ">="
@@ -47,7 +44,6 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             }
             operator_stack.push(token);
         } else if "+-*/^".contains(&token) {
-            // Handle binary operators with precedence and associativity
             while let Some(top) = operator_stack.last() {
                 if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
@@ -57,36 +53,23 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             }
             operator_stack.push(token);
         } else if token == "(" || token == "{" {
-            operator_stack.push(token); // Push opening braces/parentheses onto the stack
-            if let Some(function) = operator_stack.last() {
-                if FUNCTION_REGISTRY.get(function).is_some() {
-                    function_brace_stack.push(function.clone()); // Track function opening
-                }
-            }
+            operator_stack.push(token);
         } else if token == ")" || token == "}" {
-            // Handle closing parentheses or braces by popping from the operator stack
             while let Some(top) = operator_stack.pop() {
                 if top == "(" || top == "{" {
                     break;
                 }
                 output_queue.push(top);
             }
-
-            // Check if we're closing a function argument brace
-            if let Some(function) = function_brace_stack.last() {
-                if FUNCTION_REGISTRY.get(function).is_some() {
-                    // Check if we've finished processing both arguments for functions like frac
-                    if function_brace_stack.len() == 1 {
-                        output_queue.push(function_brace_stack.pop().unwrap()); // Push function to output queue
-                    }
+            if let Some(top) = operator_stack.last() {
+                if FUNCTION_REGISTRY.get(top).is_some() {
+                    output_queue.push(operator_stack.pop().unwrap());
                 }
             }
         } else if let Some(_function) = FUNCTION_REGISTRY.get(&token) {
-            // If it's a function, push to the operator stack
             log::debug!("Function detected: {}", token);
             operator_stack.push(token);
         } else if token.chars().all(|c| c.is_alphabetic()) {
-            // Handle variables like 'x', 'y', 't' directly
             log::debug!("Variable detected: {}", token);
             output_queue.push(token);
         } else {
@@ -95,7 +78,6 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
 
         log::debug!("Current output queue: {:?}", output_queue);
         log::debug!("Current operator stack: {:?}", operator_stack);
-        log::debug!("Current function brace stack: {:?}", function_brace_stack);
     }
 
     // Pop all remaining operators to the output queue
@@ -209,14 +191,6 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                     args.push(arg);
                 }
                 args.reverse();
-                if token == "frac" && args.len() == 2 {
-                    if let (Node::Num(ref n), Node::Num(ref d)) = (&args[0], &args[1]) {
-                        if let (Some(ni), Some(di)) = (n.to_i64(), d.to_i64()) {
-                            stack.push(Node::Num(ExactNum::rational(ni, di)));
-                            continue;
-                        }
-                    }
-                }
                 stack.push(Node::Function(token.clone(), args));
             } else {
                 // Variable-argument function: collect all remaining stack items as arguments

@@ -10,14 +10,33 @@ pub trait Simplifiable {
 impl Simplifiable for Node {
     fn simplify(&self, env: &Environment) -> Result<Node, String> {
         match self {
-            Node::Add(_, _) => {
-                let mut term_map: HashMap<String, ExactNum> = HashMap::new();
-                // Collect all terms from the addition node
-                collect_terms(self, &mut term_map, env)?;
+            Node::Add(left, right) => {
+                let left_simplified = left.simplify(env)?;
+                let right_simplified = right.simplify(env)?;
 
-                // Rebuild the expression by combining like terms
-                let simplified_expr = rebuild_expression(term_map);
-                Ok(simplified_expr)
+                if let (Node::Num(ref l), Node::Num(ref r)) = (&left_simplified, &right_simplified)
+                {
+                    return Ok(Node::Num(l + r));
+                }
+
+                if let Node::Num(ref n) = left_simplified {
+                    if n.is_zero() {
+                        return Ok(right_simplified);
+                    }
+                }
+                if let Node::Num(ref n) = right_simplified {
+                    if n.is_zero() {
+                        return Ok(left_simplified);
+                    }
+                }
+
+                let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
+                let mut term_map: HashMap<String, ExactNum> = HashMap::new();
+                if collect_terms(&result, &mut term_map, env).is_ok() {
+                    Ok(rebuild_expression(term_map))
+                } else {
+                    Ok(result)
+                }
             }
             Node::Num(_) => {
                 // ExactNum::Rational is already in lowest terms (BigRational handles reduction).
@@ -207,6 +226,40 @@ impl Simplifiable for Node {
                     Box::new(end_simplified),
                     Box::new(body_simplified),
                 ))
+            }
+            Node::Sqrt(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.sqrt()));
+                }
+                Ok(Node::Sqrt(Box::new(simplified)))
+            }
+            Node::Function(name, args) => {
+                let simplified_args: Vec<Node> = args
+                    .iter()
+                    .map(|a| a.simplify(env))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let all_numeric = simplified_args.iter().all(|a| matches!(a, Node::Num(_)));
+                if all_numeric {
+                    let f64_args: Vec<f64> = simplified_args
+                        .iter()
+                        .map(|a| {
+                            if let Node::Num(n) = a {
+                                n.to_f64()
+                            } else {
+                                unreachable!()
+                            }
+                        })
+                        .collect();
+                    if let Ok(result) = crate::functions::call_function(name, f64_args) {
+                        if result.is_finite() {
+                            return Ok(Node::Num(ExactNum::from_f64(result)));
+                        }
+                    }
+                }
+
+                Ok(Node::Function(name.clone(), simplified_args))
             }
             _ => Ok(self.clone()),
         }

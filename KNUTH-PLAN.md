@@ -9,16 +9,25 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 09)
+## Current State (Post Session 10)
 
-**Phase 1 substantially complete.** The AST now carries exact rational arithmetic. `ExactNum` enum (`Rational(BigRational)` | `Float(f64)`) replaces both `Node::Number(f64)` and `Node::Rational(i64, i64)`. All 161 tests pass. Integer literals are promoted to exact rationals at parse time; `e` and `pi` remain as `Float`. `\frac{a}{b}` with integer arguments produces `ExactNum::rational(a, b)` directly.
+**Phases 1-2 complete. Simplifier deepened.** 194 tests pass, 5 ignored (unimplemented: limits, infimum; floating-point edge cases: cot, sec at singularities).
 
-### Known Issues
-- `Display` implementation doesn't produce correctly parenthesized output (affects `differentiate_latex` string round-trip)
-- Parser: `\frac{a}{b} + \frac{c}{d}` misparsed — the shunting-yard algorithm doesn't properly delimit `\frac`'s two brace-group arguments when `\frac` appears as the first operand (pre-existing bug, not introduced by ExactNum)
-- Simplifier only handles linear combinations of single variables
-- 22 matrix tests ignored (determinant, eigenvalues, inverse, rank, multiplication, RREF, linear systems)
-- Evaluator still converts to `f64` at the end — `evaluate_exact()` not yet implemented
+### Session 10 Changes
+- **\frac parser bug fixed**: Tokenizer now consumes both brace groups of `\frac{A}{B}` and emits `(A) / (B)`. Eliminates the class of bugs where `\frac` as first operand misparsed.
+- **Shunting-yard function-pop fix**: Functions are now popped after their closing delimiter (standard algorithm behavior). Previously `\sin(x) + 1` misparsed as `sin(x + 1)`. Same for `\sqrt`, `\cos`, etc.
+- **Divide Display**: `Node::Divide` renders as `\frac{left}{right}` for proper LaTeX output and round-tripping.
+- **Multiply Display**: Coefficient 1 omitted (`1x` → `x`, `-1x` → `-x`).
+- **Simplifier deepened**: Add simplifies children first, falls back gracefully when `collect_terms` can't handle the expression. Sqrt and Function nodes now simplify when args are numeric.
+- **Eigenvalue tests un-ignored**: Function simplification unlocked `sqrt(4) → 2` which the eigenvalue quadratic formula needs.
+- **Linear system solve un-ignored**: Was producing correct results all along — the test expected x=2, y=1 for a system whose actual solution is x=8/5, y=9/5. Fourth wrong-expectation test found and fixed.
+
+### Remaining Ignored Tests (5)
+- `test_sec_function`: sec(π/2) — floating-point `cos(π/2)` ≠ 0.0 exactly
+- `test_cot_function`: same class of floating-point singularity issue
+- `test_sec_function_undefined`: same
+- `test_inf_function`: infimum function not properly implemented
+- `test_lim_function`: limits not implemented
 
 ## Phase 1: Exact Arithmetic Foundation
 
@@ -45,21 +54,24 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 **Phase 1 complete.** 175 tests pass, 0 failed, 11 ignored.
 
-## Phase 2: Display and LaTeX Round-Trip
+## Phase 2: Display and LaTeX Round-Trip ✅ (Sessions 09-10)
 
 **Goal:** `Display` output is valid, parseable LaTeX that preserves expression structure.
 
-### 2.1 — Parenthesization
-- Add operator precedence to each `Node` variant
-- `Display` inserts parentheses when a child has lower precedence than its parent
-- `Divide` renders as `\frac{...}{...}` (already correct for some cases)
-- `Power` renders base in parens if it's a compound expression
+### 2.1 — Parenthesization ✅ (Session 09)
+- Precedence method on Node, `fmt_child` inserts parens when child precedence < parent
+- Power bases parenthesized for compound expressions, exponents use `{}`
+- Subtract/Divide right children parenthesized at same precedence (associativity)
 
-### 2.2 — Round-trip tests
-- For every expression in the test suite: parse → format → re-parse → format, assert the two format outputs are identical
-- This is the literate-programming version of "the program should be readable": the output should be parseable
+### 2.2 — \frac parser fix and Divide Display ✅ (Session 10)
+- Tokenizer handles `\frac{A}{B}` by consuming both brace groups → `(A) / (B)`
+- Shunting-yard pops functions after closing delimiters (standard algorithm)
+- `Node::Divide` renders as `\frac{left}{right}`
+- `Node::Multiply` omits coefficient 1: `1x` → `x`
 
-**Estimated effort:** 1 session.
+### 2.3 — Round-trip tests ✅ (Session 10)
+- 9 round-trip tests: integer, fraction, addition, polynomial, frac-addition, nested-frac, power, negate, function+constant
+- Tests verify parse → format → re-parse → format stability and value preservation
 
 ## Phase 3: Polynomial Representation
 

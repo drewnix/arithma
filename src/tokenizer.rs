@@ -125,13 +125,35 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("*".to_string());
             }
             "frac" => {
+                current_token.clear();
                 if let Some(&next_char) = self.chars.peek() {
-                    // Check if next char is a digit, indicating shorthand fraction \frac23
                     if next_char.is_ascii_digit() {
-                        current_token.clear();
                         self.tokenize_shorthand_fraction(tokens);
-                    } else {
-                        tokens.push(stripped_token);
+                    } else if next_char == '{' {
+                        self.chars.next();
+                        if let Some(numer_str) = self.consume_brace_group() {
+                            while let Some(&c) = self.chars.peek() {
+                                if c.is_whitespace() {
+                                    self.chars.next();
+                                } else {
+                                    break;
+                                }
+                            }
+                            if self.chars.peek() == Some(&'{') {
+                                self.chars.next();
+                                if let Some(denom_str) = self.consume_brace_group() {
+                                    let numer_tokens = Tokenizer::new(&numer_str).tokenize();
+                                    let denom_tokens = Tokenizer::new(&denom_str).tokenize();
+                                    tokens.push("(".to_string());
+                                    tokens.extend(numer_tokens);
+                                    tokens.push(")".to_string());
+                                    tokens.push("/".to_string());
+                                    tokens.push("(".to_string());
+                                    tokens.extend(denom_tokens);
+                                    tokens.push(")".to_string());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -155,6 +177,23 @@ impl<'a> Tokenizer<'a> {
             _ => tokens.push(stripped_token),
         }
         current_token.clear();
+    }
+
+    fn consume_brace_group(&mut self) -> Option<String> {
+        let mut depth = 1;
+        let mut content = String::new();
+        while let Some(c) = self.chars.next() {
+            if c == '{' {
+                depth += 1;
+            } else if c == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(content);
+                }
+            }
+            content.push(c);
+        }
+        None
     }
 
     /// Handle shorthand fraction (like \frac23)
@@ -334,7 +373,7 @@ mod tests {
     fn test_tokenize_latex_fraction() {
         let mut tokenizer = Tokenizer::new("\\frac{3}{4}");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["frac", "{", "3", "}", "{", "4", "}"]);
+        assert_eq!(tokens, vec!["(", "3", ")", "/", "(", "4", ")"]);
     }
 
     #[test]

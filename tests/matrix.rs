@@ -337,7 +337,6 @@ fn test_matrix_latex_parse() {
 }
 
 #[test]
-#[ignore = "Matrix eigenvalues calculation needs fixing"]
 fn test_matrix_eigenvalues() {
     let env = Environment::default();
 
@@ -372,12 +371,12 @@ fn test_matrix_eigenvalues() {
 }
 
 #[test]
-#[ignore = "Matrix linear system solving needs fixing"]
 fn test_linear_system_solve() {
     let env = Environment::default();
 
     // Create a system of equations: 2x + y = 5, x + 3y = 7
     // Matrix A = [2 1; 1 3], b = [5; 7]
+    // Solution: x = 8/5, y = 9/5
 
     let matrix_a_elements = vec![
         Node::Num(ExactNum::integer(2)),
@@ -393,22 +392,27 @@ fn test_linear_system_solve() {
     ];
     let vector_b = Matrix::new(2, 1, vector_b_elements).unwrap();
 
-    // Solve the system
     let solution = matrix_a.solve(&vector_b, &env).unwrap();
 
-    // Check dimensions
     assert_eq!(solution.rows, 2);
     assert_eq!(solution.cols, 1);
 
-    // The solution should be x = 2, y = 1
     match solution.get(0, 0).unwrap() {
-        Node::Num(n) => assert!((n.to_f64() - 2.0).abs() < 1e-10),
-        _ => panic!("Expected Number node"),
+        Node::Num(n) => assert!(
+            (n.to_f64() - 1.6).abs() < 1e-10,
+            "x should be 8/5 = 1.6, got {}",
+            n.to_f64()
+        ),
+        other => panic!("Expected Num node, got {:?}", other),
     }
 
     match solution.get(1, 0).unwrap() {
-        Node::Num(n) => assert!((n.to_f64() - 1.0).abs() < 1e-10),
-        _ => panic!("Expected Number node"),
+        Node::Num(n) => assert!(
+            (n.to_f64() - 1.8).abs() < 1e-10,
+            "y should be 9/5 = 1.8, got {}",
+            n.to_f64()
+        ),
+        other => panic!("Expected Num node, got {:?}", other),
     }
 }
 

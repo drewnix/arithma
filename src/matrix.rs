@@ -992,7 +992,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Matrix eigenvalues calculation needs fixing"]
     fn test_matrix_eigenvalues() {
         let env = Environment::default();
 
