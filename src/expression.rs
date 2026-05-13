@@ -59,10 +59,22 @@ fn solve_equation(expr: &Node, target_var: &str) -> Result<f64, String> {
             Node::Multiply(left, right) => {
                 if let Node::Num(num) = &**left {
                     // If the left node is a number, it's a multiplier for the right side
-                    traverse(right, target_var, coefficient, constant, multiplier * num.to_f64())?;
+                    traverse(
+                        right,
+                        target_var,
+                        coefficient,
+                        constant,
+                        multiplier * num.to_f64(),
+                    )?;
                 } else if let Node::Num(num) = &**right {
                     // If the right node is a number, it's a multiplier for the left side
-                    traverse(left, target_var, coefficient, constant, multiplier * num.to_f64())?;
+                    traverse(
+                        left,
+                        target_var,
+                        coefficient,
+                        constant,
+                        multiplier * num.to_f64(),
+                    )?;
                 } else {
                     return Err(
                         "Expected one operand to be a number in multiplication.".to_string()

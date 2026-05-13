@@ -472,8 +472,11 @@ impl Matrix {
                     Node::Multiply(Box::new(trace.clone()), Box::new(trace.clone()))
                         .simplify(env)?;
 
-                let four_det = Node::Multiply(Box::new(Node::Num(ExactNum::integer(4))), Box::new(det.clone()))
-                    .simplify(env)?;
+                let four_det = Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(4))),
+                    Box::new(det.clone()),
+                )
+                .simplify(env)?;
 
                 let discriminant =
                     Node::Subtract(Box::new(trace_squared), Box::new(four_det)).simplify(env)?;
@@ -699,8 +702,14 @@ mod tests {
     #[test]
     fn test_matrix_from_elements() {
         let elements = vec![
-            vec![Node::Num(ExactNum::integer(1)), Node::Num(ExactNum::integer(2))],
-            vec![Node::Num(ExactNum::integer(3)), Node::Num(ExactNum::integer(4))],
+            vec![
+                Node::Num(ExactNum::integer(1)),
+                Node::Num(ExactNum::integer(2)),
+            ],
+            vec![
+                Node::Num(ExactNum::integer(3)),
+                Node::Num(ExactNum::integer(4)),
+            ],
         ];
 
         let matrix = Matrix::from_elements(elements).unwrap();

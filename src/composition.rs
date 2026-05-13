@@ -163,8 +163,8 @@ pub fn compose_multiple(functions: &[(Node, String)]) -> Result<Node, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::exact::ExactNum;
     use crate::evaluator::Evaluator;
+    use crate::exact::ExactNum;
     use crate::Environment;
 
     fn parse_expression(latex: &str) -> Result<Node, String> {

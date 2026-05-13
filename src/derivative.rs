@@ -336,8 +336,10 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     let operand_derivative = differentiate(operand, var_name)?;
 
                     // 1/f
-                    let coefficient =
-                        Node::Divide(Box::new(Node::Num(ExactNum::one())), Box::new(operand.clone()));
+                    let coefficient = Node::Divide(
+                        Box::new(Node::Num(ExactNum::one())),
+                        Box::new(operand.clone()),
+                    );
 
                     // 1/f * df/dx
                     Ok(Node::Multiply(

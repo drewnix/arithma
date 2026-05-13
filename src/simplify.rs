@@ -53,8 +53,7 @@ impl Simplifiable for Node {
                 }
 
                 // If both are numbers, multiply them directly
-                if let (Node::Num(ref l), Node::Num(ref r)) =
-                    (&left_simplified, &right_simplified)
+                if let (Node::Num(ref l), Node::Num(ref r)) = (&left_simplified, &right_simplified)
                 {
                     return Ok(Node::Num(l * r));
                 }
@@ -118,8 +117,7 @@ impl Simplifiable for Node {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
 
-                if let (Node::Num(ref l), Node::Num(ref r)) =
-                    (&left_simplified, &right_simplified)
+                if let (Node::Num(ref l), Node::Num(ref r)) = (&left_simplified, &right_simplified)
                 {
                     return Ok(Node::Num(l - r));
                 }
@@ -146,8 +144,7 @@ impl Simplifiable for Node {
                     }
                 }
 
-                if let (Node::Num(ref l), Node::Num(ref r)) =
-                    (&left_simplified, &right_simplified)
+                if let (Node::Num(ref l), Node::Num(ref r)) = (&left_simplified, &right_simplified)
                 {
                     return Ok(Node::Num(l / r));
                 }
@@ -238,7 +235,9 @@ fn collect_terms(
         }
         Node::Num(num) => {
             // For constants without variables (like `+10`), store them in the `""` key
-            let entry = term_map.entry("".to_string()).or_insert_with(ExactNum::zero);
+            let entry = term_map
+                .entry("".to_string())
+                .or_insert_with(ExactNum::zero);
             *entry = entry.clone() + num.clone();
         }
         _ => return Err("Unsupported node type in collect_terms".to_string()),

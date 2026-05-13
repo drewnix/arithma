@@ -54,10 +54,18 @@ impl Node {
         }
     }
 
-    fn fmt_child(&self, child: &Node, parent_prec: u8, is_right: bool, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_child(
+        &self,
+        child: &Node,
+        parent_prec: u8,
+        is_right: bool,
+        f: &mut fmt::Formatter,
+    ) -> fmt::Result {
         let child_prec = child.precedence();
         let needs_parens = child_prec < parent_prec
-            || (child_prec == parent_prec && is_right && matches!(self, Node::Subtract(_, _) | Node::Divide(_, _)));
+            || (child_prec == parent_prec
+                && is_right
+                && matches!(self, Node::Subtract(_, _) | Node::Divide(_, _)));
 
         if needs_parens {
             write!(f, "({})", child)
@@ -96,9 +104,14 @@ impl fmt::Display for Node {
                 self.fmt_child(right, 3, true, f)
             }
             Node::Power(base, exp) => {
-                let base_needs_parens = matches!(**base,
-                    Node::Add(_, _) | Node::Subtract(_, _) |
-                    Node::Multiply(_, _) | Node::Divide(_, _) | Node::Negate(_));
+                let base_needs_parens = matches!(
+                    **base,
+                    Node::Add(_, _)
+                        | Node::Subtract(_, _)
+                        | Node::Multiply(_, _)
+                        | Node::Divide(_, _)
+                        | Node::Negate(_)
+                );
                 if base_needs_parens {
                     write!(f, "({})", base)?;
                 } else {

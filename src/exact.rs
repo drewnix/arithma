@@ -238,7 +238,11 @@ mod tests {
         let b = ExactNum::rational(1, 3);
         let c = ExactNum::rational(1, 3);
         let sum = a + b + c;
-        assert!(sum.is_one(), "1/3 + 1/3 + 1/3 should be exactly 1, got {}", sum);
+        assert!(
+            sum.is_one(),
+            "1/3 + 1/3 + 1/3 should be exactly 1, got {}",
+            sum
+        );
     }
 
     #[test]
@@ -265,7 +269,10 @@ mod tests {
     #[test]
     fn test_integer_promotion() {
         let five = ExactNum::from_f64(5.0);
-        assert!(matches!(five, ExactNum::Rational(_)), "5.0 should be promoted to exact rational");
+        assert!(
+            matches!(five, ExactNum::Rational(_)),
+            "5.0 should be promoted to exact rational"
+        );
         assert_eq!(five.to_f64(), 5.0);
     }
 
@@ -289,7 +296,10 @@ mod tests {
         let expr = crate::parser::build_expression_tree(tokens).unwrap();
         match &expr {
             crate::node::Node::Num(n) => {
-                assert!(matches!(n, ExactNum::Rational(_)), "\\frac{{1}}{{3}} should be exact rational");
+                assert!(
+                    matches!(n, ExactNum::Rational(_)),
+                    "\\frac{{1}}{{3}} should be exact rational"
+                );
                 assert_eq!(format!("{}", n), "\\frac{1}{3}");
             }
             other => panic!("Expected Node::Num, got {:?}", other),
@@ -306,7 +316,9 @@ mod tests {
         let expected = 4.0 / 3.0;
         assert!(
             (result - expected).abs() < 1e-15,
-            "1 + 1/3 should be 4/3 = {}, got {}", expected, result
+            "1 + 1/3 should be 4/3 = {}, got {}",
+            expected,
+            result
         );
     }
 
@@ -320,8 +332,16 @@ mod tests {
             Box::new(crate::node::Node::Num(ExactNum::rational(1, 6))),
         );
         let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
-        assert_eq!(result, ExactNum::rational(1, 2), "1/3 + 1/6 should be exactly 1/2, got {}", result);
-        assert!(matches!(result, ExactNum::Rational(_)), "result should stay rational");
+        assert_eq!(
+            result,
+            ExactNum::rational(1, 2),
+            "1/3 + 1/6 should be exactly 1/2, got {}",
+            result
+        );
+        assert!(
+            matches!(result, ExactNum::Rational(_)),
+            "result should stay rational"
+        );
     }
 
     #[test]
@@ -334,7 +354,12 @@ mod tests {
             Box::new(crate::node::Node::Num(ExactNum::rational(3, 4))),
         );
         let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
-        assert_eq!(result, ExactNum::rational(1, 2), "2/3 * 3/4 should be exactly 1/2, got {}", result);
+        assert_eq!(
+            result,
+            ExactNum::rational(1, 2),
+            "2/3 * 3/4 should be exactly 1/2, got {}",
+            result
+        );
     }
 
     #[test]
@@ -349,7 +374,15 @@ mod tests {
             Box::new(crate::node::Node::Variable("i".to_string())),
         );
         let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
-        assert_eq!(result, ExactNum::integer(10), "sum 1..4 of i should be 10, got {}", result);
-        assert!(matches!(result, ExactNum::Rational(_)), "integer sum should stay rational");
+        assert_eq!(
+            result,
+            ExactNum::integer(10),
+            "sum 1..4 of i should be 10, got {}",
+            result
+        );
+        assert!(
+            matches!(result, ExactNum::Rational(_)),
+            "integer sum should stay rational"
+        );
     }
 }

@@ -65,27 +65,47 @@ impl Evaluator {
             Node::Greater(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
-                Ok(if l > r { ExactNum::one() } else { ExactNum::zero() })
+                Ok(if l > r {
+                    ExactNum::one()
+                } else {
+                    ExactNum::zero()
+                })
             }
             Node::Less(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
-                Ok(if l < r { ExactNum::one() } else { ExactNum::zero() })
+                Ok(if l < r {
+                    ExactNum::one()
+                } else {
+                    ExactNum::zero()
+                })
             }
             Node::GreaterEqual(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
-                Ok(if l >= r { ExactNum::one() } else { ExactNum::zero() })
+                Ok(if l >= r {
+                    ExactNum::one()
+                } else {
+                    ExactNum::zero()
+                })
             }
             Node::LessEqual(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
-                Ok(if l <= r { ExactNum::one() } else { ExactNum::zero() })
+                Ok(if l <= r {
+                    ExactNum::one()
+                } else {
+                    ExactNum::zero()
+                })
             }
             Node::Equal(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
-                Ok(if l == r { ExactNum::one() } else { ExactNum::zero() })
+                Ok(if l == r {
+                    ExactNum::one()
+                } else {
+                    ExactNum::zero()
+                })
             }
             Node::Equation(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;

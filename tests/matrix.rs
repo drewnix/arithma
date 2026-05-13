@@ -387,7 +387,10 @@ fn test_linear_system_solve() {
     ];
     let matrix_a = Matrix::new(2, 2, matrix_a_elements).unwrap();
 
-    let vector_b_elements = vec![Node::Num(ExactNum::integer(5)), Node::Num(ExactNum::integer(7))];
+    let vector_b_elements = vec![
+        Node::Num(ExactNum::integer(5)),
+        Node::Num(ExactNum::integer(7)),
+    ];
     let vector_b = Matrix::new(2, 1, vector_b_elements).unwrap();
 
     // Solve the system
