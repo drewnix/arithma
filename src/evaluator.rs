@@ -1,4 +1,5 @@
 use crate::environment::Environment;
+use crate::exact::ExactNum;
 use crate::functions::call_function;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
@@ -7,135 +8,129 @@ pub struct Evaluator;
 
 impl Evaluator {
     pub fn evaluate(node: &Node, env: &Environment) -> Result<f64, String> {
+        Self::evaluate_exact(node, env).map(|n| n.to_f64())
+    }
+
+    pub fn evaluate_exact(node: &Node, env: &Environment) -> Result<ExactNum, String> {
         match node {
-            Node::Num(n) => Ok(n.to_f64()),
+            Node::Num(n) => Ok(n.clone()),
             Node::Variable(ref var) => {
                 if let Some(val) = env.get(var) {
-                    Ok(val)
+                    Ok(ExactNum::from_f64(val))
                 } else {
                     Err(format!("Variable '{}' is not defined.", var))
                 }
             }
             Node::Negate(expr) => {
-                let value = Self::evaluate(expr, env)?;
+                let value = Self::evaluate_exact(expr, env)?;
                 Ok(-value)
             }
             Node::Add(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(left_val + right_val)
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l + r)
             }
             Node::Subtract(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(left_val - right_val)
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l - r)
             }
             Node::Multiply(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(left_val * right_val)
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l * r)
             }
             Node::Divide(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                if right_val == 0.0 {
-                    Ok(f64::NAN) // Return NaN for division by zero
-                } else {
-                    Ok(left_val / right_val)
-                }
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l / r)
             }
             Node::Power(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(left_val.powf(right_val))
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l.powf(&r))
             }
             Node::Sqrt(operand) => {
-                let value = Self::evaluate(operand, env)?;
-                if value < 0.0 {
+                let value = Self::evaluate_exact(operand, env)?;
+                if value.is_negative() {
                     Err("Square root of negative number is not supported.".to_string())
                 } else {
                     Ok(value.sqrt())
                 }
             }
             Node::Abs(operand) => {
-                let value = Self::evaluate(operand, env)?;
+                let value = Self::evaluate_exact(operand, env)?;
                 Ok(value.abs())
             }
             Node::Greater(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(if left_val > right_val { 1.0 } else { 0.0 })
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(if l > r { ExactNum::one() } else { ExactNum::zero() })
             }
             Node::Less(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(if left_val < right_val { 1.0 } else { 0.0 })
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(if l < r { ExactNum::one() } else { ExactNum::zero() })
             }
             Node::GreaterEqual(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(if left_val >= right_val { 1.0 } else { 0.0 })
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(if l >= r { ExactNum::one() } else { ExactNum::zero() })
             }
             Node::LessEqual(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(if left_val <= right_val { 1.0 } else { 0.0 })
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(if l <= r { ExactNum::one() } else { ExactNum::zero() })
             }
             Node::Equal(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                Ok(if left_val == right_val { 1.0 } else { 0.0 })
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(if l == r { ExactNum::one() } else { ExactNum::zero() })
             }
             Node::Equation(left, right) => {
-                let left_val = Self::evaluate(left, env)?;
-                let right_val = Self::evaluate(right, env)?;
-                // Return difference between sides - when equation is satisfied, this is 0
-                Ok(left_val - right_val)
+                let l = Self::evaluate_exact(left, env)?;
+                let r = Self::evaluate_exact(right, env)?;
+                Ok(l - r)
             }
             Node::Summation(ref index_var, start, end, body) => {
-                // Evaluate start and end bounds
-                let start_val = Self::evaluate(start, env)?;
-                let end_val = Self::evaluate(end, env)?;
+                let start_val = Self::evaluate_exact(start, env)?;
+                let end_val = Self::evaluate_exact(end, env)?;
 
-                // Create a new environment for each iteration
+                let start_i = start_val.to_f64() as i64;
+                let end_i = end_val.to_f64() as i64;
+
                 let mut sum_env = env.clone();
-                let mut sum = 0.0;
+                let mut sum = ExactNum::zero();
 
-                // Iterate from start to end, inclusive
-                for i in (start_val as i64)..=(end_val as i64) {
-                    // Set the index variable value for this iteration
+                for i in start_i..=end_i {
                     sum_env.set(index_var, i as f64);
-
-                    // Evaluate the body with the updated environment
-                    let value = Self::evaluate(body, &sum_env)?;
-                    sum += value;
+                    let value = Self::evaluate_exact(body, &sum_env)?;
+                    sum = sum + value;
                 }
 
                 Ok(sum)
             }
             Node::Piecewise(conditions) => {
                 for (expr, cond) in conditions {
-                    let cond_val = Self::evaluate(cond, env)?;
-                    if cond_val == 1.0 {
-                        return Self::evaluate(expr, env);
+                    let cond_val = Self::evaluate_exact(cond, env)?;
+                    if cond_val.is_one() {
+                        return Self::evaluate_exact(expr, env);
                     }
                 }
                 Err("No condition in Piecewise expression evaluated to true.".to_string())
             }
             Node::Function(ref name, ref args) => {
-                // Evaluate the arguments first
                 let mut evaluated_args = Vec::new();
                 for arg in args {
                     evaluated_args.push(Self::evaluate(arg, env)?);
                 }
-
-                // Call the function using the centralized registry
-                call_function(name, evaluated_args)
+                let result = call_function(name, evaluated_args)?;
+                Ok(ExactNum::Float(result))
             }
         }
     }
 
     pub fn simplify(node: &Node, env: &Environment) -> Result<Node, String> {
-        node.simplify(env) // Delegate simplification to the node
+        node.simplify(env)
     }
 }

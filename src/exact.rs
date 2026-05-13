@@ -298,7 +298,6 @@ mod tests {
 
     #[test]
     fn test_frac_addition_exact() {
-        // \frac as the second operand works correctly with the current parser
         let mut tokenizer = crate::tokenizer::Tokenizer::new("1 + \\frac{1}{3}");
         let tokens = tokenizer.tokenize();
         let expr = crate::parser::build_expression_tree(tokens).unwrap();
@@ -309,5 +308,48 @@ mod tests {
             (result - expected).abs() < 1e-15,
             "1 + 1/3 should be 4/3 = {}, got {}", expected, result
         );
+    }
+
+    #[test]
+    fn test_evaluate_exact_preserves_rationals() {
+        let env = crate::environment::Environment::new();
+
+        // 1/3 + 1/6 = 1/2 exactly (via evaluate_exact)
+        let expr = crate::node::Node::Add(
+            Box::new(crate::node::Node::Num(ExactNum::rational(1, 3))),
+            Box::new(crate::node::Node::Num(ExactNum::rational(1, 6))),
+        );
+        let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
+        assert_eq!(result, ExactNum::rational(1, 2), "1/3 + 1/6 should be exactly 1/2, got {}", result);
+        assert!(matches!(result, ExactNum::Rational(_)), "result should stay rational");
+    }
+
+    #[test]
+    fn test_evaluate_exact_multiplication() {
+        let env = crate::environment::Environment::new();
+
+        // 2/3 * 3/4 = 1/2 exactly
+        let expr = crate::node::Node::Multiply(
+            Box::new(crate::node::Node::Num(ExactNum::rational(2, 3))),
+            Box::new(crate::node::Node::Num(ExactNum::rational(3, 4))),
+        );
+        let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
+        assert_eq!(result, ExactNum::rational(1, 2), "2/3 * 3/4 should be exactly 1/2, got {}", result);
+    }
+
+    #[test]
+    fn test_evaluate_exact_summation() {
+        let env = crate::environment::Environment::new();
+
+        // sum_{i=1}^{4} i = 10 exactly
+        let expr = crate::node::Node::Summation(
+            "i".to_string(),
+            Box::new(crate::node::Node::Num(ExactNum::one())),
+            Box::new(crate::node::Node::Num(ExactNum::integer(4))),
+            Box::new(crate::node::Node::Variable("i".to_string())),
+        );
+        let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
+        assert_eq!(result, ExactNum::integer(10), "sum 1..4 of i should be 10, got {}", result);
+        assert!(matches!(result, ExactNum::Rational(_)), "integer sum should stay rational");
     }
 }
