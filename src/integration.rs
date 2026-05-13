@@ -1,19 +1,14 @@
 use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
+use crate::polynomial::Polynomial;
 use crate::tokenizer::Tokenizer;
 
-/// Calculates the indefinite integral of an expression with respect to a given variable
-///
-/// # Arguments
-///
-/// * `expr` - The expression to integrate
-/// * `var_name` - The variable to integrate with respect to
-///
-/// # Returns
-///
-/// The indefinite integral of the expression with respect to the given variable
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
+    if let Ok(poly) = Polynomial::from_node(expr, var_name) {
+        return Ok(poly.integral().to_node());
+    }
+
     match expr {
         // Constants: ∫k dx = k*x + C
         Node::Num(k) => {
@@ -406,5 +401,49 @@ mod tests {
             approx_eq(evaluated, 2.67, 0.01),
             "Integral of x^2 evaluated at x=2 should be approximately 2.67"
         );
+    }
+
+    #[test]
+    fn test_polynomial_integration_canonical_form() {
+        let expr = parse_expression("3*x^2 + 2*x + 1").unwrap();
+        let integral = integrate(&expr, "x").unwrap();
+        let form = format!("{}", integral);
+        assert_eq!(form, "x^{3} + x^{2} + x");
+    }
+
+    #[test]
+    fn test_polynomial_integration_single_term() {
+        let expr = parse_expression("6*x^2").unwrap();
+        let integral = integrate(&expr, "x").unwrap();
+        let form = format!("{}", integral);
+        assert_eq!(form, "2x^{3}");
+    }
+
+    #[test]
+    fn test_polynomial_integration_constant() {
+        let expr = parse_expression("7").unwrap();
+        let integral = integrate(&expr, "x").unwrap();
+        let form = format!("{}", integral);
+        assert_eq!(form, "7x");
+    }
+
+    #[test]
+    fn test_polynomial_integration_fractional_coeff() {
+        // ∫x^2 dx = (1/3)x^3
+        let expr = parse_expression("x^2").unwrap();
+        let integral = integrate(&expr, "x").unwrap();
+        let form = format!("{}", integral);
+        assert_eq!(form, "\\frac{1}{3} \\cdot x^{3}");
+    }
+
+    #[test]
+    fn test_nonpolynomial_fallback() {
+        // ∫x^(-1) dx should fall through to the ln|x| path
+        let expr = parse_expression("x^{-1}").unwrap();
+        let integral = integrate(&expr, "x").unwrap();
+        let mut env = Environment::new();
+        env.set("x", std::f64::consts::E);
+        let result = Evaluator::evaluate(&integral, &env).unwrap();
+        assert!(approx_eq(result, 1.0, 1e-10));
     }
 }

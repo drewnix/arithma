@@ -265,4 +265,145 @@ mod test_simplify {
         let val = Evaluator::evaluate(&expr, &test_env).unwrap();
         assert_eq!(val, 6.0, "(x^2-1)/(x+1) at x=7 should be 6");
     }
+
+    #[test]
+    fn test_subtract_cancellation() {
+        let env = Environment::new();
+        // x - x = 0
+        let expr = Node::Subtract(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::zero()));
+    }
+
+    #[test]
+    fn test_subtract_polynomial_normalization() {
+        let env = Environment::new();
+        // 2x^2 - x^2 = x^2
+        let expr = Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(Node::Power(
+                    Box::new(Node::Variable("x".to_string())),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )),
+            )),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{2}");
+    }
+
+    #[test]
+    fn test_subtract_zero_identity() {
+        let env = Environment::new();
+        // x - 0 = x
+        let expr = Node::Subtract(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Num(ExactNum::zero())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Variable("x".to_string()));
+    }
+
+    #[test]
+    fn test_multiply_variable_by_itself() {
+        let env = Environment::new();
+        // x * x = x^2
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{2}");
+    }
+
+    #[test]
+    fn test_multiply_polynomials() {
+        let env = Environment::new();
+        // (x + 1) * (x - 1) = x^2 - 1
+        let expr = Node::Multiply(
+            Box::new(Node::Add(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::one())),
+            )),
+            Box::new(Node::Subtract(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::one())),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 5.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 24.0, "(x+1)(x-1) at x=5 = 24");
+        assert_eq!(format!("{}", simplified), "x^{2} - 1");
+    }
+
+    #[test]
+    fn test_power_of_power() {
+        let env = Environment::new();
+        // (x^2)^3 = x^6
+        let expr = Node::Power(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Num(ExactNum::integer(3))),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{6}");
+    }
+
+    #[test]
+    fn test_subtract_multivar_like_terms() {
+        let env = Environment::new();
+        // 5x + 3y - 2x = 3x + 3y
+        let expr = Node::Subtract(
+            Box::new(Node::Add(
+                Box::new(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(5))),
+                    Box::new(Node::Variable("x".to_string())),
+                )),
+                Box::new(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(3))),
+                    Box::new(Node::Variable("y".to_string())),
+                )),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(Node::Variable("x".to_string())),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 10.0);
+        test_env.set("y", 5.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 45.0, "3*10 + 3*5 = 45");
+    }
+
+    #[test]
+    fn test_multiply_distributes_constant() {
+        let env = Environment::new();
+        // 3 * (x + 2) = 3x + 6
+        let expr = Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(3))),
+            Box::new(Node::Add(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 4.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 18.0, "3*(x+2) at x=4 = 18");
+        assert_eq!(format!("{}", simplified), "3x + 6");
+    }
 }

@@ -98,11 +98,15 @@ impl Simplifiable for Node {
                     ));
                 }
 
-                // If no simplification is possible, return the simplified node
-                Ok(Node::Multiply(
+                let result = Node::Multiply(
                     Box::new(left_simplified),
                     Box::new(right_simplified),
-                ))
+                );
+                if let Some(normalized) = try_polynomial_normalize(&result) {
+                    Ok(normalized)
+                } else {
+                    Ok(result)
+                }
             }
             Node::Power(base, exponent) => {
                 let base_simplified = base.simplify(env)?;
@@ -129,7 +133,18 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(b.powf(e)));
                 }
 
-                // If no special simplifications apply, return simplified Power
+                // (x^a)^b → x^(a*b) when both exponents are numeric
+                if let Node::Power(inner_base, inner_exp) = &base_simplified {
+                    if let (Node::Num(ref a), Node::Num(ref b)) =
+                        (&**inner_exp, &exponent_simplified)
+                    {
+                        return Ok(Node::Power(
+                            inner_base.clone(),
+                            Box::new(Node::Num(a * b)),
+                        ));
+                    }
+                }
+
                 Ok(Node::Power(
                     Box::new(base_simplified),
                     Box::new(exponent_simplified),
@@ -144,10 +159,27 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(l - r));
                 }
 
-                Ok(Node::Subtract(
-                    Box::new(left_simplified),
-                    Box::new(right_simplified),
-                ))
+                if let Node::Num(ref n) = right_simplified {
+                    if n.is_zero() {
+                        return Ok(left_simplified);
+                    }
+                }
+                if let Node::Num(ref n) = left_simplified {
+                    if n.is_zero() {
+                        return Ok(Node::Negate(Box::new(right_simplified)));
+                    }
+                }
+
+                let result =
+                    Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
+                let mut term_map: HashMap<String, ExactNum> = HashMap::new();
+                if collect_terms(&result, &mut term_map, env).is_ok() {
+                    Ok(rebuild_expression(term_map))
+                } else if let Some(normalized) = try_polynomial_normalize(&result) {
+                    Ok(normalized)
+                } else {
+                    Ok(result)
+                }
             }
             Node::Negate(operand) => {
                 let simplified = operand.simplify(env)?;
@@ -274,36 +306,54 @@ impl Simplifiable for Node {
     }
 }
 
+fn collect_terms_inner(
+    node: &Node,
+    term_map: &mut HashMap<String, ExactNum>,
+    sign: &ExactNum,
+) -> Result<(), String> {
+    match node {
+        Node::Add(left, right) => {
+            collect_terms_inner(left, term_map, sign)?;
+            collect_terms_inner(right, term_map, sign)?;
+        }
+        Node::Subtract(left, right) => {
+            collect_terms_inner(left, term_map, sign)?;
+            let neg_sign = sign.clone() * ExactNum::integer(-1);
+            collect_terms_inner(right, term_map, &neg_sign)?;
+        }
+        Node::Negate(inner) => {
+            let neg_sign = sign.clone() * ExactNum::integer(-1);
+            collect_terms_inner(inner, term_map, &neg_sign)?;
+        }
+        Node::Multiply(left, right) => {
+            if let (Node::Num(ref coef), Node::Variable(ref var)) = (&**left, &**right) {
+                let entry = term_map.entry(var.clone()).or_insert_with(ExactNum::zero);
+                *entry = entry.clone() + coef.clone() * sign.clone();
+            } else {
+                return Err("Unsupported multiply form in collect_terms".to_string());
+            }
+        }
+        Node::Variable(var) => {
+            let entry = term_map.entry(var.clone()).or_insert_with(ExactNum::zero);
+            *entry = entry.clone() + sign.clone();
+        }
+        Node::Num(num) => {
+            let entry = term_map
+                .entry("".to_string())
+                .or_insert_with(ExactNum::zero);
+            *entry = entry.clone() + num.clone() * sign.clone();
+        }
+        _ => return Err("Unsupported node type in collect_terms".to_string()),
+    }
+    Ok(())
+}
+
 fn collect_terms(
     node: &Node,
     term_map: &mut HashMap<String, ExactNum>,
     _env: &Environment,
 ) -> Result<(), String> {
-    match node {
-        Node::Add(left, right) => {
-            collect_terms(left, term_map, _env)?;
-            collect_terms(right, term_map, _env)?;
-        }
-        Node::Multiply(left, right) => {
-            if let (Node::Num(ref coef), Node::Variable(ref var)) = (&**left, &**right) {
-                let entry = term_map.entry(var.clone()).or_insert_with(ExactNum::zero);
-                *entry = entry.clone() + coef.clone();
-            }
-        }
-        Node::Variable(var) => {
-            let entry = term_map.entry(var.clone()).or_insert_with(ExactNum::zero);
-            *entry = entry.clone() + ExactNum::one();
-        }
-        Node::Num(num) => {
-            // For constants without variables (like `+10`), store them in the `""` key
-            let entry = term_map
-                .entry("".to_string())
-                .or_insert_with(ExactNum::zero);
-            *entry = entry.clone() + num.clone();
-        }
-        _ => return Err("Unsupported node type in collect_terms".to_string()),
-    }
-    Ok(())
+    collect_terms_inner(node, term_map, &ExactNum::one())
 }
 
 fn rebuild_expression(term_map: HashMap<String, ExactNum>) -> Node {

@@ -91,14 +91,22 @@ impl fmt::Display for Node {
                 self.fmt_child(right, 2, true, f)
             }
             Node::Multiply(left, right) => {
-                if let (Node::Num(l), Node::Variable(r)) = (&**left, &**right) {
-                    if l.is_one() {
-                        return write!(f, "{}", r);
+                let is_var_like = matches!(
+                    &**right,
+                    Node::Variable(_) | Node::Power(_, _) | Node::Sqrt(_)
+                );
+                if let Node::Num(l) = &**left {
+                    if is_var_like {
+                        if l.is_one() {
+                            return write!(f, "{}", right);
+                        }
+                        if *l == ExactNum::integer(-1) {
+                            return write!(f, "-{}", right);
+                        }
+                        if l.is_integer() {
+                            return write!(f, "{}{}", l, right);
+                        }
                     }
-                    if *l == ExactNum::integer(-1) {
-                        return write!(f, "-{}", r);
-                    }
-                    return write!(f, "{}{}", l, r);
                 }
                 self.fmt_child(left, 3, false, f)?;
                 write!(f, " \\cdot ")?;

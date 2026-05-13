@@ -90,12 +90,36 @@ impl ExactNum {
     }
 
     pub fn powf(&self, exp: &ExactNum) -> Self {
-        let b = self.to_f64();
-        let e = exp.to_f64();
-        ExactNum::Float(b.powf(e))
+        if let (ExactNum::Rational(base), Some(e)) = (self, exp.to_i64()) {
+            if e >= 0 {
+                return ExactNum::Rational(num_traits::pow::pow(base.clone(), e as usize));
+            } else if !base.is_zero() {
+                let inv = BigRational::one() / base;
+                return ExactNum::Rational(num_traits::pow::pow(inv, (-e) as usize));
+            }
+        }
+        ExactNum::Float(self.to_f64().powf(exp.to_f64()))
     }
 
     pub fn sqrt(&self) -> Self {
+        if let ExactNum::Rational(r) = self {
+            if !r.is_negative() {
+                let n = r.numer().to_i64();
+                let d = r.denom().to_i64();
+                if let (Some(n), Some(d)) = (n, d) {
+                    let nu = n.unsigned_abs();
+                    let du = d.unsigned_abs();
+                    let sn = (nu as f64).sqrt() as u64;
+                    let sd = (du as f64).sqrt() as u64;
+                    if sn * sn == nu && sd * sd == du {
+                        return ExactNum::Rational(BigRational::new(
+                            BigInt::from(sn),
+                            BigInt::from(sd),
+                        ));
+                    }
+                }
+            }
+        }
         ExactNum::Float(self.to_f64().sqrt())
     }
 
@@ -359,6 +383,51 @@ mod tests {
             "2/3 * 3/4 should be exactly 1/2, got {}",
             result
         );
+    }
+
+    #[test]
+    fn test_sqrt_exact_perfect_square() {
+        let result = ExactNum::integer(9).sqrt();
+        assert_eq!(result, ExactNum::integer(3), "sqrt(9) = 3 exactly");
+        assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_sqrt_exact_rational_perfect_square() {
+        let result = ExactNum::rational(9, 4).sqrt();
+        assert_eq!(result, ExactNum::rational(3, 2), "sqrt(9/4) = 3/2 exactly");
+        assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_sqrt_non_perfect_stays_float() {
+        let result = ExactNum::integer(2).sqrt();
+        assert!(matches!(result, ExactNum::Float(_)), "sqrt(2) should be float");
+    }
+
+    #[test]
+    fn test_powf_exact_integer_exponent() {
+        let base = ExactNum::rational(2, 3);
+        let exp = ExactNum::integer(2);
+        let result = base.powf(&exp);
+        assert_eq!(result, ExactNum::rational(4, 9), "(2/3)^2 = 4/9 exactly");
+        assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_powf_exact_negative_exponent() {
+        let base = ExactNum::rational(2, 3);
+        let exp = ExactNum::integer(-2);
+        let result = base.powf(&exp);
+        assert_eq!(result, ExactNum::rational(9, 4), "(2/3)^(-2) = 9/4 exactly");
+        assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_powf_exact_integer_base() {
+        let result = ExactNum::integer(3).powf(&ExactNum::integer(4));
+        assert_eq!(result, ExactNum::integer(81), "3^4 = 81 exactly");
+        assert!(matches!(result, ExactNum::Rational(_)));
     }
 
     #[test]

@@ -1,17 +1,12 @@
 use crate::exact::ExactNum;
 use crate::node::Node;
+use crate::polynomial::Polynomial;
 
-/// Calculates the derivative of an expression with respect to a given variable
-///
-/// # Arguments
-///
-/// * `expr` - The expression to differentiate
-/// * `var_name` - The variable to differentiate with respect to
-///
-/// # Returns
-///
-/// The derivative of the expression with respect to the given variable
 pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
+    if let Ok(poly) = Polynomial::from_node(expr, var_name) {
+        return Ok(poly.derivative().to_node());
+    }
+
     match expr {
         // Constants differentiate to zero
         Node::Num(_) => Ok(Node::Num(ExactNum::zero())),
@@ -694,5 +689,29 @@ mod tests {
         env.set("x", 3.0);
         let eval_result = evaluate_expression(&expr, &env).unwrap();
         assert_eq!(eval_result, 6.0); // 2*3 = 6
+    }
+
+    #[test]
+    fn test_polynomial_derivative_canonical_form() {
+        // d/dx(x^3 + 3x^2 + 3x + 1) = 3x^2 + 6x + 3
+        let expr = parse_expression("x^3 + 3*x^2 + 3*x + 1").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        assert_eq!(format!("{}", derivative), "3x^{2} + 6x + 3");
+    }
+
+    #[test]
+    fn test_polynomial_derivative_single_term() {
+        // d/dx(5x^4) = 20x^3
+        let expr = parse_expression("5*x^4").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        assert_eq!(format!("{}", derivative), "20x^{3}");
+    }
+
+    #[test]
+    fn test_polynomial_derivative_constant() {
+        // d/dx(42) = 0
+        let expr = parse_expression("42").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        assert_eq!(format!("{}", derivative), "0");
     }
 }

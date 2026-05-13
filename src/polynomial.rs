@@ -298,7 +298,7 @@ impl Polynomial {
         }
 
         let mut factors = Vec::new();
-        let mut f = self.make_monic();
+        let f = self.make_monic();
         let mut g = self.gcd(&self.derivative());
         let mut h = {
             let (q, _) = f.div_rem(&g).unwrap();
@@ -407,46 +407,58 @@ impl Polynomial {
             return Node::Num(ExactNum::zero());
         }
 
-        let mut terms: Vec<Node> = Vec::new();
-
-        for (i, coeff) in self.coeffs.iter().enumerate() {
-            if coeff.is_zero() {
-                continue;
-            }
-
-            let term = if i == 0 {
-                rational_to_node(coeff)
-            } else {
-                let var_part = if i == 1 {
-                    Node::Variable(self.variable.clone())
-                } else {
-                    Node::Power(
-                        Box::new(Node::Variable(self.variable.clone())),
-                        Box::new(Node::Num(ExactNum::integer(i as i64))),
-                    )
-                };
-
-                if coeff.is_one() {
-                    var_part
-                } else if (coeff.clone() + BigRational::one()).is_zero() {
-                    Node::Negate(Box::new(var_part))
-                } else {
-                    Node::Multiply(Box::new(rational_to_node(coeff)), Box::new(var_part))
-                }
-            };
-
-            terms.push(term);
-        }
+        // Collect (degree, coefficient) pairs for nonzero terms, highest degree first
+        let mut terms: Vec<(usize, BigRational)> = self
+            .coeffs
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_zero())
+            .map(|(i, c)| (i, c.clone()))
+            .collect();
+        terms.reverse();
 
         if terms.is_empty() {
             return Node::Num(ExactNum::zero());
         }
 
-        terms.reverse();
-        let mut result = terms.remove(0);
-        for term in terms {
-            result = Node::Add(Box::new(result), Box::new(term));
+        let make_term = |deg: usize, coeff: &BigRational, var: &str| -> Node {
+            let abs_coeff = coeff.abs();
+            if deg == 0 {
+                rational_to_node(&abs_coeff)
+            } else {
+                let var_part = if deg == 1 {
+                    Node::Variable(var.to_string())
+                } else {
+                    Node::Power(
+                        Box::new(Node::Variable(var.to_string())),
+                        Box::new(Node::Num(ExactNum::integer(deg as i64))),
+                    )
+                };
+                if abs_coeff.is_one() {
+                    var_part
+                } else {
+                    Node::Multiply(Box::new(rational_to_node(&abs_coeff)), Box::new(var_part))
+                }
+            }
+        };
+
+        let (first_deg, first_coeff) = terms.remove(0);
+        let first_term = make_term(first_deg, &first_coeff, &self.variable);
+        let mut result = if first_coeff.is_negative() {
+            Node::Negate(Box::new(first_term))
+        } else {
+            first_term
+        };
+
+        for (deg, coeff) in terms {
+            let term = make_term(deg, &coeff, &self.variable);
+            if coeff.is_negative() {
+                result = Node::Subtract(Box::new(result), Box::new(term));
+            } else {
+                result = Node::Add(Box::new(result), Box::new(term));
+            }
         }
+
         result
     }
 }
