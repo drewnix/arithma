@@ -9,24 +9,26 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 10)
+## Current State (Post Session 11)
 
-**Phases 1-2 complete. Simplifier deepened.** 194 tests pass, 5 ignored (unimplemented: limits, infimum; floating-point edge cases: cot, sec at singularities).
+**Phases 1-2 complete. Phase 3.1 complete. Simplifier significantly deepened.** 255 tests pass, 1 ignored (limits unimplemented).
 
-### Session 10 Changes
-- **\frac parser bug fixed**: Tokenizer now consumes both brace groups of `\frac{A}{B}` and emits `(A) / (B)`. Eliminates the class of bugs where `\frac` as first operand misparsed.
-- **Shunting-yard function-pop fix**: Functions are now popped after their closing delimiter (standard algorithm behavior). Previously `\sin(x) + 1` misparsed as `sin(x + 1)`. Same for `\sqrt`, `\cos`, etc.
-- **Divide Display**: `Node::Divide` renders as `\frac{left}{right}` for proper LaTeX output and round-tripping.
-- **Multiply Display**: Coefficient 1 omitted (`1x` → `x`, `-1x` → `-x`).
-- **Simplifier deepened**: Add simplifies children first, falls back gracefully when `collect_terms` can't handle the expression. Sqrt and Function nodes now simplify when args are numeric.
-- **Eigenvalue tests un-ignored**: Function simplification unlocked `sqrt(4) → 2` which the eigenvalue quadratic formula needs.
-- **Linear system solve un-ignored**: Was producing correct results all along — the test expected x=2, y=1 for a system whose actual solution is x=8/5, y=9/5. Fourth wrong-expectation test found and fixed.
+### Session 11 Changes
+- **Polynomial routing for integration/differentiation**: Polynomial integrands and differentiands are routed through `Polynomial::integral()`/`derivative()` for canonical output. `∫(3x²+2x+1)dx` → `x³+x²+x` instead of `3·x³/3 + 2·x²/2 + x`.
+- **Exact powf**: `ExactNum::powf` stays rational for integer exponents — `(2/3)²=4/9`, `3⁴=81`, `(2/3)⁻²=9/4`.
+- **Exact sqrt**: `ExactNum::sqrt` stays rational for perfect squares — `√9=3`, `√(9/4)=3/2`.
+- **Simplifier: Subtract normalization**: Polynomial normalization + collect_terms for subtraction — `x²-x²→0`, `2x²-x²→x²`, `5x+3y-2x→3x+3y`.
+- **Simplifier: Multiply normalization**: Polynomial path for products — `x·x→x²`, `(x+1)(x-1)→x²-1`, `3(x+2)→3x+6`.
+- **Simplifier: Power-of-power**: `(x^a)^b → x^(a·b)` for numeric exponents.
+- **Simplifier: Double negation**: `--x → x`.
+- **Polynomial to_node**: Uses Subtract for negative terms — `x²-1` not `x²+-1`.
+- **Multiply Display**: Integer coefficients use juxtaposition for powers — `2x³` not `2·x³`. Fraction coefficients use `\cdot`.
+- **collect_terms extended**: Now handles Subtract and Negate nodes for multi-variable term collection.
+- **WASM endpoints**: `simplify_latex_js` and `polynomial_factor_js` — dedicated simplification and factorization for the frontend/MCP.
+- **Auto-simplification**: `differentiate_latex` and `integrate_latex` simplify their output.
+- **Pre-simplification**: `differentiate` and `integrate` simplify their input for consistent pattern matching. Fixes `d/dx(x^{-1})`.
 
-### Remaining Ignored Tests (5)
-- `test_sec_function`: sec(π/2) — floating-point `cos(π/2)` ≠ 0.0 exactly
-- `test_cot_function`: same class of floating-point singularity issue
-- `test_sec_function_undefined`: same
-- `test_inf_function`: infimum function not properly implemented
+### Remaining Ignored Tests (1)
 - `test_lim_function`: limits not implemented
 
 ## Phase 1: Exact Arithmetic Foundation
