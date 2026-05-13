@@ -572,6 +572,54 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_pythagorean_one_minus_sin_sq() {
+        let env = Environment::new();
+        // 1 - sin²(x) → cos²(x)
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Subtract(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "\\cos(x)^{2}");
+    }
+
+    #[test]
+    fn test_pythagorean_one_minus_cos_sq() {
+        let env = Environment::new();
+        // 1 - cos²(x) → sin²(x)
+        let cos_x = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Subtract(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Power(
+                Box::new(cos_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "\\sin(x)^{2}");
+    }
+
+    #[test]
+    fn test_pythagorean_sin_sq_minus_one() {
+        let env = Environment::new();
+        // sin²(x) - 1 → -cos²(x)
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Subtract(
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "-\\cos(x)^{2}");
+    }
+
+    #[test]
     fn test_function_latex_display() {
         let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
         assert_eq!(format!("{}", sin_x), "\\sin(x)");

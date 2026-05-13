@@ -226,6 +226,42 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // 1 - sin²(x) → cos²(x), 1 - cos²(x) → sin²(x)
+                if let Node::Num(ref n) = left_simplified {
+                    if n.is_one() {
+                        if let Some(args) = is_trig_squared(&right_simplified, "sin") {
+                            return Ok(Node::Power(
+                                Box::new(Node::Function("cos".to_string(), args)),
+                                Box::new(Node::Num(ExactNum::two())),
+                            ));
+                        }
+                        if let Some(args) = is_trig_squared(&right_simplified, "cos") {
+                            return Ok(Node::Power(
+                                Box::new(Node::Function("sin".to_string(), args)),
+                                Box::new(Node::Num(ExactNum::two())),
+                            ));
+                        }
+                    }
+                }
+
+                // sin²(x) - 1 → -cos²(x), cos²(x) - 1 → -sin²(x)
+                if let Node::Num(ref n) = right_simplified {
+                    if n.is_one() {
+                        if let Some(args) = is_trig_squared(&left_simplified, "sin") {
+                            return Ok(Node::Negate(Box::new(Node::Power(
+                                Box::new(Node::Function("cos".to_string(), args)),
+                                Box::new(Node::Num(ExactNum::two())),
+                            ))));
+                        }
+                        if let Some(args) = is_trig_squared(&left_simplified, "cos") {
+                            return Ok(Node::Negate(Box::new(Node::Power(
+                                Box::new(Node::Function("sin".to_string(), args)),
+                                Box::new(Node::Num(ExactNum::two())),
+                            ))));
+                        }
+                    }
+                }
+
                 let result =
                     Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
