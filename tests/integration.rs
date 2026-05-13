@@ -18,7 +18,6 @@ mod integration_tests {
 
     fn evaluate_integral(expr: &str, var: &str, env: &Environment) -> Result<f64, String> {
         let integral_latex = integrate_latex(expr, var)?;
-        // Remove the "+ C" constant of integration for evaluation
         let integral_expr = integral_latex.replace(" + C", "");
         evaluate_expression(&integral_expr, env)
     }
@@ -159,14 +158,14 @@ mod integration_tests {
         // ∫(x³ + x² - 2x + 1) dx = x⁴/4 + x³/3 - x² + x
         let result = integrate_latex("x^3 + x^2 - 2*x + 1", "x").unwrap();
 
-        // Check that the result contains the expected terms
         assert!(
-            result.contains("x^4")
-                && result.contains("x^3")
-                && result.contains("x^2")
+            result.contains("x^{4}")
+                && result.contains("x^{3}")
+                && result.contains("x^{2}")
                 && result.contains("+ x")
                 && result.contains("+ C"),
-            "Integration result should have the correct form"
+            "Integration result should have the correct form, got: {}",
+            result
         );
 
         // Verify with a definite integral

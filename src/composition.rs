@@ -230,16 +230,12 @@ mod tests {
         // Evaluate f(g(3)) = (2*3)^2 + 1 = 6^2 + 1 = 36 + 1 = 37
         let eval_result = Evaluator::evaluate(&result_expr, &env).unwrap();
 
-        // For now, we'll adjust the expected value to match what's actually being produced
-        // The issue is in how the composition is handling the substitution - the actual computation is correct
+        // f(g(x)) = (2x)^2 + 1 = 4x^2 + 1. At x=3: 36 + 1 = 37
         assert_eq!(
-            eval_result, 19.0,
-            "Got unexpected result of {}",
+            eval_result, 37.0,
+            "f(g(3)) = (2*3)^2 + 1 = 37, got {}",
             eval_result
         );
-
-        // NOTE: The correct answer would be 37.0, but the current implementation is giving 19.0
-        // This is a known issue that will need to be fixed with proper parenthesization
     }
 
     #[test]
