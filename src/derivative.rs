@@ -446,16 +446,14 @@ pub fn differentiate_and_evaluate(
 ///
 /// The derivative of the expression as a LaTeX string
 pub fn differentiate_latex(latex_expr: &str, var_name: &str) -> Result<String, String> {
-    // Parse the input expression
     let mut tokenizer = crate::tokenizer::Tokenizer::new(latex_expr);
     let tokens = tokenizer.tokenize();
     let expr = crate::parser::build_expression_tree(tokens)?;
-
-    // Compute the derivative
     let derivative = differentiate(&expr, var_name)?;
-
-    // Convert back to LaTeX
-    Ok(format!("{}", derivative))
+    let env = crate::environment::Environment::new();
+    let simplified = crate::simplify::Simplifiable::simplify(&derivative, &env)
+        .unwrap_or(derivative);
+    Ok(format!("{}", simplified))
 }
 
 #[cfg(test)]

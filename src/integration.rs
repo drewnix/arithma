@@ -174,16 +174,14 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
 ///
 /// The integral of the expression as a LaTeX string
 pub fn integrate_latex(latex_expr: &str, var_name: &str) -> Result<String, String> {
-    // Parse the input expression
     let mut tokenizer = Tokenizer::new(latex_expr);
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
-
-    // Compute the integral
     let integral = integrate(&expr, var_name)?;
-
-    // Convert back to LaTeX
-    Ok(format!("{} + C", integral))
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(&integral, &env).unwrap_or(integral);
+    Ok(format!("{} + C", simplified))
 }
 
 /// Calculates the definite integral of an expression between two bounds

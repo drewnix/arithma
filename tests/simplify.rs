@@ -389,6 +389,17 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_double_negation() {
+        let env = Environment::new();
+        // --x = x
+        let expr = Node::Negate(Box::new(Node::Negate(Box::new(Node::Variable(
+            "x".to_string(),
+        )))));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Variable("x".to_string()));
+    }
+
+    #[test]
     fn test_multiply_distributes_constant() {
         let env = Environment::new();
         // 3 * (x + 2) = 3x + 6

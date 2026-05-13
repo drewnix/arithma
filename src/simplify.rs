@@ -186,6 +186,9 @@ impl Simplifiable for Node {
                 if let Node::Num(ref n) = simplified {
                     return Ok(Node::Num(-n.clone()));
                 }
+                if let Node::Negate(inner) = simplified {
+                    return Ok(*inner);
+                }
                 Ok(Node::Negate(Box::new(simplified)))
             }
             Node::Divide(left, right) => {

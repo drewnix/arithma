@@ -13,6 +13,43 @@ use wasm_bindgen::prelude::*;
 
 #[allow(unexpected_cfgs)]
 #[wasm_bindgen]
+pub fn simplify_latex_js(latex_expr: &str) -> Result<String, JsValue> {
+    let mut tokenizer = Tokenizer::new(latex_expr);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
+    let env = crate::environment::Environment::new();
+    let simplified = expr
+        .simplify(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error simplifying: {}", e)))?;
+    Ok(format!("{}", simplified))
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn polynomial_factor_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
+    let mut tokenizer = Tokenizer::new(latex_expr);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
+    let poly = crate::polynomial::Polynomial::from_node(&expr, var_name)
+        .map_err(|e| JsValue::from_str(&format!("Not a polynomial: {}", e)))?;
+    let factors = poly.square_free_decomposition();
+    let parts: Vec<String> = factors
+        .iter()
+        .map(|(f, m)| {
+            if *m == 1 {
+                format!("({})", f)
+            } else {
+                format!("({})^{{{}}}", f, m)
+            }
+        })
+        .collect();
+    Ok(parts.join(" \\cdot "))
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
 pub fn compose_functions_js(f_latex: &str, f_var: &str, g_latex: &str) -> Result<String, JsValue> {
     // Compose the functions
     match compose_latex(f_latex, f_var, g_latex) {
