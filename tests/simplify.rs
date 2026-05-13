@@ -847,6 +847,84 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_one_over_sin() {
+        let env = Environment::new();
+        // 1 / sin(x) → csc(x)
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "sin".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("csc".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_one_over_cos() {
+        let env = Environment::new();
+        // 1 / cos(x) → sec(x)
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "cos".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("sec".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_one_over_tan() {
+        let env = Environment::new();
+        // 1 / tan(x) → cot(x)
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "tan".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(
+            simplified,
+            Node::Function("cot".to_string(), vec![Node::Variable("x".to_string())])
+        );
+    }
+
+    #[test]
+    fn test_zero_to_power() {
+        let env = Environment::new();
+        // 0^5 → 0
+        let expr = Node::Power(
+            Box::new(Node::Num(ExactNum::zero())),
+            Box::new(Node::Num(ExactNum::integer(5))),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::zero()));
+    }
+
+    #[test]
+    fn test_one_to_power() {
+        let env = Environment::new();
+        // 1^x → 1
+        let expr = Node::Power(
+            Box::new(Node::Num(ExactNum::one())),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::one()));
+    }
+
+    #[test]
     fn test_divide_same_expr() {
         let env = Environment::new();
         // x / x → 1

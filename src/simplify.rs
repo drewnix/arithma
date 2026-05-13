@@ -168,14 +168,28 @@ impl Simplifiable for Node {
                 let base_simplified = base.simplify(env)?;
                 let exponent_simplified = exponent.simplify(env)?;
 
-                // Exponentiation by zero
-                if let Node::Num(ref n) = exponent_simplified {
-                    if n.is_zero() {
-                        return Ok(Node::Num(ExactNum::one())); // Anything raised to 0 is 1
+                // 0^n → 0 for n > 0, 1^n → 1
+                if let Node::Num(ref b) = base_simplified {
+                    if b.is_zero() {
+                        if let Node::Num(ref e) = exponent_simplified {
+                            if !e.is_negative() {
+                                return Ok(Node::Num(ExactNum::zero()));
+                            }
+                        }
+                    }
+                    if b.is_one() {
+                        return Ok(Node::Num(ExactNum::one()));
                     }
                 }
 
-                // Exponentiation by one
+                // x^0 → 1
+                if let Node::Num(ref n) = exponent_simplified {
+                    if n.is_zero() {
+                        return Ok(Node::Num(ExactNum::one()));
+                    }
+                }
+
+                // x^1 → x
                 if let Node::Num(ref n) = exponent_simplified {
                     if n.is_one() {
                         return Ok(base_simplified);
@@ -303,7 +317,7 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(ExactNum::one()));
                 }
 
-                // sin(x) / cos(x) → tan(x)
+                // sin(x) / cos(x) → tan(x), cos(x) / sin(x) → cot(x)
                 if let (
                     Node::Function(ref fname1, ref args1),
                     Node::Function(ref fname2, ref args2),
@@ -314,6 +328,26 @@ impl Simplifiable for Node {
                     }
                     if fname1 == "cos" && fname2 == "sin" && args1 == args2 {
                         return Ok(Node::Function("cot".to_string(), args1.clone()));
+                    }
+                }
+
+                // 1 / sin(x) → csc(x), 1 / cos(x) → sec(x), 1 / tan(x) → cot(x)
+                if let Node::Num(ref n) = left_simplified {
+                    if n.is_one() {
+                        if let Node::Function(ref fname, ref args) = right_simplified {
+                            let recip = match fname.as_str() {
+                                "sin" => Some("csc"),
+                                "cos" => Some("sec"),
+                                "tan" => Some("cot"),
+                                _ => None,
+                            };
+                            if let Some(recip_name) = recip {
+                                return Ok(Node::Function(
+                                    recip_name.to_string(),
+                                    args.clone(),
+                                ));
+                            }
+                        }
                     }
                 }
 
