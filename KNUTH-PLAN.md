@@ -11,7 +11,7 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 ## Current State (Post Session 12)
 
-**Phases 1-2 complete. Phase 3.1 complete. Simplifier significantly deepened. Equation solver handles arbitrary degree.** 284 tests pass, 1 ignored (limits unimplemented).
+**Phases 1-2 complete. Phase 3.1 complete. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, and inverse function identities. Full derivative coverage for standard functions.** 328 tests pass, 1 ignored (limits unimplemented).
 
 ### Session 12 Changes
 - **Rational root theorem**: `Polynomial::rational_roots()` finds all rational roots of any-degree polynomial using the rational root theorem. Converts to primitive part for integer coefficients, enumerates ±(divisor of a₀)/(divisor of aₙ), tests via Horner evaluation.
@@ -19,7 +19,18 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - **Cubic solver (Cardano)**: For irreducible cubics (no rational roots), Cardano's formula computes real roots. Handles all three cases: one real root (h > 0), double root (h = 0), and casus irreducibilis (h < 0, three real roots via trigonometric method).
 - **General equation solver**: Degree ≥ 3 polynomials solved by: (1) find all rational roots via rational root theorem, (2) deflate, (3) solve remaining factor with appropriate formula (linear, quadratic, or Cardano). Works for any degree — quintic x⁵-x=0 correctly returns roots {-1, 0, 1}.
 - **Implicit multiplication parsing**: Tokenizer inserts `*` for `\frac{a}{b}x`, `2(x+1)`, `(a+b)(c+d)`, and `(expr)number` patterns. Function calls like `\sin(x)` correctly not affected.
-- **Environment ExactNum**: Environment stores `ExactNum` internally instead of f64. The f64 API is preserved for backward compatibility. Custom serde keeps JSON interface unchanged. Summation loop variables are now exact integers. The last precision leak in the pipeline is closed.
+- **Environment ExactNum**: Environment stores `ExactNum` internally instead of f64. Custom serde. Last precision leak closed.
+- **Ferrari's method**: Quartic solver via resolvent cubic. Classical suite complete through degree 4.
+- **Power rules**: `x^a * x^b → x^(a+b)`, `x^a / x^b → x^(a-b)`, `x/x → 1`. Any expression base.
+- **Pythagorean identity**: `sin²(x) + cos²(x) → 1` with coefficient and subtraction variants.
+- **LaTeX function display**: `\sin(x)` not `sin(x)` in output.
+- **Log properties**: `ln(a^b) → b·ln(a)`, `ln(a·b) → ln(a)+ln(b)`, `ln(a/b) → ln(a)-ln(b)`.
+- **Trig quotients/reciprocals**: `sin/cos→tan`, `cos/sin→cot`, `1/sin→csc`, `1/cos→sec`, `1/tan→cot`.
+- **Even/odd trig**: `sin(-x) → -sin(x)`, `cos(-x) → cos(x)`.
+- **Inverse functions**: `ln(e^x) → x`, `exp(ln(x)) → x`, `sqrt(x²) → |x|`.
+- **Abs rules**: `|n|→n` for numeric, `|-x|→|x|`, `||x||→|x|`.
+- **Power base cases**: `0^n → 0` for n ≥ 0, `1^n → 1`.
+- **Derivative expansion**: sec, csc, cot, sinh, cosh, tanh, arcsin, arccos, arctan with chain rule.
 
 ### Remaining Ignored Tests (1)
 - `test_lim_function`: limits not implemented
