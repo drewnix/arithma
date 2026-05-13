@@ -15,8 +15,8 @@ impl Evaluator {
         match node {
             Node::Num(n) => Ok(n.clone()),
             Node::Variable(ref var) => {
-                if let Some(val) = env.get(var) {
-                    Ok(ExactNum::from_f64(val))
+                if let Some(val) = env.get_exact(var) {
+                    Ok(val.clone())
                 } else {
                     Err(format!("Variable '{}' is not defined.", var))
                 }
@@ -123,7 +123,7 @@ impl Evaluator {
                 let mut sum = ExactNum::zero();
 
                 for i in start_i..=end_i {
-                    sum_env.set(index_var, i as f64);
+                    sum_env.set_exact(index_var, ExactNum::integer(i));
                     let value = Self::evaluate_exact(body, &sum_env)?;
                     sum = sum + value;
                 }

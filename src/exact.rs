@@ -453,4 +453,23 @@ mod tests {
             "integer sum should stay rational"
         );
     }
+
+    #[test]
+    fn test_environment_exact_variable() {
+        let mut env = crate::environment::Environment::new();
+        env.set_exact("x", ExactNum::rational(1, 3));
+
+        let expr = crate::node::Node::Add(
+            Box::new(crate::node::Node::Variable("x".to_string())),
+            Box::new(crate::node::Node::Variable("x".to_string())),
+        );
+        let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            ExactNum::rational(2, 3),
+            "1/3 + 1/3 should be exactly 2/3 via exact env, got {}",
+            result
+        );
+        assert!(matches!(result, ExactNum::Rational(_)));
+    }
 }

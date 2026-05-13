@@ -243,7 +243,7 @@ impl Simplifiable for Node {
 
                             // Evaluate each term and add them together
                             for i in start_i..=end_i {
-                                sum_env.set(index_var, i as f64);
+                                sum_env.set_exact(index_var, ExactNum::integer(i));
 
                                 // Create a substituted body for this iteration
                                 let substituted_body = crate::substitute::substitute_variable(
