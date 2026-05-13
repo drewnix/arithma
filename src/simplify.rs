@@ -171,6 +171,11 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(l / r));
                 }
 
+                if let Some(simplified) = try_polynomial_divide(&left_simplified, &right_simplified)
+                {
+                    return Ok(simplified);
+                }
+
                 Ok(Node::Divide(
                     Box::new(left_simplified),
                     Box::new(right_simplified),
@@ -373,4 +378,52 @@ fn try_polynomial_normalize(node: &Node) -> Option<Node> {
     let var = find_single_variable(node)?;
     let poly = Polynomial::from_node(node, &var).ok()?;
     Some(poly.to_node())
+}
+
+fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
+    let mut vars = std::collections::HashSet::new();
+    collect_variables(numer, &mut vars);
+    collect_variables(denom, &mut vars);
+    if vars.len() != 1 {
+        return None;
+    }
+    let var = vars.into_iter().next()?;
+
+    let n = Polynomial::from_node(numer, &var).ok()?;
+    let d = Polynomial::from_node(denom, &var).ok()?;
+
+    if d.is_zero() {
+        return None;
+    }
+
+    let g = n.gcd(&d);
+    if g.degree()? == 0 {
+        return None;
+    }
+
+    let (n_reduced, n_rem) = n.div_rem(&g).ok()?;
+    let (d_reduced, d_rem) = d.div_rem(&g).ok()?;
+
+    if !n_rem.is_zero() || !d_rem.is_zero() {
+        return None;
+    }
+
+    if d_reduced.is_constant() {
+        let d_val = d_reduced.coeff(0);
+        if d_val == num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) {
+            return Some(n_reduced.to_node());
+        }
+        return Some(
+            n_reduced
+                .scalar_mul(
+                    &(num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) / d_val),
+                )
+                .to_node(),
+        );
+    }
+
+    Some(Node::Divide(
+        Box::new(n_reduced.to_node()),
+        Box::new(d_reduced.to_node()),
+    ))
 }

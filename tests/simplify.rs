@@ -231,4 +231,38 @@ mod test_simplify {
         let val = Evaluator::evaluate(&simplified, &result_env).unwrap();
         assert_eq!(val, 251.0, "2(100) + 5(10) + 1 = 251");
     }
+
+    #[test]
+    fn test_simplify_rational_expression() {
+        let env = Environment::new();
+        // (x^2 - 1) / (x + 1) should simplify to x - 1
+        let expr = Node::Divide(
+            Box::new(Node::Subtract(
+                Box::new(Node::Power(
+                    Box::new(Node::Variable("x".to_string())),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )),
+                Box::new(Node::Num(ExactNum::integer(1))),
+            )),
+            Box::new(Node::Add(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(1))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 5.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 4.0, "(x^2-1)/(x+1) at x=5 should be 4");
+    }
+
+    #[test]
+    fn test_simplify_rational_expression_via_latex() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\frac{x^{2} - 1}{x + 1}", &env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 7.0);
+        let val = Evaluator::evaluate(&expr, &test_env).unwrap();
+        assert_eq!(val, 6.0, "(x^2-1)/(x+1) at x=7 should be 6");
+    }
 }
