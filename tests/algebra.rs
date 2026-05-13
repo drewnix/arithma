@@ -732,6 +732,74 @@ mod algebra_tests {
     }
 
     #[test]
+    fn test_solve_quartic_irrational() {
+        // x⁴ - 4x² + 2 = 0 → biquadratic, roots ±√(2±√2)
+        let mut tokenizer = Tokenizer::new("x^{4} - 4*x^{2} + 2 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 4);
+        for s in &solutions {
+            let x = s.to_f64();
+            let val = x.powi(4) - 4.0 * x * x + 2.0;
+            assert!(
+                val.abs() < 1e-8,
+                "x={} does not satisfy x⁴ - 4x² + 2 = 0 (got {})",
+                x,
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_solve_quartic_ferrari_general() {
+        // x⁴ - x - 1 = 0 → two real roots, two complex
+        let mut tokenizer = Tokenizer::new("x^{4} - x - 1 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2);
+        for s in &solutions {
+            let x = s.to_f64();
+            let val = x.powi(4) - x - 1.0;
+            assert!(
+                val.abs() < 1e-8,
+                "x={} does not satisfy x⁴ - x - 1 = 0 (got {})",
+                x,
+                val
+            );
+        }
+    }
+
+    #[test]
+    fn test_solve_quartic_no_real_roots() {
+        // x⁴ + x² + 1 = 0 → no real roots
+        let mut tokenizer = Tokenizer::new("x^{4} + x^{2} + 1 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let result = solve_for_variable_exact(&expr, "x");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_solve_quartic_with_cubic_term() {
+        // x⁴ + 2x³ - 7x² - 8x + 12 = 0 → (x-1)(x+2)(x-2)(x+3) = 0
+        // But with rational roots, this is handled before Ferrari.
+        // Let's verify the full path works.
+        let mut tokenizer = Tokenizer::new("x^{4} + 2*x^{3} - 7*x^{2} - 8*x + 12 = 0");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let mut vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(vals.len(), 4);
+        assert!(approx_eq(vals[0], -3.0, 1e-10));
+        assert!(approx_eq(vals[1], -2.0, 1e-10));
+        assert!(approx_eq(vals[2], 1.0, 1e-10));
+        assert!(approx_eq(vals[3], 2.0, 1e-10));
+    }
+
+    #[test]
     fn test_det_function() {
         let env = Environment::new();
 

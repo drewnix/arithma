@@ -69,6 +69,9 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
         Some(3) => {
             roots.extend(solve_cubic_cardano(&remaining));
         }
+        Some(4) => {
+            roots.extend(solve_quartic_ferrari(&remaining));
+        }
         Some(d) => {
             if roots.is_empty() {
                 return Err(format!(
@@ -125,15 +128,21 @@ fn solve_quadratic(poly: &Polynomial) -> Result<Vec<ExactNum>, String> {
 }
 
 /// Cardano's formula for an irreducible cubic (no rational roots).
-/// Input: polynomial of degree 3.
-/// Returns real roots as f64-backed ExactNum values.
 fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
-    let a3 = rational_to_f64(&poly.coeff(3));
-    let a2 = rational_to_f64(&poly.coeff(2));
-    let a1 = rational_to_f64(&poly.coeff(1));
-    let a0 = rational_to_f64(&poly.coeff(0));
+    solve_cubic_f64(
+        rational_to_f64(&poly.coeff(3)),
+        rational_to_f64(&poly.coeff(2)),
+        rational_to_f64(&poly.coeff(1)),
+        rational_to_f64(&poly.coeff(0)),
+    )
+    .into_iter()
+    .map(ExactNum::from_f64)
+    .collect()
+}
 
-    // Convert to depressed cubic t³ + pt + q = 0 via x = t - a2/(3·a3)
+/// Solve a3·x³ + a2·x² + a1·x + a0 = 0 using Cardano's formula.
+/// Returns all real roots as f64 values.
+fn solve_cubic_f64(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
     let shift = a2 / (3.0 * a3);
     let p = (a1 / a3) - (a2 * a2) / (3.0 * a3 * a3);
     let q = (a0 / a3) + (2.0 * a2 * a2 * a2) / (27.0 * a3 * a3 * a3)
@@ -141,22 +150,18 @@ fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
 
     let h = q * q / 4.0 + p * p * p / 27.0;
 
-    let roots = if h.abs() < 1e-14 && p.abs() < 1e-14 && q.abs() < 1e-14 {
-        // Triple root
+    let depressed_roots = if h.abs() < 1e-14 && p.abs() < 1e-14 && q.abs() < 1e-14 {
         vec![0.0]
     } else if h.abs() < 1e-14 {
-        // Double root: two distinct values
         let t1 = 3.0 * q / p;
         let t2 = -3.0 * q / (2.0 * p);
         vec![t1, t2]
     } else if h > 0.0 {
-        // One real root
         let sqrt_h = h.sqrt();
         let s = cbrt(-q / 2.0 + sqrt_h);
         let t = cbrt(-q / 2.0 - sqrt_h);
         vec![s + t]
     } else {
-        // Three real roots — casus irreducibilis, use trigonometric method
         let m = 2.0 * (-p / 3.0).sqrt();
         let theta = (1.0 / 3.0) * (3.0 * q / (p * m)).acos();
         let pi = std::f64::consts::PI;
@@ -167,10 +172,95 @@ fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
         ]
     };
 
+    depressed_roots.into_iter().map(|t| t - shift).collect()
+}
+
+/// Ferrari's method for an irreducible quartic (no rational roots).
+fn solve_quartic_ferrari(poly: &Polynomial) -> Vec<ExactNum> {
+    let a4 = rational_to_f64(&poly.coeff(4));
+    let a3 = rational_to_f64(&poly.coeff(3));
+    let a2 = rational_to_f64(&poly.coeff(2));
+    let a1 = rational_to_f64(&poly.coeff(1));
+    let a0 = rational_to_f64(&poly.coeff(0));
+
+    let b = a3 / a4;
+    let c = a2 / a4;
+    let d = a1 / a4;
+    let e = a0 / a4;
+
+    // Depressed quartic y⁴ + py² + qy + r = 0 via x = y - b/4
+    let shift = b / 4.0;
+    let p = c - 3.0 * b * b / 8.0;
+    let q = d - b * c / 2.0 + b * b * b / 8.0;
+    let r = e - b * d / 4.0 + b * b * c / 16.0 - 3.0 * b.powi(4) / 256.0;
+
+    if q.abs() < 1e-14 {
+        return solve_biquadratic_f64(p, r, shift);
+    }
+
+    // Resolvent cubic: 8m³ - 4pm² - 8rm + (4pr - q²) = 0
+    let resolvent = solve_cubic_f64(8.0, -4.0 * p, -8.0 * r, 4.0 * p * r - q * q);
+
+    let m = resolvent
+        .iter()
+        .copied()
+        .find(|&m| 2.0 * m - p > 1e-14)
+        .unwrap_or(resolvent[0]);
+
+    let alpha_sq = 2.0 * m - p;
+    if alpha_sq < 0.0 {
+        return vec![];
+    }
+    let alpha = alpha_sq.sqrt();
+    let beta = -q / (2.0 * alpha);
+
+    let mut roots = Vec::new();
+
+    // First quadratic: y² - αy + (m - β) = 0
+    let disc1 = alpha * alpha - 4.0 * (m - beta);
+    if disc1 >= -1e-10 {
+        let disc1 = disc1.max(0.0).sqrt();
+        roots.push((alpha + disc1) / 2.0);
+        roots.push((alpha - disc1) / 2.0);
+    }
+
+    // Second quadratic: y² + αy + (m + β) = 0
+    let disc2 = alpha * alpha - 4.0 * (m + beta);
+    if disc2 >= -1e-10 {
+        let disc2 = disc2.max(0.0).sqrt();
+        roots.push((-alpha + disc2) / 2.0);
+        roots.push((-alpha - disc2) / 2.0);
+    }
+
     roots
         .into_iter()
-        .map(|t| ExactNum::from_f64(t - shift))
+        .map(|y| ExactNum::from_f64(y - shift))
         .collect()
+}
+
+fn solve_biquadratic_f64(p: f64, r: f64, shift: f64) -> Vec<ExactNum> {
+    let disc = p * p - 4.0 * r;
+    let mut roots = Vec::new();
+    if disc >= -1e-10 {
+        let sqrt_disc = disc.max(0.0).sqrt();
+        let z1 = (-p + sqrt_disc) / 2.0;
+        let z2 = (-p - sqrt_disc) / 2.0;
+        if z1 >= -1e-10 {
+            let y = z1.max(0.0).sqrt();
+            roots.push(ExactNum::from_f64(y - shift));
+            if y.abs() > 1e-10 {
+                roots.push(ExactNum::from_f64(-y - shift));
+            }
+        }
+        if z2 >= -1e-10 && (z2 - z1).abs() > 1e-10 {
+            let y = z2.max(0.0).sqrt();
+            roots.push(ExactNum::from_f64(y - shift));
+            if y.abs() > 1e-10 {
+                roots.push(ExactNum::from_f64(-y - shift));
+            }
+        }
+    }
+    roots
 }
 
 fn cbrt(x: f64) -> f64 {
