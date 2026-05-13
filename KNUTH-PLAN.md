@@ -37,12 +37,13 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - Updated all pattern matches across 14 source and test files
 - Parser collapses `\frac{a}{b}` with integer arguments to `Node::Num(ExactNum::rational(a, b))`
 
-### 1.3 — Evaluator split (next)
+### 1.3 — Evaluator split ✅ (Session 09)
 - `evaluate_exact(node, env) -> ExactNum` — stays in the exact domain
-- `evaluate_f64(node, env) -> f64` — converts to float at the end
-- The WASM API calls `evaluate_f64`; internal symbolic operations use `evaluate_exact`
+- `evaluate(node, env) -> f64` — delegates to evaluate_exact, converts at the end
+- Verified: 1/3 + 1/6 = 1/2 exactly, 2/3 * 3/4 = 1/2 exactly
+- Function calls (sin, cos, etc.) produce ExactNum::Float since they are transcendental
 
-**Estimated remaining effort:** 1 session for evaluator split.
+**Phase 1 complete.** 175 tests pass, 0 failed, 11 ignored.
 
 ## Phase 2: Display and LaTeX Round-Trip
 
