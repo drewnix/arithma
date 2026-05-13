@@ -54,3 +54,6 @@ pub use crate::integration::{
 // Declare the matrix module
 pub mod matrix;
 pub use crate::matrix::{parse_latex_matrix, Matrix};
+
+pub mod polynomial;
+pub use crate::polynomial::Polynomial;
