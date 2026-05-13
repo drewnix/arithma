@@ -417,4 +417,71 @@ mod test_simplify {
         assert_eq!(val, 18.0, "3*(x+2) at x=4 = 18");
         assert_eq!(format!("{}", simplified), "3x + 6");
     }
+
+    #[test]
+    fn test_power_addition_same_base() {
+        let env = Environment::new();
+        // x^2 * x^3 → x^5
+        let expr = Node::Multiply(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{5}");
+    }
+
+    #[test]
+    fn test_power_addition_var_times_power() {
+        let env = Environment::new();
+        // x * x^3 → x^4
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{4}");
+    }
+
+    #[test]
+    fn test_power_addition_power_times_var() {
+        let env = Environment::new();
+        // x^2 * x → x^3
+        let expr = Node::Multiply(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "x^{3}");
+    }
+
+    #[test]
+    fn test_power_addition_function_base() {
+        let env = Environment::new();
+        // sin(x)^2 * sin(x)^3 → sin(x)^5
+        let sin_x = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(
+            Box::new(Node::Power(
+                Box::new(sin_x.clone()),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Power(
+                Box::new(sin_x),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", simplified), "sin(x)^{5}");
+    }
 }

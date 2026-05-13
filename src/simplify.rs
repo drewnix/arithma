@@ -98,6 +98,57 @@ impl Simplifiable for Node {
                     ));
                 }
 
+                // x^a * x^b → x^(a+b)
+                if let (
+                    Node::Power(ref base1, ref exp1),
+                    Node::Power(ref base2, ref exp2),
+                ) = (&left_simplified, &right_simplified)
+                {
+                    if base1 == base2 {
+                        if let (Node::Num(ref a), Node::Num(ref b)) =
+                            (exp1.as_ref(), exp2.as_ref())
+                        {
+                            return Ok(Node::Power(
+                                base1.clone(),
+                                Box::new(Node::Num(a + b)),
+                            ));
+                        }
+                    }
+                }
+
+                // x * x^a → x^(a+1)
+                if let Node::Power(ref base, ref exp) = right_simplified {
+                    if *base.as_ref() == left_simplified {
+                        if let Node::Num(ref a) = exp.as_ref() {
+                            return Ok(Node::Power(
+                                base.clone(),
+                                Box::new(Node::Num(a + &ExactNum::one())),
+                            ));
+                        }
+                    }
+                }
+                // x^a * x → x^(a+1)
+                if let Node::Power(ref base, ref exp) = left_simplified {
+                    if *base.as_ref() == right_simplified {
+                        if let Node::Num(ref a) = exp.as_ref() {
+                            return Ok(Node::Power(
+                                base.clone(),
+                                Box::new(Node::Num(a + &ExactNum::one())),
+                            ));
+                        }
+                    }
+                }
+
+                // x * x → x^2
+                if left_simplified == right_simplified {
+                    if !matches!(left_simplified, Node::Num(_)) {
+                        return Ok(Node::Power(
+                            Box::new(left_simplified),
+                            Box::new(Node::Num(ExactNum::two())),
+                        ));
+                    }
+                }
+
                 let result = Node::Multiply(
                     Box::new(left_simplified),
                     Box::new(right_simplified),
