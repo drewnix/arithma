@@ -170,6 +170,35 @@ Each crate depends only on `arithma-core`. Each can be compiled to WASM independ
 
 **This restructuring happens when the mathematical foundation (Phases 1-4) is solid, not before.**
 
+## Phase 7: arithma-mcp — MCP Server for AI Agents
+
+**Goal:** A standalone MCP server that gives QAI agents (and any MCP-compatible client) access to a correct, high-performance CAS with no runtime dependencies.
+
+### 7.1 — Core MCP server
+- Binary: `arithma-mcp`, speaks MCP protocol over stdio
+- Tools: `simplify`, `differentiate`, `integrate`, `solve`, `factor`, `evaluate`, `substitute`
+- Input/output: LaTeX (the lingua franca for mathematical expressions in agent contexts)
+- Exact arithmetic throughout — no floating-point leakage visible to the agent
+
+### 7.2 — Tool interface design
+- Each tool accepts a LaTeX expression string and optional parameters (variable, point, etc.)
+- Returns: simplified LaTeX result + structured metadata (degree, variables, numeric value if constant)
+- Error handling: clear messages when an expression is not in the supported domain
+- Multivariate-aware: tools work on multi-variable expressions via MultiPoly
+
+### 7.3 — Differentiators over existing CAS tools
+- **Correctness:** Exact rational arithmetic, not floating-point approximation
+- **Performance:** Rust, no interpreter overhead, no kernel startup
+- **Portability:** Single binary, no Python/Wolfram/Java runtime
+- **Determinism:** Same input always produces same output (no heuristic simplification races)
+
+### 7.4 — Dependencies
+- Phases 3-4 should be solid (multivariate simplifier, GCD)
+- WASM endpoints already define the tool surface; MCP wraps them with JSON-RPC transport
+- Can ship a useful v1 with current capabilities (univariate factoring, degree-4 solver, comprehensive simplification)
+
+**Estimated effort:** 1-2 sessions for v1. The math is done; this is protocol plumbing + tool descriptions.
+
 ## Principles
 
 1. **Correct first.** Every algorithm is verified against known results. Tests use exact arithmetic, not floating-point approximation, wherever possible.
