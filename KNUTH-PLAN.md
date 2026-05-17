@@ -1,7 +1,7 @@
 # Arithma — Algorithmic Foundations Plan
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Date: 2026-05-12*
+*Date: 2026-05-17*
 
 ---
 
@@ -11,7 +11,7 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 ## Current State (Post Session 12)
 
-**Phases 1-2 complete. Phase 3.1 complete. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, and inverse function identities. Full derivative coverage for standard functions.** 328 tests pass, 1 ignored (limits unimplemented).
+**Phases 1-2 complete. Phase 3.1 complete. Phase 3.2 core complete. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, and inverse function identities. Full derivative coverage for standard functions. Multivariate polynomial type with recursive representation.** 359 tests pass, 1 ignored (limits unimplemented).
 
 ### Session 12 Changes
 - **Rational root theorem**: `Polynomial::rational_roots()` finds all rational roots of any-degree polynomial using the rational root theorem. Converts to primitive part for integer coefficients, enumerates ±(divisor of a₀)/(divisor of aₙ), tests via Horner evaluation.
@@ -91,16 +91,23 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - **Session 12:** `rational_roots()` via rational root theorem, `deflate()` via synthetic division
 - **Equation solver:** Linear (exact), quadratic (exact when possible, f64 fallback), cubic (Cardano with trigonometric method for casus irreducibilis), any-degree via rational root theorem + deflation
 
-### 3.2 — Multivariate polynomials
-- Recursive representation: a polynomial in x whose coefficients are polynomials in y, z, ...
-- Term ordering: lexicographic (simplest, sufficient for most purposes)
-- GCD via the sparse modular algorithm if performance requires it
+### 3.2 — Multivariate polynomials ✅ (Session 13, in progress)
+- `MultiPoly` — recursive representation: polynomial in x with MultiPoly coefficients in y, z, ...
+- Variable ordering: lexicographic (alphabetical). First alphabetically is outermost.
+- Operations: Add, Sub, Mul, Neg, scalar_mul (all via reference traits)
+- Analysis: degree_in, total_degree, variables, leading_coeff, is_zero, is_constant
+- Calculus: partial_derivative (any variable)
+- Evaluation: evaluate_at (constant substitution), substitute (polynomial substitution with re-normalization)
+- Conversion: from_node (auto-detects all variables), to_node, from_univariate, to_univariate
+- Display: proper mathematical notation with parenthesization of compound coefficients
+- **31 tests** covering arithmetic, derivatives, substitution, three-variable expansion, conversion
+- **Remaining:** GCD (sparse modular or subresultant), multivariate division, simplifier integration
 
 ### 3.3 — Polynomial factoring
 - Square-free factorization ✅ (Session 10)
 - Factoring over Q via Hensel lifting (Berlekamp-Zassenhaus) — algorithmically deep, future work
 
-**Estimated effort:** 3.1 complete. 3.2 is 1-2 sessions. 3.3 (Berlekamp-Zassenhaus) is a separate project.
+**Estimated effort:** 3.1 complete. 3.2 core complete (Session 13); GCD and simplifier integration remain. 3.3 is a separate project.
 
 ## Phase 4: Simplification Engine
 
