@@ -1,53 +1,56 @@
-# Arithma CAS MCP
+# Arithma
 
-A computer algebra system written in Rust. Exact arithmetic, not floating-point
-approximation. LaTeX in, LaTeX out. A single binary with no runtime dependencies.
+A computer algebra system for AI agents. Written in Rust. Exact arithmetic,
+not floating-point approximation. LaTeX in, LaTeX out.
 
-Arithma exists because AI agents deserve a mathematics tool that is *correct*. 
-Not approximately correct, not usually correct, but correct in the way that exact
-rational arithmetic and well-chosen algorithms make possible. The MCP server gives
-any Claude session (or any MCP-compatible client) access to symbolic mathematics
-that would otherwise require a Python runtime, a Wolfram kernel, or faith in
-floating-point.
+Arithma exists because AI agents deserve a mathematics tool that is *correct*.
+Not approximately correct, not usually correct, but correct in the way that
+exact rational arithmetic and well-chosen algorithms make possible.
+
+## Why Arithma
+
+**Single binary, no dependencies.** The MCP server is 1.6 MB. No Python
+runtime, no Java, no Wolfram kernel, no network calls. Copy it anywhere and
+it works.
+
+**Exact arithmetic.** Every computation uses rational numbers (`BigRational`),
+not floating-point. `1/3 + 1/3 + 1/3 = 1`, not `0.9999999999999998`. Results
+are deterministic and reproducible.
+
+**Silence over lies.** If Arithma cannot compute something, it says so. It
+never guesses, approximates heuristically, or returns an unverified result.
+An agent that gets "I can't do this" can try a different approach. An agent
+that gets a wrong answer propagates it through its entire reasoning chain.
+
+**589 tests, zero failures.** Every algorithm is verified against known results.
+The simplifier has a verified idempotency contract:
+`simplify(simplify(e)) = simplify(e)`.
 
 ## What it does
 
-**Algebra.** Exact rational arithmetic. Polynomial factoring over Q via the
-Berlekamp-Zassenhaus algorithm (modular factoring, Hensel lifting, factor
-recombination). Multivariate polynomial GCD. Simplification with a verified
-idempotency contract: `simplify(simplify(e)) = simplify(e)`. Trigonometric
-identities, logarithmic properties, power rules. Partial fraction decomposition.
-Expression equivalence checking with symbolic and numerical verification.
-Assumption system: declare variable constraints (positive, nonnegative, negative,
-nonzero, real, integer) to enable domain-aware simplification ---
-`sqrt(x^2) -> x` when x > 0, `|x| -> x` when x >= 0, `(-1)^(2n) -> 1`
-when n is integer.
+**Algebra.** Polynomial factoring over Q via the Berlekamp-Zassenhaus algorithm
+(modular factoring, Hensel lifting, factor recombination). Multivariate
+polynomial GCD. Simplification with trigonometric identities, logarithmic
+properties, and power rules. Partial fraction decomposition. Expression
+equivalence checking. Assumption system for domain-aware simplification:
+declare `x > 0` and `sqrt(x^2)` simplifies to `x` instead of `|x|`.
 
-**Calculus.** Differentiation with chain rule, product rule, quotient rule, and the
-general f^g formula. Integration via polynomial rules, transcendental table,
-integration by parts (tabular method), u-substitution, trig powers (all parities
-including mixed products), inverse trig antiderivatives, partial fractions, and
-trig substitution for square roots of quadratics. Taylor and Maclaurin series
-with exact rational coefficients. Symbolic limits through direct substitution,
-GCD cancellation, and L'Hopital's rule.
+**Calculus.** Differentiation with full chain rule. Integration via 8 techniques:
+polynomial rules, transcendental table, integration by parts (tabular method),
+u-substitution, trig powers (all parities), inverse trig, partial fractions,
+and trig substitution. Taylor/Maclaurin series with exact rational coefficients.
+Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's rule.
 
-**Equation solving.** Linear through quartic, exactly. Rational root theorem with
-synthetic division. Cardano's formula for cubics (including the trigonometric method
-for *casus irreducibilis*). Ferrari's method for quartics. Degree 5 and above via
-Berlekamp-Zassenhaus factoring into solvable pieces.
+**Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
+Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
 
-**Linear algebra.** Determinant, inverse, eigenvalues, rank, transpose, multiplication,
-linear system solving (Ax = b), and row echelon form.
+**Linear algebra.** Determinant, inverse, eigenvalues, rank, transpose,
+multiplication, Ax = b, and RREF.
 
-**Series.** Taylor and Maclaurin expansion via repeated symbolic differentiation.
-Coefficients are exact rationals, not floating-point approximations:
-`sin(x)` to order 5 gives `x - \frac{1}{6}x^3 + \frac{1}{120}x^5`, not
-`x - 0.16667x^3 + 0.00833x^5`.
+## MCP server
 
-## The MCP server
-
-The `arithma-mcp` binary speaks MCP (Model Context Protocol) over stdio. It gives
-Claude or any MCP-compatible AI agent access to 13 tools:
+The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
+stdio. It gives Claude or any MCP-compatible AI agent access to 13 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -64,8 +67,8 @@ Claude or any MCP-compatible AI agent access to 13 tools:
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
 | `equivalent` | Check if two expressions are mathematically equal |
 
-Every tool accepts LaTeX and returns LaTeX. No intermediate formats, no ambiguity.
-Nine tools accept an optional `assumptions` parameter for domain-aware simplification:
+Every tool accepts LaTeX and returns LaTeX. Nine tools accept an optional
+`assumptions` parameter for domain-aware simplification:
 
 ```json
 {
@@ -74,31 +77,13 @@ Nine tools accept an optional `assumptions` parameter for domain-aware simplific
 }
 ```
 
-Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`, `integer`.
+Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
+`integer`.
 
-### Adding to Claude Code
+### Setup
 
-In your project's `.claude/settings.json` (or `~/.claude/settings.json` for global):
-
-```json
-{
-  "mcpServers": {
-    "arithma": {
-      "command": "/path/to/arithma-mcp"
-    }
-  }
-}
-```
-
-Replace `/path/to/arithma-mcp` with the path to the built binary (e.g.,
-`/Users/you/arithma/target/release/arithma-mcp`).
-
-### Adding to Claude Desktop
-
-In your Claude Desktop configuration file:
-
-- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+**Claude Code** -- add to `.claude/settings.json` (project) or
+`~/.claude/settings.json` (global):
 
 ```json
 {
@@ -110,39 +95,34 @@ In your Claude Desktop configuration file:
 }
 ```
 
-Restart Claude Desktop after editing. The 13 tools will appear in your tool list.
+**Claude Desktop** -- add to your config file
+(`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
-### Building the MCP server
+```json
+{
+  "mcpServers": {
+    "arithma": {
+      "command": "/path/to/arithma-mcp"
+    }
+  }
+}
+```
+
+## Building
 
 ```
-cargo build --release --bin arithma-mcp
-```
-
-The binary lands at `target/release/arithma-mcp`. It is approximately 1.5 MB,
-statically linked, with no runtime dependencies: no Python, no Java, no
-Wolfram, no network calls.
-
-## Building and testing
-
-```
-cargo build            # debug build
-cargo build --release  # optimized build
-cargo test             # run all 589 tests
+cargo build --release --bin arithma-mcp   # MCP server (1.6 MB binary)
+cargo test                                # run all 589 tests
 ```
 
 ## Design principles
 
-**Correct first.** Every algorithm is verified against known results. The test
-suite uses exact arithmetic, not floating-point approximation, wherever possible.
-The simplifier has a verified idempotency contract.
+**Correct first.** Exact arithmetic everywhere. Verified idempotency contract
+on the simplifier.
 
-**Well-chosen algorithms.** Not the first algorithm that works but the right
-algorithm for the data structure. Berlekamp-Zassenhaus for polynomial factoring.
-Subresultant remainder sequence for GCD. Horner evaluation. Cardano and Ferrari
-for cubics and quartics. The choice matters.
-
-**Silence over lies.** If arithma cannot compute something, it says so. It never
-guesses, approximates heuristically, or returns an unverified result.
+**Well-chosen algorithms.** Berlekamp-Zassenhaus for polynomial factoring.
+Subresultant remainder sequence for GCD. Cardano and Ferrari for cubics and
+quartics. The choice of algorithm matters more than the speed of implementation.
 
 **No hardcoded answers.** The system computes its results; it does not look
 them up from a table of special cases.
@@ -170,10 +150,10 @@ src/
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-Expressions are represented as trees of `Node` variants. `ExactNum` wraps
-`BigRational` for exact arithmetic, falling back to `f64` only for transcendental
-constants (e, pi) and transcendental function results. The parser reads LaTeX;
-the display implementation writes LaTeX. Round-trip stability is tested.
+~15.5K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+wraps `BigRational` for exact arithmetic, falling back to `f64` only for
+transcendental constants and function results. The parser reads LaTeX; the
+display implementation writes LaTeX. Round-trip stability is tested.
 
 ## License
 
