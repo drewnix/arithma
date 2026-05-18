@@ -561,11 +561,40 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
 /// Try to decompose a Node into r(x) · exp(g(x)) where r and g are polynomials in var.
 /// Returns (r, g) if the pattern matches, None otherwise.
 pub fn extract_exp_pattern(expr: &Node, var: &str) -> Option<(Polynomial, Polynomial)> {
-    // Simplify to canonical form first.
+    // Try the unsimplified expression first — simplification can change signs
+    // (e.g., -x^2 becomes (-x)^2 due to a known precedence issue).
+    if let Some(result) = extract_exp_pattern_inner(expr, var) {
+        return Some(result);
+    }
+    // Fall back to simplified form for normalization (e.g., reordering products).
     let env = crate::environment::Environment::new();
-    let expr = crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    let simplified =
+        crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    extract_exp_pattern_inner(&simplified, var)
+}
 
-    extract_exp_pattern_inner(&expr, var)
+/// Fixup for a known parser precedence issue: the parser treats `-x^2` as `(-x)^2`
+/// instead of `-(x^2)`. In the context of exp arguments, `exp((-x)^n)` with even n
+/// is almost certainly intended as `exp(-(x^n))`. This rewrites such patterns.
+fn fixup_negated_power(arg: &Node) -> Node {
+    match arg {
+        Node::Power(base, exp) => {
+            if let Node::Negate(inner_base) = base.as_ref() {
+                if let Node::Num(n) = exp.as_ref() {
+                    if let Some(e) = n.to_i64() {
+                        if e > 0 && e % 2 == 0 {
+                            return Node::Negate(Box::new(Node::Power(
+                                Box::new(*inner_base.clone()),
+                                Box::new(Node::Num(n.clone())),
+                            )));
+                        }
+                    }
+                }
+            }
+            arg.clone()
+        }
+        _ => arg.clone(),
+    }
 }
 
 /// Inner helper that pattern-matches on an already-simplified expression.
@@ -573,7 +602,8 @@ fn extract_exp_pattern_inner(expr: &Node, var: &str) -> Option<(Polynomial, Poly
     match expr {
         // Pattern 1: exp(arg) → r=1, g=from_node(arg)
         Node::Function(name, args) if name == "exp" && args.len() == 1 => {
-            let g = Polynomial::from_node(&args[0], var).ok()?;
+            let fixed_arg = fixup_negated_power(&args[0]);
+            let g = Polynomial::from_node(&fixed_arg, var).ok()?;
             Some((Polynomial::one(var), g))
         }
 
@@ -588,7 +618,8 @@ fn extract_exp_pattern_inner(expr: &Node, var: &str) -> Option<(Polynomial, Poly
             // Try exp on the right
             if let Node::Function(name, args) = right.as_ref() {
                 if name == "exp" && args.len() == 1 {
-                    let g = Polynomial::from_node(&args[0], var).ok()?;
+                    let fixed_arg = fixup_negated_power(&args[0]);
+                    let g = Polynomial::from_node(&fixed_arg, var).ok()?;
                     let r = Polynomial::from_node(left, var).ok()?;
                     return Some((r, g));
                 }
@@ -596,7 +627,8 @@ fn extract_exp_pattern_inner(expr: &Node, var: &str) -> Option<(Polynomial, Poly
             // Try exp on the left
             if let Node::Function(name, args) = left.as_ref() {
                 if name == "exp" && args.len() == 1 {
-                    let g = Polynomial::from_node(&args[0], var).ok()?;
+                    let fixed_arg = fixup_negated_power(&args[0]);
+                    let g = Polynomial::from_node(&fixed_arg, var).ok()?;
                     let r = Polynomial::from_node(right, var).ok()?;
                     return Some((r, g));
                 }
