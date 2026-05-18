@@ -1,6 +1,7 @@
 use num_rational::BigRational;
 use num_traits::One;
 use std::fmt;
+use std::ops::{Add, Mul, Neg, Sub};
 
 use crate::polynomial::Polynomial;
 
@@ -109,6 +110,63 @@ impl RationalFunction {
     pub fn variable(&self) -> &str {
         self.num.variable()
     }
+
+    /// Divide two rational functions: (a/b) / (c/d) = (a*d) / (b*c).
+    ///
+    /// Returns `Err` if `other` is zero (division by zero).
+    pub fn checked_div(&self, other: &Self) -> Result<Self, String> {
+        if other.is_zero() {
+            return Err("division by zero rational function".to_string());
+        }
+        let num = &self.num * &other.den;
+        let den = &self.den * &other.num;
+        Ok(Self::new(num, den))
+    }
+}
+
+impl<'a> Add for &'a RationalFunction {
+    type Output = RationalFunction;
+
+    fn add(self, rhs: &'a RationalFunction) -> RationalFunction {
+        // (a/b) + (c/d) = (a*d + b*c) / (b*d)
+        let num = &(&self.num * &rhs.den) + &(&self.den * &rhs.num);
+        let den = &self.den * &rhs.den;
+        RationalFunction::new(num, den)
+    }
+}
+
+impl<'a> Sub for &'a RationalFunction {
+    type Output = RationalFunction;
+
+    fn sub(self, rhs: &'a RationalFunction) -> RationalFunction {
+        // (a/b) - (c/d) = (a*d - b*c) / (b*d)
+        let num = &(&self.num * &rhs.den) - &(&self.den * &rhs.num);
+        let den = &self.den * &rhs.den;
+        RationalFunction::new(num, den)
+    }
+}
+
+impl<'a> Mul for &'a RationalFunction {
+    type Output = RationalFunction;
+
+    fn mul(self, rhs: &'a RationalFunction) -> RationalFunction {
+        // (a/b) * (c/d) = (a*c) / (b*d)
+        let num = &self.num * &rhs.num;
+        let den = &self.den * &rhs.den;
+        RationalFunction::new(num, den)
+    }
+}
+
+impl Neg for &RationalFunction {
+    type Output = RationalFunction;
+
+    fn neg(self) -> RationalFunction {
+        // -(a/b) = (-a) / b
+        RationalFunction {
+            num: -&self.num,
+            den: self.den.clone(),
+        }
+    }
 }
 
 impl PartialEq for RationalFunction {
@@ -212,5 +270,92 @@ mod tests {
 
         // 2(x^2-1) / 2(x+1) = (x-1)/1
         assert_eq!(rf1, rf2);
+    }
+
+    #[test]
+    fn test_rf_add() {
+        // 1/x + 1/(x+1) = (2x+1)/(x^2+x)
+        let a = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let b = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(1), int(1)], "x"),
+        );
+        let result = &a + &b;
+        let expected = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1), int(2)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1), int(1)], "x"),
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rf_add_cancels() {
+        // 1/(x+1) + (-1)/(x+1) = 0
+        let den = Polynomial::from_coeffs(vec![int(1), int(1)], "x");
+        let a = RationalFunction::new(Polynomial::one("x"), den.clone());
+        let b = RationalFunction::new(Polynomial::from_coeffs(vec![int(-1)], "x"), den);
+        let result = &a + &b;
+        assert!(result.is_zero());
+    }
+
+    #[test]
+    fn test_rf_sub() {
+        // 1/x - 1/(x+1) = 1/(x^2+x)
+        let a = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let b = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(1), int(1)], "x"),
+        );
+        let result = &a - &b;
+        let expected = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(0), int(1), int(1)], "x"),
+        );
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rf_mul() {
+        // (x+1)/x * x/(x-1) = (x+1)/(x-1)
+        let x = Polynomial::from_coeffs(vec![int(0), int(1)], "x");
+        let x_plus_1 = Polynomial::from_coeffs(vec![int(1), int(1)], "x");
+        let x_minus_1 = Polynomial::from_coeffs(vec![int(-1), int(1)], "x");
+        let a = RationalFunction::new(x_plus_1.clone(), x.clone());
+        let b = RationalFunction::new(x, x_minus_1.clone());
+        let result = &a * &b;
+        let expected = RationalFunction::new(x_plus_1, x_minus_1);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rf_div() {
+        // (1/x) / (1/x) = 1
+        let rf = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let result = rf.checked_div(&rf).unwrap();
+        assert_eq!(result, RationalFunction::one("x"));
+    }
+
+    #[test]
+    fn test_rf_neg() {
+        // -(x+1)/x = -(x+1)/x
+        let rf = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1), int(1)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let result = -&rf;
+        let expected = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(-1), int(-1)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        assert_eq!(result, expected);
     }
 }
