@@ -1,0 +1,892 @@
+use std::fmt;
+
+/// Dense polynomial over Z_p (integers mod a prime p).
+///
+/// Coefficients stored least-degree first: `coeffs[i]` is the coefficient of x^i.
+/// Each coefficient is in [0, p-1]. Empty vec = zero polynomial.
+///
+/// Reference: TAOCP Volume 2, Section 4.6.2.
+#[derive(Debug, Clone)]
+pub struct ModPoly {
+    coeffs: Vec<i64>,
+    p: i64,
+}
+
+/// Reduce val into [0, p-1].
+fn mod_reduce(val: i64, p: i64) -> i64 {
+    ((val % p) + p) % p
+}
+
+/// Modular inverse of a mod p via the extended Euclidean algorithm.
+/// Requires gcd(a, p) = 1 (i.e., p is prime and a ≢ 0 mod p).
+fn mod_inverse(a: i64, p: i64) -> i64 {
+    let a = mod_reduce(a, p);
+    if a == 0 {
+        panic!("mod_inverse(0, {}) is undefined", p);
+    }
+    let mut old_r = a;
+    let mut r = p;
+    let mut old_s: i64 = 1;
+    let mut s: i64 = 0;
+    while r != 0 {
+        let q = old_r / r;
+        let tmp_r = r;
+        r = old_r - q * r;
+        old_r = tmp_r;
+        let tmp_s = s;
+        s = old_s - q * s;
+        old_s = tmp_s;
+    }
+    mod_reduce(old_s, p)
+}
+
+impl ModPoly {
+    pub fn zero(p: i64) -> Self {
+        ModPoly {
+            coeffs: vec![],
+            p,
+        }
+    }
+
+    pub fn one(p: i64) -> Self {
+        ModPoly {
+            coeffs: vec![1],
+            p,
+        }
+    }
+
+    pub fn x_poly(p: i64) -> Self {
+        ModPoly {
+            coeffs: vec![0, 1],
+            p,
+        }
+    }
+
+    pub fn from_coeffs(coeffs: &[i64], p: i64) -> Self {
+        let mut reduced: Vec<i64> = coeffs.iter().map(|&c| mod_reduce(c, p)).collect();
+        while reduced.last() == Some(&0) {
+            reduced.pop();
+        }
+        ModPoly { coeffs: reduced, p }
+    }
+
+    pub fn constant(c: i64, p: i64) -> Self {
+        let c = mod_reduce(c, p);
+        if c == 0 {
+            Self::zero(p)
+        } else {
+            ModPoly {
+                coeffs: vec![c],
+                p,
+            }
+        }
+    }
+
+    pub fn monomial(coeff: i64, degree: usize, p: i64) -> Self {
+        let c = mod_reduce(coeff, p);
+        if c == 0 {
+            return Self::zero(p);
+        }
+        let mut coeffs = vec![0i64; degree + 1];
+        coeffs[degree] = c;
+        ModPoly { coeffs, p }
+    }
+
+    pub fn degree(&self) -> Option<usize> {
+        if self.coeffs.is_empty() {
+            None
+        } else {
+            Some(self.coeffs.len() - 1)
+        }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.coeffs.is_empty()
+    }
+
+    pub fn is_one(&self) -> bool {
+        self.coeffs.len() == 1 && self.coeffs[0] == 1
+    }
+
+    pub fn leading_coeff(&self) -> Option<i64> {
+        self.coeffs.last().copied()
+    }
+
+    pub fn coeff(&self, i: usize) -> i64 {
+        self.coeffs.get(i).copied().unwrap_or(0)
+    }
+
+    pub fn modulus(&self) -> i64 {
+        self.p
+    }
+
+    pub fn coeffs(&self) -> &[i64] {
+        &self.coeffs
+    }
+
+    // --- Arithmetic ---
+
+    pub fn add(&self, other: &ModPoly) -> ModPoly {
+        let len = self.coeffs.len().max(other.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = other.coeff(i);
+            coeffs.push(mod_reduce(a + b, self.p));
+        }
+        while coeffs.last() == Some(&0) {
+            coeffs.pop();
+        }
+        ModPoly {
+            coeffs,
+            p: self.p,
+        }
+    }
+
+    pub fn sub(&self, other: &ModPoly) -> ModPoly {
+        let len = self.coeffs.len().max(other.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = other.coeff(i);
+            coeffs.push(mod_reduce(a - b, self.p));
+        }
+        while coeffs.last() == Some(&0) {
+            coeffs.pop();
+        }
+        ModPoly {
+            coeffs,
+            p: self.p,
+        }
+    }
+
+    pub fn neg(&self) -> ModPoly {
+        let coeffs = self.coeffs.iter().map(|&c| mod_reduce(-c, self.p)).collect();
+        ModPoly {
+            coeffs,
+            p: self.p,
+        }
+    }
+
+    pub fn scalar_mul(&self, s: i64) -> ModPoly {
+        let s = mod_reduce(s, self.p);
+        if s == 0 {
+            return Self::zero(self.p);
+        }
+        let mut coeffs: Vec<i64> = self
+            .coeffs
+            .iter()
+            .map(|&c| mod_reduce(c * s, self.p))
+            .collect();
+        while coeffs.last() == Some(&0) {
+            coeffs.pop();
+        }
+        ModPoly {
+            coeffs,
+            p: self.p,
+        }
+    }
+
+    pub fn mul(&self, other: &ModPoly) -> ModPoly {
+        if self.is_zero() || other.is_zero() {
+            return Self::zero(self.p);
+        }
+        let len = self.coeffs.len() + other.coeffs.len() - 1;
+        let mut coeffs = vec![0i64; len];
+        for (i, &a) in self.coeffs.iter().enumerate() {
+            if a == 0 {
+                continue;
+            }
+            for (j, &b) in other.coeffs.iter().enumerate() {
+                coeffs[i + j] = mod_reduce(coeffs[i + j] + a * b, self.p);
+            }
+        }
+        while coeffs.last() == Some(&0) {
+            coeffs.pop();
+        }
+        ModPoly {
+            coeffs,
+            p: self.p,
+        }
+    }
+
+    pub fn make_monic(&self) -> ModPoly {
+        if self.is_zero() {
+            return self.clone();
+        }
+        let lc = self.leading_coeff().unwrap();
+        let inv = mod_inverse(lc, self.p);
+        self.scalar_mul(inv)
+    }
+
+    // --- Division and GCD ---
+
+    /// Polynomial long division over Z_p. Returns (quotient, remainder).
+    pub fn div_rem(&self, divisor: &ModPoly) -> Result<(ModPoly, ModPoly), String> {
+        if divisor.is_zero() {
+            return Err("Division by zero polynomial".to_string());
+        }
+
+        let divisor_deg = divisor.degree().unwrap();
+        let divisor_lc_inv = mod_inverse(divisor.leading_coeff().unwrap(), self.p);
+
+        let mut remainder = self.clone();
+        let self_deg = match self.degree() {
+            Some(d) if d >= divisor_deg => d,
+            _ => return Ok((Self::zero(self.p), self.clone())),
+        };
+
+        let mut q_coeffs = vec![0i64; self_deg - divisor_deg + 1];
+
+        while let Some(rem_deg) = remainder.degree() {
+            if rem_deg < divisor_deg {
+                break;
+            }
+            let rem_lc = remainder.leading_coeff().unwrap();
+            let q_coeff = mod_reduce(rem_lc * divisor_lc_inv, self.p);
+            let deg_diff = rem_deg - divisor_deg;
+            q_coeffs[deg_diff] = q_coeff;
+
+            let term = ModPoly::monomial(q_coeff, deg_diff, self.p);
+            let sub = term.mul(divisor);
+            remainder = remainder.sub(&sub);
+        }
+
+        Ok((ModPoly::from_coeffs(&q_coeffs, self.p), remainder))
+    }
+
+    /// GCD via the Euclidean algorithm. Result is monic.
+    pub fn gcd(&self, other: &ModPoly) -> ModPoly {
+        if self.is_zero() {
+            return if other.is_zero() {
+                Self::zero(self.p)
+            } else {
+                other.make_monic()
+            };
+        }
+        if other.is_zero() {
+            return self.make_monic();
+        }
+
+        let mut a = self.clone();
+        let mut b = other.clone();
+        if a.degree() < b.degree() {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        while !b.is_zero() {
+            let (_, r) = a.div_rem(&b).unwrap();
+            a = b;
+            b = r;
+        }
+
+        a.make_monic()
+    }
+
+    /// Compute base^exp mod modulus, all in Z_p[x]. Repeated squaring.
+    pub fn powmod(base: &ModPoly, exp: u64, modulus: &ModPoly) -> ModPoly {
+        let p = base.p;
+        if exp == 0 {
+            return Self::one(p);
+        }
+
+        let mut result = Self::one(p);
+        let mut b = base.div_rem(modulus).unwrap().1; // reduce base mod modulus
+        let mut e = exp;
+
+        while e > 0 {
+            if e & 1 == 1 {
+                result = result.mul(&b);
+                result = result.div_rem(modulus).unwrap().1;
+            }
+            b = b.mul(&b);
+            b = b.div_rem(modulus).unwrap().1;
+            e >>= 1;
+        }
+
+        result
+    }
+
+    /// Formal derivative over Z_p.
+    pub fn derivative(&self) -> ModPoly {
+        if self.coeffs.len() <= 1 {
+            return Self::zero(self.p);
+        }
+        let coeffs: Vec<i64> = self
+            .coeffs
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(i, &c)| mod_reduce(c * i as i64, self.p))
+            .collect();
+        ModPoly::from_coeffs(&coeffs, self.p)
+    }
+
+    /// Square-free part: f / gcd(f, f').
+    pub fn square_free_part(&self) -> ModPoly {
+        if self.degree().unwrap_or(0) <= 1 {
+            return self.make_monic();
+        }
+        let d = self.derivative();
+        if d.is_zero() {
+            return self.make_monic();
+        }
+        let g = self.gcd(&d);
+        if g.degree().unwrap_or(0) == 0 {
+            return self.make_monic();
+        }
+        let (q, _) = self.div_rem(&g).unwrap();
+        q.make_monic()
+    }
+
+    // --- Conversion ---
+
+    /// Reduce a Polynomial (BigRational coefficients) mod p.
+    /// Takes primitive part first to get integer coefficients.
+    pub fn from_polynomial(poly: &crate::polynomial::Polynomial, p: i64) -> Self {
+        use num_traits::ToPrimitive;
+        let prim = poly.primitive_part();
+        let deg = match prim.degree() {
+            Some(d) => d,
+            None => return Self::zero(p),
+        };
+        let mut coeffs = Vec::with_capacity(deg + 1);
+        for i in 0..=deg {
+            let c = prim.coeff(i);
+            let val = c.numer().to_i64().unwrap_or(0);
+            coeffs.push(mod_reduce(val, p));
+        }
+        ModPoly::from_coeffs(&coeffs, p)
+    }
+
+    /// Lift to a Polynomial with BigRational coefficients.
+    pub fn to_polynomial(&self, var: &str) -> crate::polynomial::Polynomial {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let coeffs: Vec<BigRational> = self
+            .coeffs
+            .iter()
+            .map(|&c| BigRational::from_integer(BigInt::from(c)))
+            .collect();
+        crate::polynomial::Polynomial::from_coeffs(coeffs, var)
+    }
+}
+
+// --- Berlekamp's algorithm ---
+
+/// Build the Berlekamp Q-matrix for polynomial f over Z_p.
+///
+/// Q is n×n where n = deg(f).
+/// Row i contains the coefficients of x^(i*p) mod f(x).
+fn berlekamp_matrix(f: &ModPoly) -> Vec<Vec<i64>> {
+    let n = f.degree().unwrap();
+    let p = f.p;
+
+    // Compute x^p mod f
+    let x = ModPoly::x_poly(p);
+    let x_to_p = ModPoly::powmod(&x, p as u64, f);
+
+    let mut matrix = vec![vec![0i64; n]; n];
+
+    // Row 0: x^0 mod f = 1
+    matrix[0][0] = 1;
+
+    if n > 1 {
+        // Row 1: x^p mod f
+        for j in 0..n {
+            matrix[1][j] = x_to_p.coeff(j);
+        }
+
+        // Row i: x^(ip) mod f = (row_{i-1} · x^p) mod f
+        let mut prev = x_to_p.clone();
+        for i in 2..n {
+            prev = prev.mul(&x_to_p);
+            prev = prev.div_rem(f).unwrap().1;
+            for j in 0..n {
+                matrix[i][j] = prev.coeff(j);
+            }
+        }
+    }
+
+    matrix
+}
+
+/// Compute the null space of (Q - I) over Z_p via Gaussian elimination.
+/// Returns basis vectors as coefficient vectors (least-degree first).
+fn null_space(q_matrix: &[Vec<i64>], p: i64) -> Vec<Vec<i64>> {
+    let n = q_matrix.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    // Build Q - I
+    let mut mat: Vec<Vec<i64>> = q_matrix.to_vec();
+    for i in 0..n {
+        mat[i][i] = mod_reduce(mat[i][i] - 1, p);
+    }
+
+    // Transpose: we want to find vectors v such that v·(Q-I) = 0,
+    // equivalently (Q-I)^T · v^T = 0.
+    let mut trans = vec![vec![0i64; n]; n];
+    for i in 0..n {
+        for j in 0..n {
+            trans[i][j] = mat[j][i];
+        }
+    }
+
+    // Gaussian elimination on (Q-I)^T with column tracking
+    let mut pivot_col = vec![None; n]; // pivot_col[row] = which column has the pivot
+    let mut is_free = vec![true; n]; // columns not used as pivots
+
+    let mut col = 0;
+    for row in 0..n {
+        // Find pivot in this row
+        let mut found = None;
+        for c in col..n {
+            if trans[row][c] != 0 {
+                found = Some(c);
+                break;
+            }
+        }
+        let pivot_c = match found {
+            Some(c) => c,
+            None => continue,
+        };
+
+        // Swap columns
+        if pivot_c != col {
+            for r in 0..n {
+                trans[r].swap(col, pivot_c);
+            }
+            // Swap free tracking
+            is_free.swap(col, pivot_c);
+        }
+
+        pivot_col[row] = Some(col);
+        is_free[col] = false;
+
+        // Scale pivot row
+        let inv = mod_inverse(trans[row][col], p);
+        for c in 0..n {
+            trans[row][c] = mod_reduce(trans[row][c] * inv, p);
+        }
+
+        // Eliminate other rows
+        for r in 0..n {
+            if r == row || trans[r][col] == 0 {
+                continue;
+            }
+            let factor = trans[r][col];
+            for c in 0..n {
+                trans[r][c] = mod_reduce(trans[r][c] - factor * trans[row][c], p);
+            }
+        }
+
+        col += 1;
+    }
+
+    // Extract null-space basis vectors from free columns
+    let mut basis = Vec::new();
+    for fc in 0..n {
+        if !is_free[fc] {
+            continue;
+        }
+        let mut v = vec![0i64; n];
+        v[fc] = 1;
+        for row in 0..n {
+            if let Some(pc) = pivot_col[row] {
+                v[pc] = mod_reduce(-trans[row][fc], p);
+            }
+        }
+        basis.push(v);
+    }
+
+    basis
+}
+
+/// Factor a monic square-free polynomial over Z_p using Berlekamp's algorithm.
+///
+/// Returns a sorted list of monic irreducible factors.
+pub fn factor_mod_p(f: &ModPoly) -> Vec<ModPoly> {
+    let n = match f.degree() {
+        Some(d) if d >= 1 => d,
+        _ => return vec![f.clone()],
+    };
+    let p = f.p;
+
+    let f_monic = f.make_monic();
+    let f_sqfree = f_monic.square_free_part();
+
+    if f_sqfree.degree().unwrap_or(0) <= 1 {
+        return vec![f_sqfree];
+    }
+
+    let q = berlekamp_matrix(&f_sqfree);
+    let basis = null_space(&q, p);
+
+    // Null space dimension = number of irreducible factors.
+    // If dim = 1, f is irreducible.
+    if basis.len() <= 1 {
+        return vec![f_sqfree];
+    }
+
+    // Split using basis vectors
+    let mut factors = vec![f_sqfree];
+
+    for bv in &basis {
+        // Skip trivial constant vectors
+        if bv.iter().skip(1).all(|&c| c == 0) {
+            continue;
+        }
+
+        let v = ModPoly::from_coeffs(bv, p);
+        let mut new_factors = Vec::new();
+
+        for factor in &factors {
+            if factor.degree().unwrap_or(0) <= 1 {
+                new_factors.push(factor.clone());
+                continue;
+            }
+
+            let mut splits: Vec<ModPoly> = Vec::new();
+            let mut remaining = factor.clone();
+
+            for c in 0..p {
+                if remaining.degree().unwrap_or(0) <= 1 {
+                    break;
+                }
+                let v_minus_c = v.sub(&ModPoly::constant(c, p));
+                let g = remaining.gcd(&v_minus_c);
+                if g.degree().unwrap_or(0) >= 1 && g.degree() < remaining.degree() {
+                    let (q, _) = remaining.div_rem(&g).unwrap();
+                    splits.push(g);
+                    remaining = q;
+                }
+            }
+
+            if splits.is_empty() {
+                new_factors.push(factor.clone());
+            } else {
+                if remaining.degree().unwrap_or(0) >= 1 {
+                    splits.push(remaining);
+                }
+                new_factors.extend(splits);
+            }
+        }
+
+        factors = new_factors;
+
+        // Check if we've found all factors
+        if factors.len() >= n {
+            break;
+        }
+    }
+
+    // Ensure all factors are monic
+    factors = factors.into_iter().map(|f| f.make_monic()).collect();
+
+    // Sort by degree then by coefficients for deterministic output
+    factors.sort_by(|a, b| {
+        a.degree()
+            .cmp(&b.degree())
+            .then_with(|| a.coeffs.cmp(&b.coeffs))
+    });
+
+    factors
+}
+
+impl PartialEq for ModPoly {
+    fn eq(&self, other: &Self) -> bool {
+        self.p == other.p && self.coeffs == other.coeffs
+    }
+}
+
+impl Eq for ModPoly {}
+
+impl fmt::Display for ModPoly {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_zero() {
+            return write!(f, "0");
+        }
+        let mut first = true;
+        for (i, &c) in self.coeffs.iter().enumerate().rev() {
+            if c == 0 {
+                continue;
+            }
+            if !first {
+                write!(f, " + ")?;
+            }
+            if i == 0 || c != 1 {
+                write!(f, "{}", c)?;
+            }
+            if i >= 1 {
+                write!(f, "x")?;
+            }
+            if i >= 2 {
+                write!(f, "^{}", i)?;
+            }
+            first = false;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- ModPoly basics ---
+
+    #[test]
+    fn test_constructors() {
+        let z = ModPoly::zero(5);
+        assert!(z.is_zero());
+        assert_eq!(z.degree(), None);
+
+        let one = ModPoly::one(5);
+        assert!(one.is_one());
+        assert_eq!(one.degree(), Some(0));
+
+        let x = ModPoly::x_poly(5);
+        assert_eq!(x.degree(), Some(1));
+        assert_eq!(x.coeff(0), 0);
+        assert_eq!(x.coeff(1), 1);
+    }
+
+    #[test]
+    fn test_from_coeffs_reduces() {
+        let p = ModPoly::from_coeffs(&[7, -3, 12], 5);
+        assert_eq!(p.coeff(0), 2); // 7 mod 5
+        assert_eq!(p.coeff(1), 2); // -3 mod 5
+        assert_eq!(p.coeff(2), 2); // 12 mod 5
+    }
+
+    #[test]
+    fn test_from_coeffs_strips_zeros() {
+        let p = ModPoly::from_coeffs(&[1, 2, 0, 0], 5);
+        assert_eq!(p.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_mod_inverse() {
+        // 3 * 2 = 6 ≡ 1 (mod 5)
+        assert_eq!(mod_inverse(3, 5), 2);
+        // 2 * 4 = 8 ≡ 1 (mod 7)
+        assert_eq!(mod_inverse(2, 7), 4);
+        // Self-inverse: 1^(-1) = 1
+        assert_eq!(mod_inverse(1, 7), 1);
+        // 6^(-1) mod 7: 6 * 6 = 36 ≡ 1 (mod 7)
+        assert_eq!(mod_inverse(6, 7), 6);
+    }
+
+    // --- Arithmetic ---
+
+    #[test]
+    fn test_add_sub() {
+        let a = ModPoly::from_coeffs(&[1, 2, 3], 5); // 3x²+2x+1
+        let b = ModPoly::from_coeffs(&[4, 4, 3], 5); // 3x²+4x+4
+        let sum = a.add(&b);
+        assert_eq!(sum, ModPoly::from_coeffs(&[0, 1, 1], 5)); // x²+x (mod 5)
+        let diff = a.sub(&b);
+        assert_eq!(diff, ModPoly::from_coeffs(&[2, 3], 5)); // 3x+2 (mod 5)
+    }
+
+    #[test]
+    fn test_mul() {
+        // (x+1)(x+2) = x²+3x+2 over Z_5
+        let a = ModPoly::from_coeffs(&[1, 1], 5);
+        let b = ModPoly::from_coeffs(&[2, 1], 5);
+        let prod = a.mul(&b);
+        assert_eq!(prod, ModPoly::from_coeffs(&[2, 3, 1], 5));
+    }
+
+    #[test]
+    fn test_make_monic() {
+        let a = ModPoly::from_coeffs(&[2, 4, 3], 5); // 3x²+4x+2
+        let m = a.make_monic();
+        assert_eq!(m.leading_coeff(), Some(1));
+        // 3^(-1) mod 5 = 2, so coeffs * 2: [4, 3, 1]
+        assert_eq!(m, ModPoly::from_coeffs(&[4, 3, 1], 5));
+    }
+
+    // --- Division and GCD ---
+
+    #[test]
+    fn test_div_rem() {
+        // (x²+3x+2) / (x+1) = (x+2) remainder 0 over Z_5
+        let f = ModPoly::from_coeffs(&[2, 3, 1], 5);
+        let d = ModPoly::from_coeffs(&[1, 1], 5);
+        let (q, r) = f.div_rem(&d).unwrap();
+        assert_eq!(q, ModPoly::from_coeffs(&[2, 1], 5));
+        assert!(r.is_zero());
+    }
+
+    #[test]
+    fn test_div_rem_with_remainder() {
+        // (x²+1) / (x+1) over Z_5: x²+1 = (x-1)(x+1) + 2 → q = x+4, r = 2
+        let f = ModPoly::from_coeffs(&[1, 0, 1], 5);
+        let d = ModPoly::from_coeffs(&[1, 1], 5);
+        let (q, r) = f.div_rem(&d).unwrap();
+        // Verify: q*d + r = f
+        let check = q.mul(&d).add(&r);
+        assert_eq!(check, f);
+    }
+
+    #[test]
+    fn test_gcd() {
+        // gcd(x²-1, x²+2x+1) over Z_5 = gcd((x-1)(x+1), (x+1)²) = x+1
+        let a = ModPoly::from_coeffs(&[4, 0, 1], 5); // x²-1 = x²+4 mod 5
+        let b = ModPoly::from_coeffs(&[1, 2, 1], 5); // x²+2x+1
+        let g = a.gcd(&b);
+        assert_eq!(g, ModPoly::from_coeffs(&[1, 1], 5)); // x+1
+    }
+
+    // --- Powmod ---
+
+    #[test]
+    fn test_powmod_simple() {
+        // x^2 mod (x^2+1) over Z_5 = -1 = 4
+        let x = ModPoly::x_poly(5);
+        let m = ModPoly::from_coeffs(&[1, 0, 1], 5);
+        let result = ModPoly::powmod(&x, 2, &m);
+        assert_eq!(result, ModPoly::from_coeffs(&[4], 5));
+    }
+
+    #[test]
+    fn test_powmod_large() {
+        // x^5 mod (x^3+x+1) over Z_5
+        // x^3 ≡ -x-1 = 4x+4 mod (x^3+x+1) mod 5
+        // x^4 ≡ 4x²+4x
+        // x^5 ≡ 4x³+4x² ≡ 4(4x+4)+4x² = 4x²+16x+16 ≡ 4x²+x+1 mod 5
+        let x = ModPoly::x_poly(5);
+        let m = ModPoly::from_coeffs(&[1, 1, 0, 1], 5); // x^3+x+1
+        let result = ModPoly::powmod(&x, 5, &m);
+        assert_eq!(result, ModPoly::from_coeffs(&[1, 1, 4], 5)); // 4x²+x+1
+    }
+
+    // --- Derivative ---
+
+    #[test]
+    fn test_derivative() {
+        // d/dx(x^3 + 2x + 1) = 3x^2 + 2 over Z_5
+        let f = ModPoly::from_coeffs(&[1, 2, 0, 1], 5);
+        let d = f.derivative();
+        assert_eq!(d, ModPoly::from_coeffs(&[2, 0, 3], 5));
+    }
+
+    // --- Berlekamp factoring ---
+
+    #[test]
+    fn test_factor_linear() {
+        // x+1 mod 5 → irreducible
+        let f = ModPoly::from_coeffs(&[1, 1], 5);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 1);
+        assert_eq!(factors[0], f);
+    }
+
+    #[test]
+    fn test_factor_x2_minus_1_mod5() {
+        // x²-1 mod 5 = (x+1)(x+4) = (x+1)(x-1)
+        let f = ModPoly::from_coeffs(&[4, 0, 1], 5);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 2);
+        // Verify product
+        let product = factors[0].mul(&factors[1]);
+        assert_eq!(product, f.make_monic());
+    }
+
+    #[test]
+    fn test_factor_irreducible_mod2() {
+        // x²+x+1 mod 2 is irreducible (no roots: f(0)=1, f(1)=1)
+        let f = ModPoly::from_coeffs(&[1, 1, 1], 2);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 1);
+    }
+
+    #[test]
+    fn test_factor_x4_minus_1_mod5() {
+        // x⁴-1 mod 5 = (x-1)(x+1)(x²+1) but x²+1 factors as (x+2)(x+3) mod 5
+        // since 2²+1=5≡0, 3²+1=10≡0 mod 5
+        let f = ModPoly::from_coeffs(&[4, 0, 0, 0, 1], 5); // x⁴+4
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 4);
+        let mut product = ModPoly::one(5);
+        for fac in &factors {
+            product = product.mul(fac);
+        }
+        assert_eq!(product, f.make_monic());
+    }
+
+    #[test]
+    fn test_factor_x3_plus_x_plus_1_mod2() {
+        // x³+x+1 mod 2 is irreducible (f(0)=1, f(1)=1)
+        let f = ModPoly::from_coeffs(&[1, 1, 0, 1], 2);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 1);
+    }
+
+    #[test]
+    fn test_factor_x6_minus_1_mod7() {
+        // x⁶-1 mod 7 factors into (x-1)(x+1)(x²+x+1)(x²-x+1) mod 7
+        // but some of these may factor further over Z_7
+        let f = ModPoly::from_coeffs(&[6, 0, 0, 0, 0, 0, 1], 7); // x⁶+6
+        let factors = factor_mod_p(&f);
+        let mut product = ModPoly::one(7);
+        for fac in &factors {
+            product = product.mul(fac);
+        }
+        assert_eq!(product, f.make_monic());
+        assert!(factors.len() >= 2);
+    }
+
+    #[test]
+    fn test_factor_product_of_three() {
+        // (x+1)(x+2)(x+3) mod 7 = x³+6x²+11x+6 ≡ x³+6x²+4x+6 mod 7
+        let f1 = ModPoly::from_coeffs(&[1, 1], 7);
+        let f2 = ModPoly::from_coeffs(&[2, 1], 7);
+        let f3 = ModPoly::from_coeffs(&[3, 1], 7);
+        let f = f1.mul(&f2).mul(&f3);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 3);
+        let mut product = ModPoly::one(7);
+        for fac in &factors {
+            product = product.mul(fac);
+        }
+        assert_eq!(product, f.make_monic());
+    }
+
+    #[test]
+    fn test_factor_higher_degree_irreducible() {
+        // x⁴+x+1 mod 2 is irreducible (it has no roots mod 2: f(0)=1, f(1)=1,
+        // and is not divisible by the only irreducible quadratic x²+x+1 mod 2)
+        let f = ModPoly::from_coeffs(&[1, 1, 0, 0, 1], 2);
+        let factors = factor_mod_p(&f);
+        assert_eq!(factors.len(), 1);
+    }
+
+    // --- Conversion ---
+
+    #[test]
+    fn test_from_polynomial() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        let int = |n: i64| BigRational::from_integer(BigInt::from(n));
+        let poly =
+            crate::polynomial::Polynomial::from_coeffs(vec![int(7), int(-3), int(12)], "x");
+        let mp = ModPoly::from_polynomial(&poly, 5);
+        assert_eq!(mp.coeff(0), 2); // 7 mod 5
+        assert_eq!(mp.coeff(1), 2); // -3 mod 5
+        assert_eq!(mp.coeff(2), 2); // 12 mod 5
+    }
+
+    #[test]
+    fn test_display() {
+        let p = ModPoly::from_coeffs(&[1, 2, 3], 5);
+        assert_eq!(format!("{}", p), "3x^2 + 2x + 1");
+        let z = ModPoly::zero(5);
+        assert_eq!(format!("{}", z), "0");
+        let c = ModPoly::constant(4, 5);
+        assert_eq!(format!("{}", c), "4");
+    }
+}

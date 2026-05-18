@@ -58,6 +58,9 @@ pub use crate::matrix::{parse_latex_matrix, Matrix};
 pub mod polynomial;
 pub use crate::polynomial::Polynomial;
 
+pub mod mod_poly;
+pub use crate::mod_poly::{factor_mod_p, ModPoly};
+
 pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
 
