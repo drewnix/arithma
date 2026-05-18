@@ -12,20 +12,25 @@ floating-point.
 
 ## What it does
 
-**Algebra.** Exact rational arithmetic. Polynomial operations through multivariate
-GCD. Simplification with a verified idempotency contract: `simplify(simplify(e)) = simplify(e)`.
-Trigonometric identities, logarithmic properties, power rules. Expression equivalence
-checking with symbolic and numerical verification.
+**Algebra.** Exact rational arithmetic. Polynomial factoring over Q via the
+Berlekamp-Zassenhaus algorithm (modular factoring, Hensel lifting, factor
+recombination). Multivariate polynomial GCD. Simplification with a verified
+idempotency contract: `simplify(simplify(e)) = simplify(e)`. Trigonometric
+identities, logarithmic properties, power rules. Partial fraction decomposition.
+Expression equivalence checking with symbolic and numerical verification.
 
 **Calculus.** Differentiation with chain rule, product rule, quotient rule, and the
 general f^g formula. Integration via polynomial rules, transcendental table,
-integration by parts (tabular method), u-substitution, and inverse trigonometric
-antiderivatives. Taylor and Maclaurin series with exact rational coefficients.
-Symbolic limits through direct substitution, GCD cancellation, and L'Hopital's rule.
+integration by parts (tabular method), u-substitution, trig powers (all parities
+including mixed products), inverse trig antiderivatives, partial fractions, and
+trig substitution for square roots of quadratics. Taylor and Maclaurin series
+with exact rational coefficients. Symbolic limits through direct substitution,
+GCD cancellation, and L'Hopital's rule.
 
 **Equation solving.** Linear through quartic, exactly. Rational root theorem with
 synthetic division. Cardano's formula for cubics (including the trigonometric method
-for *casus irreducibilis*). Ferrari's method for quartics.
+for *casus irreducibilis*). Ferrari's method for quartics. Degree 5 and above via
+Berlekamp-Zassenhaus factoring into solvable pieces.
 
 **Linear algebra.** Determinant, inverse, eigenvalues, rank, transpose, multiplication,
 linear system solving (Ax = b), and row echelon form.
@@ -38,7 +43,7 @@ Coefficients are exact rationals, not floating-point approximations:
 ## The MCP server
 
 The `arithma-mcp` binary speaks MCP (Model Context Protocol) over stdio. It gives
-Claude --- or any MCP-compatible AI agent --- access to 11 tools:
+Claude --- or any MCP-compatible AI agent --- access to 13 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -46,8 +51,9 @@ Claude --- or any MCP-compatible AI agent --- access to 11 tools:
 | `differentiate` | Symbolic derivative with respect to any variable |
 | `integrate` | Indefinite and definite integrals |
 | `substitute` | Replace a variable with an expression |
-| `solve` | Solve equations (degree 1--4) |
-| `factor` | Square-free factorization |
+| `solve` | Solve equations (any degree, via factoring) |
+| `factor` | Irreducible factoring over Q (Berlekamp-Zassenhaus) |
+| `partial_fractions` | Decompose P(x)/Q(x) into partial fractions |
 | `limit` | Symbolic limits |
 | `taylor_series` | Series expansion with exact coefficients |
 | `evaluate` | Numerical evaluation with variable assignments |
@@ -90,7 +96,7 @@ In your Claude Desktop configuration file:
 }
 ```
 
-Restart Claude Desktop after editing. The 11 tools will appear in your tool list.
+Restart Claude Desktop after editing. The 13 tools will appear in your tool list.
 
 ### Building the MCP server
 
@@ -98,26 +104,16 @@ Restart Claude Desktop after editing. The 11 tools will appear in your tool list
 cargo build --release --bin arithma-mcp
 ```
 
-The binary lands at `target/release/arithma-mcp`. It is approximately 1.4 MB,
+The binary lands at `target/release/arithma-mcp`. It is approximately 1.5 MB,
 statically linked, with no runtime dependencies --- no Python, no Java, no
 Wolfram, no network calls.
 
 ## Building and testing
 
 ```
-cargo build          # debug build
+cargo build            # debug build
 cargo build --release  # optimized build
-cargo test --all     # run all 487 tests
-```
-
-Or with make:
-
-```
-make build   # release build
-make test    # all tests
-make check   # format + lint + test
-make mcp     # build the MCP server
-make wasm    # build WebAssembly module
+cargo test             # run all 568 tests
 ```
 
 ## Design principles
@@ -127,12 +123,12 @@ suite uses exact arithmetic, not floating-point approximation, wherever possible
 The simplifier has a verified idempotency contract.
 
 **Well-chosen algorithms.** Not the first algorithm that works --- the right
-algorithm for the data structure. Polynomial GCD via subresultant remainder
-sequence. Horner evaluation. Rational root theorem with synthetic division.
-Cardano and Ferrari for cubics and quartics.
+algorithm for the data structure. Berlekamp-Zassenhaus for polynomial factoring.
+Subresultant remainder sequence for GCD. Horner evaluation. Cardano and Ferrari
+for cubics and quartics. The choice matters.
 
-**Readable code.** A reader should be able to verify the implementation against
-the mathematical reference. Non-trivial algorithms cite their source.
+**Silence over lies.** If arithma cannot compute something, it says so. It never
+guesses, approximates heuristically, or returns an unverified result.
 
 **No hardcoded answers.** The system computes its results; it does not look
 them up from a table of special cases.
@@ -141,21 +137,22 @@ them up from a table of special cases.
 
 ```
 src/
-  node.rs          -- expression AST
-  exact.rs         -- exact rational arithmetic (BigRational)
-  parser.rs        -- LaTeX tokenizer and parser
-  simplify.rs      -- rule-based simplification with idempotency contract
-  polynomial.rs    -- dense univariate polynomials over Q
-  multipoly.rs     -- multivariate polynomials (recursive representation)
-  derivative.rs    -- symbolic differentiation
-  integration.rs   -- symbolic integration (polynomials, transcendentals,
-                      IBP, u-substitution, inverse trig)
-  series.rs        -- Taylor/Maclaurin series
-  limits.rs        -- symbolic limits
-  matrix.rs        -- matrix operations
-  expression.rs    -- equation solving
-  evaluator.rs     -- numerical evaluation
-  bin/arithma-mcp.rs -- MCP server (JSON-RPC 2.0 over stdio)
+  node.rs              -- expression AST
+  exact.rs             -- exact rational arithmetic (BigRational)
+  parser.rs            -- LaTeX tokenizer and parser
+  simplify.rs          -- rule-based simplification with idempotency contract
+  polynomial.rs        -- dense univariate polynomials over Q
+  multipoly.rs         -- multivariate polynomials (recursive representation)
+  mod_poly.rs          -- polynomial arithmetic over Z_p, Berlekamp-Zassenhaus
+  partial_fractions.rs -- partial fraction decomposition via extended GCD
+  derivative.rs        -- symbolic differentiation
+  integration.rs       -- symbolic integration (8 techniques)
+  series.rs            -- Taylor/Maclaurin series
+  limits.rs            -- symbolic limits
+  matrix.rs            -- matrix operations
+  expression.rs        -- equation solving (degree 1-4 + factoring)
+  evaluator.rs         -- numerical evaluation
+  bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
 Expressions are represented as trees of `Node` variants. `ExactNum` wraps
