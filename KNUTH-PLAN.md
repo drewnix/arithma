@@ -11,7 +11,7 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 ## Current State (Post Session 14)
 
-**Phases 1-3.2 complete. Phase 5.3 (series) complete. Phase 7 v1 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities. Full derivative coverage. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. MCP server for AI agents.** 401 tests pass, 0 ignored.
+**Phases 1-3.2 complete. Phase 5.1 (IBP) complete. Phase 5.3 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration by parts (tabular + logarithmic). Transcendental integration table. MCP server with 10 tools including matrix operations.** 407 tests pass, 0 ignored.
 
 ### Session 14 Changes
 - **Multivariate GCD**: `MultiPoly::gcd` via primitive polynomial remainder sequence. `pseudo_remainder`, `content`, `primitive_part`, `exact_div` — full recursive algorithm. Coefficient GCD computed recursively, bottoming out at rational GCD.
@@ -40,8 +40,8 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - **Power base cases**: `0^n → 0` for n ≥ 0, `1^n → 1`.
 - **Derivative expansion**: sec, csc, cot, sinh, cosh, tanh, arcsin, arccos, arctan with chain rule.
 
-### Remaining Ignored Tests (1)
-- `test_lim_function`: limits not implemented
+### Remaining Ignored Tests
+None. All 407 tests pass.
 
 ## Phase 1: Exact Arithmetic Foundation
 
@@ -141,9 +141,12 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 ## Phase 5: Calculus Improvements
 
-### 5.1 — Integration by parts
-- Pattern matching for ∫u·dv
-- Tabular integration for polynomial × exponential/trig
+### 5.1 — Integration by parts ✅ (Session 14)
+- Tabular integration for polynomial × {sin, cos, exp, sinh, cosh}
+- Logarithmic IBP for polynomial × ln(x)
+- Transcendental integration table: sin, cos, tan, sec, csc, cot, exp, ln, sinh, cosh, tanh
+- `a^x → a^x/ln(a)` for constant base
+- Constant factoring in division and negation passthrough
 
 ### 5.2 — Partial fraction decomposition
 - Requires polynomial factoring (Phase 3.3)
