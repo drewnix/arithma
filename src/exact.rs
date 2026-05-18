@@ -250,6 +250,13 @@ impl fmt::Display for ExactNum {
             ExactNum::Rational(r) => {
                 if r.is_integer() {
                     write!(f, "{}", r.numer())
+                } else if r.numer() < &num_bigint::BigInt::from(0) {
+                    write!(
+                        f,
+                        "-\\frac{{{}}}{{{}}}",
+                        -r.numer(),
+                        r.denom()
+                    )
                 } else {
                     write!(f, "\\frac{{{}}}{{{}}}", r.numer(), r.denom())
                 }

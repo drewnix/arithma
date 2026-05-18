@@ -86,6 +86,25 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(l * r));
                 }
 
+                // k * (-f) → (-k) * f — absorb negation into coefficient
+                if let Node::Num(ref k) = left_simplified {
+                    if let Node::Negate(inner) = right_simplified {
+                        return Node::Multiply(
+                            Box::new(Node::Num(-k.clone())),
+                            inner,
+                        ).simplify(env);
+                    }
+                }
+                // (-f) * k → (-k) * f
+                if let Node::Negate(inner) = &left_simplified {
+                    if let Node::Num(ref k) = right_simplified {
+                        return Node::Multiply(
+                            Box::new(Node::Num(-k.clone())),
+                            inner.clone(),
+                        ).simplify(env);
+                    }
+                }
+
                 // **Handle implicit multiplication of number and variable (e.g., 5 * x -> 5x)**
                 if let (Node::Num(ref l_coef), Node::Variable(ref var)) =
                     (&left_simplified, &right_simplified)
