@@ -1,4 +1,4 @@
-# Arithma
+# Arithma CAS MCP
 
 A computer algebra system written in Rust. Exact arithmetic, not floating-point
 approximation. LaTeX in, LaTeX out. A single binary with no runtime dependencies.
