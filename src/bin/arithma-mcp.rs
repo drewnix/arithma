@@ -11,7 +11,8 @@ use arithma::series::taylor_series_latex;
 use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::{
-    build_expression_tree, solve_for_variable_exact, Environment, Evaluator, Polynomial, Tokenizer,
+    build_expression_tree, factor_over_q, partial_fractions_latex, solve_for_variable_exact,
+    Environment, Evaluator, Polynomial, Tokenizer,
 };
 
 fn main() {
@@ -203,13 +204,13 @@ fn tools_schema() -> Value {
         },
         {
             "name": "factor",
-            "description": "Factor a polynomial expression. Returns the square-free factorization showing irreducible factors and their multiplicities.",
+            "description": "Factor a polynomial into irreducible factors over Q using the Berlekamp-Zassenhaus algorithm. Returns content and monic irreducible factors with multiplicities. Example: x^4 - 1 → (x - 1)(x + 1)(x^2 + 1).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "expr": {
                         "type": "string",
-                        "description": "LaTeX polynomial to factor, e.g. \"x^4 - 1\" or \"x^3 - 3x^2 + 3x - 1\""
+                        "description": "LaTeX polynomial to factor, e.g. \"x^4 - 1\" or \"x^6 - 1\""
                     },
                     "variable": {
                         "type": "string",
@@ -218,6 +219,29 @@ fn tools_schema() -> Value {
                     }
                 },
                 "required": ["expr"]
+            }
+        },
+        {
+            "name": "partial_fractions",
+            "description": "Decompose a rational function P(x)/Q(x) into partial fractions. Factors the denominator, then splits into terms with irreducible denominators. Example: 1/(x^2-1) → 1/(2(x-1)) - 1/(2(x+1)).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "numerator": {
+                        "type": "string",
+                        "description": "LaTeX expression for the numerator polynomial, e.g. \"1\" or \"x^2 + 1\""
+                    },
+                    "denominator": {
+                        "type": "string",
+                        "description": "LaTeX expression for the denominator polynomial, e.g. \"x^2 - 1\" or \"x^3 - 1\""
+                    },
+                    "variable": {
+                        "type": "string",
+                        "description": "Main variable",
+                        "default": "x"
+                    }
+                },
+                "required": ["numerator", "denominator"]
             }
         },
         {
@@ -347,6 +371,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "substitute" => tool_substitute(&args),
         "solve" => tool_solve(&args),
         "factor" => tool_factor(&args),
+        "partial_fractions" => tool_partial_fractions(&args),
         "limit" => tool_limit(&args),
         "taylor_series" => tool_taylor_series(&args),
         "evaluate" => tool_evaluate(&args),
@@ -453,18 +478,49 @@ fn tool_factor(args: &Value) -> Result<String, String> {
     let node = build_expression_tree(tokens)?;
     let poly = Polynomial::from_node(&node, var).map_err(|e| format!("Not a polynomial: {}", e))?;
 
-    let factors = poly.square_free_decomposition();
-    let parts: Vec<String> = factors
-        .iter()
-        .map(|(f, m)| {
-            if *m == 1 {
-                format!("({})", f)
-            } else {
-                format!("({})^{}", f, m)
-            }
-        })
-        .collect();
-    Ok(parts.join(" \\cdot "))
+    let (content, factors) = factor_over_q(&poly);
+
+    let mut parts: Vec<String> = Vec::new();
+
+    let content_str = format!("{}", arithma::Node::Num(arithma::ExactNum::rational(
+        content.numer().try_into().unwrap_or(1),
+        content.denom().try_into().unwrap_or(1),
+    )));
+    if content_str != "1" {
+        parts.push(content_str);
+    }
+
+    // Group factors with multiplicities
+    let mut grouped: Vec<(String, usize)> = Vec::new();
+    for f in &factors {
+        let s = format!("{}", f);
+        if let Some(entry) = grouped.iter_mut().find(|(fs, _)| *fs == s) {
+            entry.1 += 1;
+        } else {
+            grouped.push((s, 1));
+        }
+    }
+
+    for (f_str, m) in &grouped {
+        if *m == 1 {
+            parts.push(format!("({})", f_str));
+        } else {
+            parts.push(format!("({})^{}", f_str, m));
+        }
+    }
+
+    if parts.is_empty() {
+        Ok("1".to_string())
+    } else {
+        Ok(parts.join(" \\cdot "))
+    }
+}
+
+fn tool_partial_fractions(args: &Value) -> Result<String, String> {
+    let num = get_str(args, "numerator").ok_or("Missing required parameter: numerator")?;
+    let den = get_str(args, "denominator").ok_or("Missing required parameter: denominator")?;
+    let var = get_str_or(args, "variable", "x");
+    partial_fractions_latex(num, den, var)
 }
 
 fn tool_limit(args: &Value) -> Result<String, String> {
