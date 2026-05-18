@@ -312,6 +312,24 @@ fn tools_schema() -> Value {
                 "required": ["operation", "matrix"]
             }
         }
+        ,{
+            "name": "equivalent",
+            "description": "Check if two mathematical expressions are equivalent. Simplifies both and compares, then spot-checks numerically at several points. Returns whether they are equivalent and the simplified forms.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expr_a": {
+                        "type": "string",
+                        "description": "First LaTeX expression"
+                    },
+                    "expr_b": {
+                        "type": "string",
+                        "description": "Second LaTeX expression"
+                    }
+                },
+                "required": ["expr_a", "expr_b"]
+            }
+        }
     ])
 }
 
@@ -330,6 +348,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "taylor_series" => tool_taylor_series(&args),
         "evaluate" => tool_evaluate(&args),
         "matrix" => tool_matrix(&args),
+        "equivalent" => tool_equivalent(&args),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
 
@@ -555,5 +574,107 @@ fn tool_matrix(args: &Value) -> Result<String, String> {
             "Unknown matrix operation: {}. Use: determinant, inverse, eigenvalues, rank, transpose, multiply, solve, rref",
             op
         )),
+    }
+}
+
+fn tool_equivalent(args: &Value) -> Result<String, String> {
+    let a_str = get_str(args, "expr_a").ok_or("Missing required parameter: expr_a")?;
+    let b_str = get_str(args, "expr_b").ok_or("Missing required parameter: expr_b")?;
+
+    let env = Environment::new();
+
+    let a_tokens = Tokenizer::new(a_str).tokenize();
+    let a_expr = build_expression_tree(a_tokens)?;
+    let a_simplified = a_expr.simplify(&env).unwrap_or_else(|_| a_expr.clone());
+
+    let b_tokens = Tokenizer::new(b_str).tokenize();
+    let b_expr = build_expression_tree(b_tokens)?;
+    let b_simplified = b_expr.simplify(&env).unwrap_or_else(|_| b_expr.clone());
+
+    let a_form = format!("{}", a_simplified);
+    let b_form = format!("{}", b_simplified);
+
+    if a_form == b_form {
+        return Ok(format!(
+            "Equivalent: true\nBoth simplify to: {}",
+            a_form
+        ));
+    }
+
+    // Structural comparison failed — try simplifying the difference
+    let diff = arithma::Node::Subtract(
+        Box::new(a_simplified.clone()),
+        Box::new(b_simplified.clone()),
+    );
+    let diff_simplified = diff.simplify(&env).unwrap_or_else(|_| diff);
+    let diff_form = format!("{}", diff_simplified);
+    if diff_form == "0" {
+        return Ok(format!(
+            "Equivalent: true\nSimplified forms differ but difference is zero.\nA simplifies to: {}\nB simplifies to: {}",
+            a_form, b_form
+        ));
+    }
+
+    // Numerical spot-check at several points
+    let test_points = [0.7, 1.3, 2.1, -0.5, 0.01];
+    let mut all_match = true;
+    let mut mismatches = Vec::new();
+
+    // Find variables in the expressions
+    let mut vars = std::collections::HashSet::new();
+    collect_vars(&a_simplified, &mut vars);
+    collect_vars(&b_simplified, &mut vars);
+    let var_list: Vec<String> = vars.into_iter().collect();
+
+    for &point in &test_points {
+        let mut test_env = Environment::new();
+        for v in &var_list {
+            test_env.set(v, point);
+        }
+        let a_val = Evaluator::evaluate(&a_simplified, &test_env);
+        let b_val = Evaluator::evaluate(&b_simplified, &test_env);
+        match (a_val, b_val) {
+            (Ok(a), Ok(b)) => {
+                if (a - b).abs() > 1e-10 * (1.0 + a.abs().max(b.abs())) {
+                    all_match = false;
+                    mismatches.push(format!(
+                        "  At {} = {}: A = {:.6}, B = {:.6}",
+                        var_list.first().unwrap_or(&"x".to_string()),
+                        point, a, b
+                    ));
+                }
+            }
+            _ => {} // Skip points where evaluation fails (domain issues)
+        }
+    }
+
+    if all_match {
+        Ok(format!(
+            "Equivalent: likely true (symbolic forms differ but agree numerically)\nA simplifies to: {}\nB simplifies to: {}\nDifference: {}",
+            a_form, b_form, diff_form
+        ))
+    } else {
+        Ok(format!(
+            "Equivalent: false\nA simplifies to: {}\nB simplifies to: {}\nMismatches:\n{}",
+            a_form, b_form, mismatches.join("\n")
+        ))
+    }
+}
+
+fn collect_vars(node: &arithma::Node, vars: &mut std::collections::HashSet<String>) {
+    match node {
+        arithma::Node::Variable(v) => { vars.insert(v.clone()); }
+        arithma::Node::Add(l, r) | arithma::Node::Subtract(l, r)
+        | arithma::Node::Multiply(l, r) | arithma::Node::Divide(l, r)
+        | arithma::Node::Power(l, r) => {
+            collect_vars(l, vars);
+            collect_vars(r, vars);
+        }
+        arithma::Node::Negate(inner) | arithma::Node::Sqrt(inner)
+        | arithma::Node::Abs(inner) => collect_vars(inner, vars),
+        arithma::Node::Function(_, args) => {
+            for a in args { collect_vars(a, vars); }
+        }
+        _ => {}
     }
 }
