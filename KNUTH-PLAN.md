@@ -9,9 +9,17 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 12)
+## Current State (Post Session 14)
 
-**Phases 1-2 complete. Phase 3.1 complete. Phase 3.2 core complete. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, and inverse function identities. Full derivative coverage for standard functions. Multivariate polynomial type with recursive representation.** 359 tests pass, 1 ignored (limits unimplemented).
+**Phases 1-3.2 complete. Phase 5.3 (series) complete. Phase 7 v1 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities. Full derivative coverage. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. MCP server for AI agents.** 401 tests pass, 0 ignored.
+
+### Session 14 Changes
+- **Multivariate GCD**: `MultiPoly::gcd` via primitive polynomial remainder sequence. `pseudo_remainder`, `content`, `primitive_part`, `exact_div` — full recursive algorithm. Coefficient GCD computed recursively, bottoming out at rational GCD.
+- **Simplifier integration**: `try_polynomial_normalize` and `try_polynomial_divide` fall through to MultiPoly for multi-variable expressions. `(xy+x)/(y+1) → x`, `(x²-y²)/(x+y) → x-y`.
+- **Taylor/Maclaurin series**: `series.rs` — repeated symbolic differentiation + evaluation. `try_rationalize` converts float coefficients to exact rationals. Clean polynomial output: `sin(x)` order 5 → `1/120 x⁵ - 1/6 x³ + x`.
+- **Symbolic limits**: `limits.rs` — direct substitution → polynomial GCD cancellation → L'Hôpital's rule (up to 6 iterations). Handles `sin(x)/x → 1`, `(1-cos(x))/x² → 1/2`, `(eˣ-1)/x → 1`.
+- **MCP server**: `arithma-mcp` binary — hand-rolled JSON-RPC over stdio, no async deps. 8 tools (simplify, differentiate, integrate, solve, factor, limit, taylor_series, evaluate). LaTeX in, LaTeX out. Release binary: 1.2 MB.
+- **Zero ignored tests**: The previously-ignored `test_lim_function` now passes.
 
 ### Session 12 Changes
 - **Rational root theorem**: `Polynomial::rational_roots()` finds all rational roots of any-degree polynomial using the rational root theorem. Converts to primitive part for integer coefficients, enumerates ±(divisor of a₀)/(divisor of aₙ), tests via Horner evaluation.
@@ -141,9 +149,11 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - Requires polynomial factoring (Phase 3.3)
 - Essential for rational function integration
 
-### 5.3 — Series expansion
+### 5.3 — Series expansion ✅ (Session 14)
 - Taylor/Maclaurin via repeated differentiation
-- Formal power series arithmetic
+- `try_rationalize` converts float evaluation results to exact rationals
+- Clean polynomial output via `Polynomial::to_node`
+- Formal power series arithmetic — future work
 
 ### 5.4 — The Risch algorithm (long-term)
 - Decides whether an elementary antiderivative exists
@@ -170,21 +180,22 @@ Each crate depends only on `arithma-core`. Each can be compiled to WASM independ
 
 **This restructuring happens when the mathematical foundation (Phases 1-4) is solid, not before.**
 
-## Phase 7: arithma-mcp — MCP Server for AI Agents
+## Phase 7: arithma-mcp — MCP Server for AI Agents ✅ v1 (Session 14)
 
 **Goal:** A standalone MCP server that gives QAI agents (and any MCP-compatible client) access to a correct, high-performance CAS with no runtime dependencies.
 
-### 7.1 — Core MCP server
-- Binary: `arithma-mcp`, speaks MCP protocol over stdio
-- Tools: `simplify`, `differentiate`, `integrate`, `solve`, `factor`, `evaluate`, `substitute`
-- Input/output: LaTeX (the lingua franca for mathematical expressions in agent contexts)
-- Exact arithmetic throughout — no floating-point leakage visible to the agent
+### 7.1 — Core MCP server ✅
+- Binary: `arithma-mcp`, speaks MCP protocol (JSON-RPC 2.0) over stdio
+- Hand-rolled protocol implementation — no async deps, no tokio
+- 8 tools: `simplify`, `differentiate`, `integrate`, `solve`, `factor`, `limit`, `taylor_series`, `evaluate`
+- Input/output: LaTeX throughout
+- Release binary: 1.2 MB
 
-### 7.2 — Tool interface design
-- Each tool accepts a LaTeX expression string and optional parameters (variable, point, etc.)
-- Returns: simplified LaTeX result + structured metadata (degree, variables, numeric value if constant)
-- Error handling: clear messages when an expression is not in the supported domain
-- Multivariate-aware: tools work on multi-variable expressions via MultiPoly
+### 7.2 — Tool interface design ✅
+- Each tool accepts a LaTeX expression string and optional parameters (variable, point, order, etc.)
+- Sensible defaults: variable defaults to "x", center defaults to 0, order defaults to 5
+- Error handling: errors returned as MCP tool results with `isError: true`
+- Multivariate-aware: simplify and evaluate work on multi-variable expressions
 
 ### 7.3 — Differentiators over existing CAS tools
 - **Correctness:** Exact rational arithmetic, not floating-point approximation
@@ -192,12 +203,11 @@ Each crate depends only on `arithma-core`. Each can be compiled to WASM independ
 - **Portability:** Single binary, no Python/Wolfram/Java runtime
 - **Determinism:** Same input always produces same output (no heuristic simplification races)
 
-### 7.4 — Dependencies
-- Phases 3-4 should be solid (multivariate simplifier, GCD)
-- WASM endpoints already define the tool surface; MCP wraps them with JSON-RPC transport
-- Can ship a useful v1 with current capabilities (univariate factoring, degree-4 solver, comprehensive simplification)
-
-**Estimated effort:** 1-2 sessions for v1. The math is done; this is protocol plumbing + tool descriptions.
+### 7.4 — Future v2
+- Structured metadata in responses (degree, variables, numeric value)
+- Multivariate-specific tools (partial derivatives, polynomial GCD)
+- Formal power series arithmetic
+- Matrix operations
 
 ## Principles
 
