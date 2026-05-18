@@ -119,7 +119,23 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
-            // Handle more complex cases or return an error
+            // ∫a^x dx = a^x / ln(a) where a is a constant
+            if let Node::Num(a) = &**base {
+                if let Node::Variable(v) = &**exponent {
+                    if v == var_name {
+                        let a_to_x = Node::Power(
+                            Box::new(Node::Num(a.clone())),
+                            Box::new(Node::Variable(var_name.to_string())),
+                        );
+                        let ln_a = Node::Function(
+                            "ln".to_string(),
+                            vec![Node::Num(a.clone())],
+                        );
+                        return Ok(Node::Divide(Box::new(a_to_x), Box::new(ln_a)));
+                    }
+                }
+            }
+
             Err("Integration of this expression is not yet implemented".to_string())
         }
 
@@ -157,12 +173,163 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
-            // Handle more complex cases or return an error
+            // ∫k/f(x) dx = k * ∫(1/f(x)) dx — factor out constant numerator
+            if let Node::Num(k) = &**left {
+                let one_over_right = Node::Divide(
+                    Box::new(Node::Num(ExactNum::one())),
+                    right.clone(),
+                );
+                if let Ok(inner) = integrate(&one_over_right, var_name) {
+                    return Ok(Node::Multiply(
+                        Box::new(Node::Num(k.clone())),
+                        Box::new(inner),
+                    ));
+                }
+            }
+            // ∫f(x)/k dx = (1/k) * ∫f(x) dx — factor out constant denominator
+            if let Node::Num(k) = &**right {
+                if !k.is_zero() {
+                    let inner = integrate(left, var_name)?;
+                    let inv = ExactNum::one() / k.clone();
+                    return Ok(Node::Multiply(
+                        Box::new(Node::Num(inv)),
+                        Box::new(inner),
+                    ));
+                }
+            }
+
             Err("Integration of this division is not yet implemented".to_string())
         }
 
-        // Other cases
+        Node::Negate(inner) => {
+            let inner_integral = integrate(inner, var_name)?;
+            Ok(Node::Negate(Box::new(inner_integral)))
+        }
+
+        // Standard function integrals
+        Node::Function(name, args) if args.len() == 1 => {
+            let arg = &args[0];
+            // Only handle direct variable argument for now
+            if let Node::Variable(v) = arg {
+                if v == var_name {
+                    return integrate_standard_function(name, var_name);
+                }
+            }
+            // Try linear substitution: f(ax+b) where a is constant
+            if let Some((a, _b)) = extract_linear_arg(arg, var_name) {
+                let base_integral = integrate_standard_function(name, var_name)?;
+                let inv_a = Node::Divide(
+                    Box::new(Node::Num(ExactNum::one())),
+                    Box::new(Node::Num(a)),
+                );
+                return Ok(Node::Multiply(
+                    Box::new(inv_a),
+                    Box::new(base_integral),
+                ));
+            }
+            Err(format!("Integration of {}(...) with non-linear argument not yet implemented", name))
+        }
+
         _ => Err("Integration of this expression is not yet implemented".to_string()),
+    }
+}
+
+fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
+    let x = || Node::Variable(var.to_string());
+    match name {
+        // ∫sin(x) = -cos(x)
+        "sin" => Ok(Node::Negate(Box::new(
+            Node::Function("cos".to_string(), vec![x()]),
+        ))),
+        // ∫cos(x) = sin(x)
+        "cos" => Ok(Node::Function("sin".to_string(), vec![x()])),
+        // ∫tan(x) = -ln|cos(x)|
+        "tan" => Ok(Node::Negate(Box::new(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Function(
+                "cos".to_string(),
+                vec![x()],
+            )))],
+        )))),
+        // ∫sec²(x) — handled if it comes through as sec*sec; skip for now
+        // ∫sec(x)  = ln|sec(x) + tan(x)|
+        "sec" => Ok(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Add(
+                Box::new(Node::Function("sec".to_string(), vec![x()])),
+                Box::new(Node::Function("tan".to_string(), vec![x()])),
+            )))],
+        )),
+        // ∫csc(x) = -ln|csc(x) + cot(x)|
+        "csc" => Ok(Node::Negate(Box::new(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Add(
+                Box::new(Node::Function("csc".to_string(), vec![x()])),
+                Box::new(Node::Function("cot".to_string(), vec![x()])),
+            )))],
+        )))),
+        // ∫cot(x) = ln|sin(x)|
+        "cot" => Ok(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Function(
+                "sin".to_string(),
+                vec![x()],
+            )))],
+        )),
+        // ∫exp(x) = exp(x)
+        "exp" => Ok(Node::Function("exp".to_string(), vec![x()])),
+        // ∫ln(x) = x·ln(x) - x
+        "ln" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("ln".to_string(), vec![x()])),
+            )),
+            Box::new(x()),
+        )),
+        // ∫sinh(x) = cosh(x)
+        "sinh" => Ok(Node::Function("cosh".to_string(), vec![x()])),
+        // ∫cosh(x) = sinh(x)
+        "cosh" => Ok(Node::Function("sinh".to_string(), vec![x()])),
+        // ∫tanh(x) = ln(cosh(x))
+        "tanh" => Ok(Node::Function(
+            "ln".to_string(),
+            vec![Node::Function("cosh".to_string(), vec![x()])],
+        )),
+        _ => Err(format!("Integration of {}(x) not implemented", name)),
+    }
+}
+
+/// Extract (a, b) if the expression is of the form a*var + b (linear in var).
+fn extract_linear_arg(expr: &Node, var: &str) -> Option<(ExactNum, ExactNum)> {
+    match expr {
+        Node::Variable(v) if v == var => Some((ExactNum::one(), ExactNum::zero())),
+        Node::Multiply(left, right) => {
+            if let (Node::Num(a), Node::Variable(v)) = (&**left, &**right) {
+                if v == var {
+                    return Some((a.clone(), ExactNum::zero()));
+                }
+            }
+            if let (Node::Variable(v), Node::Num(a)) = (&**left, &**right) {
+                if v == var {
+                    return Some((a.clone(), ExactNum::zero()));
+                }
+            }
+            None
+        }
+        Node::Add(left, right) => {
+            if let Some((a, b1)) = extract_linear_arg(left, var) {
+                if let Node::Num(b2) = &**right {
+                    return Some((a, &b1 + b2));
+                }
+            }
+            if let Some((a, b1)) = extract_linear_arg(right, var) {
+                if let Node::Num(b2) = &**left {
+                    return Some((a, &b1 + b2));
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 
