@@ -111,6 +111,15 @@ impl RationalFunction {
         self.num.variable()
     }
 
+    /// Formal derivative using the quotient rule: (p/q)' = (p'q − pq') / q².
+    pub fn derivative(&self) -> Self {
+        let p_prime = self.num.derivative();
+        let q_prime = self.den.derivative();
+        let num = &(&p_prime * &self.den) - &(&self.num * &q_prime);
+        let den = &self.den * &self.den;
+        Self::new(num, den)
+    }
+
     /// Divide two rational functions: (a/b) / (c/d) = (a*d) / (b*c).
     ///
     /// Returns `Err` if `other` is zero (division by zero).
@@ -357,5 +366,61 @@ mod tests {
             Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
         );
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_rf_derivative_polynomial() {
+        // d/dx[x^2 + 1] = 2x
+        let rf =
+            RationalFunction::from_poly(Polynomial::from_coeffs(vec![int(1), int(0), int(1)], "x"));
+        let drf = rf.derivative();
+        assert_eq!(
+            drf,
+            RationalFunction::from_poly(Polynomial::from_coeffs(vec![int(0), int(2)], "x"))
+        );
+    }
+
+    #[test]
+    fn test_rf_derivative_reciprocal() {
+        // d/dx[1/x] = -1/x^2
+        let rf = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let drf = rf.derivative();
+        assert_eq!(
+            drf.numerator(),
+            &Polynomial::from_coeffs(vec![int(-1)], "x")
+        );
+        assert_eq!(
+            drf.denominator(),
+            &Polynomial::from_coeffs(vec![int(0), int(0), int(1)], "x")
+        );
+    }
+
+    #[test]
+    fn test_rf_derivative_quotient_rule() {
+        // d/dx[(x+1)/(x-1)] = -2/(x-1)^2 = -2/(x^2 - 2x + 1)
+        let rf = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1), int(1)], "x"),
+            Polynomial::from_coeffs(vec![int(-1), int(1)], "x"),
+        );
+        let drf = rf.derivative();
+        assert_eq!(
+            drf.numerator(),
+            &Polynomial::from_coeffs(vec![int(-2)], "x")
+        );
+        assert_eq!(
+            drf.denominator(),
+            &Polynomial::from_coeffs(vec![int(1), int(-2), int(1)], "x")
+        );
+    }
+
+    #[test]
+    fn test_rf_derivative_constant() {
+        // d/dx[5] = 0
+        let rf = RationalFunction::from_constant(int(5), "x");
+        let drf = rf.derivative();
+        assert!(drf.is_zero());
     }
 }
