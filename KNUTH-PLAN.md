@@ -1,7 +1,7 @@
 # Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Last updated: 2026-05-18, Session 17*
+*Last updated: 2026-05-18, Sessions 17-18*
 
 ---
 
@@ -30,9 +30,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State (Post Session 17)
 
-**589 tests pass. 0 failures. 13 MCP tools. ~16K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**608 tests pass. 0 failures. 14 MCP tools. ~16K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints (positive, nonnegative, negative, nonzero, real, integer) across 9 MCP tools. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8, 10 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints (positive, nonnegative, negative, nonzero, real, integer) across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -49,6 +49,7 @@ The exact arithmetic, polynomial algebra, simplification, differentiation, and b
 - **Phase 5: Core calculus** ✅ — differentiation (full chain rule), integration (8 techniques), series, limits
 - **Phase 7: MCP server** ✅ — 13 tools, LaTeX I/O, hand-rolled JSON-RPC, < 2 MB
 - **Phase 8: Assumption system** ✅ — 6 property types, 9 tools with assumptions, 21 tests
+- **Phase 10: Basic ODE solving** ✅ — separable, linear, constant-coeff; 19 tests
 
 ### Tier 2: Agent Confidence (In Progress)
 
@@ -74,21 +75,9 @@ The transcendental case of Risch handles the most common integrands (composition
 
 **Reference:** Manuel Bronstein, *Symbolic Integration I: Transcendental Functions*.
 
-#### Phase 10: Basic ODE Solving
+#### Phase 10: Basic ODE Solving ✅
 
-**Goal:** Solve the three most common ODE classes that agents encounter.
-
-**Why this matters:** Agents reasoning about physics, engineering, and modeling hit ODEs constantly. Covering three classes handles ~80% of what comes up:
-
-1. **Separable**: dy/dx = f(x)·g(y) → ∫dy/g(y) = ∫f(x)dx
-2. **First-order linear**: dy/dx + P(x)·y = Q(x) → integrating factor e^{∫P dx}
-3. **Second-order constant-coefficient**: ay'' + by' + cy = 0 → characteristic equation
-
-- New module: `src/ode.rs`
-- MCP tool: `solve_ode` with equation, dependent variable, independent variable
-- Returns general solution with arbitrary constants C₁, C₂
-
-**Estimated effort:** 2-3 sessions. The algorithms are textbook. The work is parsing ODE notation and producing clean output.
+**Completed Session 17.** Three ODE classes: separable (auto-detects g(x)*h(y) factorization), first-order linear (integrating factor method), second-order constant-coefficient (discriminant-based: distinct real, repeated, complex roots). MCP tool `solve_ode` and CLI command `ode` with `--cc` flag. 19 tests. Returns general solutions with C₁, C₂.
 
 ### Tier 3: Computational Power (When Needed)
 
@@ -176,8 +165,11 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 - Environment integration: assumptions field, with_assumptions() constructor
 - MCP server: 9 tools gain optional assumptions parameter with JSON schema
 - ExactNum::is_even() for even-integer detection
+- Subcommand CLI: 11 commands (simplify, diff, integrate, solve, factor, pf, eval, limit, taylor, sub, ode)
+- Phase 10: ODE solver — separable, first-order linear, second-order constant-coefficient
+- MCP tool: solve_ode (14th tool)
 - Clippy cleanup: zero warnings across lib and all tests
-- 21 new tests (7 unit + 14 integration)
+- 40 new tests total (7 assumption unit + 14 assumption integration + 7 ODE unit + 12 ODE integration)
 
 ### Session 16 (2026-05-17)
 - Both-even mixed trig product integration (Pythagorean expansion + binomial theorem)

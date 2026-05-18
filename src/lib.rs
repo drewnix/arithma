@@ -75,3 +75,6 @@ pub use crate::series::{taylor_series, taylor_series_latex};
 
 pub mod limits;
 pub use crate::limits::{compute_limit, limit_latex};
+
+pub mod ode;
+pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode_latex};

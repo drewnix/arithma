@@ -30,6 +30,7 @@ fn main() {
         "limit" => cmd_limit(&args[2..]),
         "taylor" => cmd_taylor(&args[2..]),
         "substitute" | "sub" => cmd_substitute(&args[2..]),
+        "ode" => cmd_ode(&args[2..]),
         _ => {
             eprintln!("Unknown command: {}", cmd);
             eprintln!("Run 'arithma --help' for usage.");
@@ -57,6 +58,8 @@ Commands:
   limit <expr> [var] [point]         Compute a limit
   taylor <expr> [var] [center] [n]   Taylor series expansion
   substitute <expr> <var> <value>    Substitute a value for a variable (alias: sub)
+  ode <rhs> [indep] [dep]            Solve first-order ODE: dy/dx = rhs
+  ode --cc <a> <b> <c> [indep]       Solve ay''+by'+cy=0
 
 All expressions use LaTeX notation. Variable defaults to x where applicable.
 
@@ -68,7 +71,9 @@ Examples:
   arithma factor \"x^4 - 1\"
   arithma eval \"x^2 + 1\" x=3
   arithma limit \"\\\\frac{{\\\\sin(x)}}{{x}}\" x 0
-  arithma taylor \"\\\\sin(x)\" x 0 5"
+  arithma taylor \"\\\\sin(x)\" x 0 5
+  arithma ode \"x \\\\cdot y\" x y
+  arithma ode --cc 1 0 1"
     );
 }
 
@@ -350,6 +355,52 @@ fn cmd_substitute(args: &[String]) {
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_ode(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: arithma ode <rhs> [indep] [dep]");
+        eprintln!("       arithma ode --cc <a> <b> <c> [indep]");
+        std::process::exit(1);
+    }
+
+    if args[0] == "--cc" {
+        if args.len() < 4 {
+            eprintln!("Usage: arithma ode --cc <a> <b> <c> [indep]");
+            std::process::exit(1);
+        }
+        let a: f64 = args[1].parse().unwrap_or_else(|_| {
+            eprintln!("Invalid coefficient a: {}", args[1]);
+            std::process::exit(1);
+        });
+        let b: f64 = args[2].parse().unwrap_or_else(|_| {
+            eprintln!("Invalid coefficient b: {}", args[2]);
+            std::process::exit(1);
+        });
+        let c: f64 = args[3].parse().unwrap_or_else(|_| {
+            eprintln!("Invalid coefficient c: {}", args[3]);
+            std::process::exit(1);
+        });
+        let indep = args.get(4).map(|s| s.as_str()).unwrap_or("x");
+        match arithma::ode::solve_constant_coeff_latex(a, b, c, indep) {
+            Ok(result) => println!("{}", result),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let rhs = &args[0];
+        let indep = args.get(1).map(|s| s.as_str()).unwrap_or("x");
+        let dep = args.get(2).map(|s| s.as_str()).unwrap_or("y");
+        match arithma::ode::solve_ode_latex(rhs, indep, dep) {
+            Ok(result) => println!("{}", result),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }

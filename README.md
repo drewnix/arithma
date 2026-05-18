@@ -23,7 +23,7 @@ never guesses, approximates heuristically, or returns an unverified result.
 An agent that gets "I can't do this" can try a different approach. An agent
 that gets a wrong answer propagates it through its entire reasoning chain.
 
-**589 tests, zero failures.** Every algorithm is verified against known results.
+**608 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -45,13 +45,18 @@ Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's rule.
 **Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
 Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
 
+**ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
+(`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
+constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
+complex roots). Returns general solutions with arbitrary constants.
+
 **Linear algebra.** Determinant, inverse, eigenvalues, rank, transpose,
 multiplication, Ax = b, and RREF.
 
 ## MCP server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. It gives Claude or any MCP-compatible AI agent access to 13 tools:
+stdio. It gives Claude or any MCP-compatible AI agent access to 14 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -67,6 +72,7 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 13 tools:
 | `evaluate` | Numerical evaluation with variable assignments |
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
 | `equivalent` | Check if two expressions are mathematically equal |
+| `solve_ode` | Solve first-order and second-order constant-coeff ODEs |
 
 Every tool accepts LaTeX and returns LaTeX. Nine tools accept an optional
 `assumptions` parameter for domain-aware simplification:
@@ -136,18 +142,24 @@ $ arithma eval "x^2 + 1" x=3
 
 $ arithma taylor "\sin(x)" x 0 5
 \frac{1}{120} \cdot x^{5} - \frac{1}{6} \cdot x^{3} + x
+
+$ arithma ode "x^2" x y
+y = C_{1} + \frac{1}{3} \cdot x^{3}
+
+$ arithma ode --cc 1 0 1
+y = C_{1} \cdot \cos(x) + C_{2} \cdot \sin(x)
 ```
 
-All 10 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
+All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 `solve`, `factor`, `partial-fractions` (`pf`), `evaluate` (`eval`), `limit`,
-`taylor`, `substitute` (`sub`). Run `arithma --help` for full usage.
+`taylor`, `substitute` (`sub`), `ode`. Run `arithma --help` for full usage.
 
 ## Building
 
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 589 tests
+cargo test                                # run all 608 tests
 ```
 
 ## Design principles
@@ -177,6 +189,7 @@ src/
   partial_fractions.rs -- partial fraction decomposition via extended GCD
   derivative.rs        -- symbolic differentiation
   integration.rs       -- symbolic integration (8 techniques)
+  ode.rs               -- ODE solver (separable, linear, constant-coefficient)
   series.rs            -- Taylor/Maclaurin series
   limits.rs            -- symbolic limits
   matrix.rs            -- matrix operations

@@ -380,6 +380,42 @@ fn tools_schema() -> Value {
                 },
                 "required": ["expr_a", "expr_b"]
             }
+        },
+        {
+            "name": "solve_ode",
+            "description": "Solve an ordinary differential equation. First-order: provide expr where dy/dx = expr, and the solver auto-classifies as separable or linear. Second-order constant-coefficient: provide a, b, c for ay''+by'+cy=0.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expr": {
+                        "type": "string",
+                        "description": "RHS of first-order ODE dy/dx = expr, e.g. \"x \\cdot y\" or \"-2y + x\""
+                    },
+                    "indep": {
+                        "type": "string",
+                        "description": "Independent variable",
+                        "default": "x"
+                    },
+                    "dep": {
+                        "type": "string",
+                        "description": "Dependent variable",
+                        "default": "y"
+                    },
+                    "a": {
+                        "type": "number",
+                        "description": "Coefficient of y'' for second-order constant-coefficient ODE"
+                    },
+                    "b": {
+                        "type": "number",
+                        "description": "Coefficient of y' for second-order constant-coefficient ODE"
+                    },
+                    "c": {
+                        "type": "number",
+                        "description": "Coefficient of y for second-order constant-coefficient ODE"
+                    },
+                    "assumptions": assumptions_schema()
+                }
+            }
         }
     ])
 }
@@ -401,6 +437,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "evaluate" => tool_evaluate(&args),
         "matrix" => tool_matrix(&args),
         "equivalent" => tool_equivalent(&args),
+        "solve_ode" => tool_solve_ode(&args),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
 
@@ -750,6 +787,33 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
             b_form,
             mismatches.join("\n")
         ))
+    }
+}
+
+fn tool_solve_ode(args: &Value) -> Result<String, String> {
+    let has_cc = args.get("a").is_some() && args.get("b").is_some() && args.get("c").is_some();
+
+    if has_cc {
+        let a = args
+            .get("a")
+            .and_then(|v| v.as_f64())
+            .ok_or("Invalid coefficient a")?;
+        let b = args
+            .get("b")
+            .and_then(|v| v.as_f64())
+            .ok_or("Invalid coefficient b")?;
+        let c = args
+            .get("c")
+            .and_then(|v| v.as_f64())
+            .ok_or("Invalid coefficient c")?;
+        let indep = get_str_or(args, "indep", "x");
+        arithma::ode::solve_constant_coeff_latex(a, b, c, indep)
+    } else {
+        let expr =
+            get_str(args, "expr").ok_or("Missing expr (first-order) or a,b,c (second-order)")?;
+        let indep = get_str_or(args, "indep", "x");
+        let dep = get_str_or(args, "dep", "y");
+        arithma::ode::solve_ode_latex(expr, indep, dep)
     }
 }
 
