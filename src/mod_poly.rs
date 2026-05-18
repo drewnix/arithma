@@ -639,6 +639,230 @@ pub fn factor_mod_p(f: &ModPoly) -> Vec<ModPoly> {
     factors
 }
 
+// --- Factor Recombination (Layer 4) ---
+//
+// Given lifted factors mod p^k, find true factors over Z by testing
+// subsets. A subset S of lifted factors produces a candidate g;
+// if g divides f over Z (not just mod p^k), it's a true factor.
+// Coefficients are centered: mapped from [0, p^k) to (-p^k/2, p^k/2].
+
+/// Choose a suitable prime for factoring: p must not divide the leading
+/// coefficient, and f mod p must be square-free.
+fn choose_prime(f: &crate::polynomial::Polynomial) -> i64 {
+    let small_primes: &[i64] = &[3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
+    let lc = f.leading_coeff().unwrap().to_integer();
+
+    for &p in small_primes {
+        let big_p = BigInt::from(p);
+        if (&lc % &big_p).is_zero() {
+            continue;
+        }
+        let fp = ModPoly::from_polynomial(f, p);
+        let fp_deriv = fp.derivative();
+        let g = fp.gcd(&fp_deriv);
+        if g.degree().unwrap_or(0) == 0 {
+            return p;
+        }
+    }
+    let mut p = 37i64;
+    loop {
+        let big_p = BigInt::from(p);
+        if !(&lc % &big_p).is_zero() {
+            let fp = ModPoly::from_polynomial(f, p);
+            let fp_deriv = fp.derivative();
+            let g = fp.gcd(&fp_deriv);
+            if g.degree().unwrap_or(0) == 0 {
+                return p;
+            }
+        }
+        p += 2;
+        if p > 1000 {
+            panic!("Could not find a suitable prime for factoring");
+        }
+    }
+}
+
+/// Center-lift a polynomial from [0, m) to (-m/2, m/2].
+fn center_lift(
+    poly: &crate::polynomial::Polynomial,
+    m: &BigInt,
+) -> crate::polynomial::Polynomial {
+    let half = m / BigInt::from(2);
+    let deg = match poly.degree() {
+        Some(d) => d,
+        None => return crate::polynomial::Polynomial::zero(poly.variable()),
+    };
+    let mut coeffs = Vec::with_capacity(deg + 1);
+    for i in 0..=deg {
+        let c = poly.coeff(i).to_integer();
+        let centered = if c > half { &c - m } else { c };
+        coeffs.push(BigRational::from_integer(centered));
+    }
+    crate::polynomial::Polynomial::from_coeffs(coeffs, poly.variable())
+}
+
+/// Factor a polynomial over Q into irreducible factors.
+///
+/// Returns (content, factors) where content is the rational content
+/// and factors are monic irreducible polynomials over Q such that
+/// f = content * product(factors).
+pub fn factor_over_q(
+    f: &crate::polynomial::Polynomial,
+) -> (BigRational, Vec<crate::polynomial::Polynomial>) {
+    let content = f.content();
+    if content.is_zero() {
+        return (BigRational::zero(), vec![]);
+    }
+    let prim = f.primitive_part();
+
+    let n = match prim.degree() {
+        Some(d) => d,
+        None => return (content, vec![]),
+    };
+
+    if n == 0 {
+        return (content, vec![]);
+    }
+
+    if n == 1 {
+        return (content, vec![prim.make_monic()]);
+    }
+
+    // SFD produces monic factors (divides by leading coefficient).
+    // Track lc so we can put it back into the content.
+    let lc = prim.leading_coeff().unwrap().clone();
+    let adjusted_content = &content * &lc;
+
+    let sfd = prim.square_free_decomposition();
+    let mut all_factors = Vec::new();
+
+    for (sq_free, multiplicity) in &sfd {
+        let sf_factors = factor_square_free(sq_free);
+        for _ in 0..*multiplicity {
+            all_factors.extend(sf_factors.iter().cloned());
+        }
+    }
+
+    (adjusted_content, all_factors)
+}
+
+/// Factor a square-free polynomial over Q.
+/// Input may be monic with rational coefficients (from SFD) or primitive with integers.
+/// Internally converts to primitive integer form for the Berlekamp-Zassenhaus pipeline.
+fn factor_square_free(f: &crate::polynomial::Polynomial) -> Vec<crate::polynomial::Polynomial> {
+    let n = match f.degree() {
+        Some(d) => d,
+        None => return vec![],
+    };
+    if n <= 1 {
+        return vec![f.make_monic()];
+    }
+
+    // Ensure integer coefficients: primitive part clears denominators
+    let f_int = f.primitive_part();
+
+    let p = choose_prime(&f_int);
+    let fp = ModPoly::from_polynomial(&f_int, p);
+    let mod_factors = factor_mod_p(&fp);
+
+    if mod_factors.len() == 1 {
+        return vec![f_int.make_monic()];
+    }
+
+    let k = lifting_target(&f_int, p);
+    let lifted = hensel_lift_factors(&f_int, &mod_factors, p, k);
+
+    let mut pk = BigInt::from(p);
+    for _ in 1..k {
+        pk *= BigInt::from(p);
+    }
+
+    let r = lifted.len();
+    let mut remaining = f_int.make_monic();
+    let mut used = vec![false; r];
+    let mut true_factors: Vec<crate::polynomial::Polynomial> = Vec::new();
+
+    let mut s = 1;
+    while 2 * s <= r - used.iter().filter(|&&u| u).count() {
+        let available: Vec<usize> = (0..r).filter(|&i| !used[i]).collect();
+        let mut found = false;
+
+        for subset in combinations(&available, s) {
+            let mut candidate_mod = crate::polynomial::Polynomial::one(f_int.variable());
+            let mut deg_sum = 0;
+            for &idx in &subset {
+                candidate_mod = &candidate_mod * &lifted[idx];
+                deg_sum += mod_factors[idx].degree().unwrap_or(0);
+            }
+
+            if deg_sum > remaining.degree().unwrap_or(0) {
+                continue;
+            }
+
+            let candidate_mod = poly_mod(&candidate_mod, &pk);
+            let candidate = center_lift(&candidate_mod, &pk);
+            let candidate_monic = candidate.primitive_part().make_monic();
+
+            if let Ok((q, rem)) = remaining.div_rem(&candidate_monic) {
+                if rem.is_zero() {
+                    true_factors.push(candidate_monic);
+                    remaining = q;
+                    for &idx in &subset {
+                        used[idx] = true;
+                    }
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if !found {
+            s += 1;
+        }
+    }
+
+    if remaining.degree().unwrap_or(0) >= 1 {
+        true_factors.push(remaining.make_monic());
+    }
+
+    true_factors.sort_by(|a, b| {
+        a.degree()
+            .cmp(&b.degree())
+            .then_with(|| format!("{}", a).cmp(&format!("{}", b)))
+    });
+
+    true_factors
+}
+
+/// Generate all combinations of `k` elements from `items`.
+fn combinations(items: &[usize], k: usize) -> Vec<Vec<usize>> {
+    let mut result = Vec::new();
+    let mut current = Vec::with_capacity(k);
+    combinations_inner(items, k, 0, &mut current, &mut result);
+    result
+}
+
+fn combinations_inner(
+    items: &[usize],
+    k: usize,
+    start: usize,
+    current: &mut Vec<usize>,
+    result: &mut Vec<Vec<usize>>,
+) {
+    if current.len() == k {
+        result.push(current.clone());
+        return;
+    }
+    for i in start..items.len() {
+        if items.len() - i < k - current.len() {
+            break;
+        }
+        current.push(items[i]);
+        combinations_inner(items, k, i + 1, current, result);
+        current.pop();
+    }
+}
+
 // --- Hensel Lifting ---
 //
 // Given f ≡ g·h (mod p) with gcd(g,h) = 1 mod p,
@@ -1316,5 +1540,116 @@ mod tests {
         );
         let k = lifting_target(&f, 3);
         assert_eq!(k, 2);
+    }
+
+    // --- Factor recombination (full pipeline) ---
+
+    fn poly(coeffs: &[i64], var: &str) -> crate::polynomial::Polynomial {
+        crate::polynomial::Polynomial::from_coeffs(
+            coeffs.iter().map(|&c| int(c)).collect(),
+            var,
+        )
+    }
+
+    fn verify_factorization(f: &crate::polynomial::Polynomial) {
+        let (content, factors) = factor_over_q(f);
+        // Rebuild: content * product(factors)
+        let mut product = crate::polynomial::Polynomial::one(f.variable());
+        for fac in &factors {
+            product = &product * fac;
+        }
+        let rebuilt = product.scalar_mul(&content);
+        // Check equality: f == rebuilt
+        let diff = f - &rebuilt;
+        assert!(
+            diff.is_zero(),
+            "Factorization failed for {}:\n  content = {}\n  factors = {:?}\n  rebuilt = {}",
+            f,
+            content,
+            factors.iter().map(|f| format!("{}", f)).collect::<Vec<_>>(),
+            rebuilt
+        );
+    }
+
+    #[test]
+    fn test_factor_x2_minus_1() {
+        // x²-1 = (x-1)(x+1)
+        let f = poly(&[-1, 0, 1], "x");
+        let (content, factors) = factor_over_q(&f);
+        assert!(content.is_one());
+        assert_eq!(factors.len(), 2);
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_cubic_three_roots() {
+        // x³ - 6x² + 11x - 6 = (x-1)(x-2)(x-3)
+        let f = poly(&[-6, 11, -6, 1], "x");
+        let (content, factors) = factor_over_q(&f);
+        assert!(content.is_one());
+        assert_eq!(factors.len(), 3);
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_irreducible_quadratic() {
+        // x²+1 is irreducible over Q
+        let f = poly(&[1, 0, 1], "x");
+        let (_, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 1);
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_with_content() {
+        // 6x²-6 = 6(x-1)(x+1)
+        let f = poly(&[-6, 0, 6], "x");
+        let (content, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 2);
+        verify_factorization(&f);
+        assert_eq!(content, BigRational::from_integer(BigInt::from(6)));
+    }
+
+    #[test]
+    fn test_factor_quartic() {
+        // x⁴-1 = (x-1)(x+1)(x²+1)
+        let f = poly(&[-1, 0, 0, 0, 1], "x");
+        let (_, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 3);
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_repeated() {
+        // x⁴ + 2x³ + x² = x²(x+1)² — not square-free
+        // After square-free decomposition: x (mult 2) and (x+1) (mult 2)
+        let f = poly(&[0, 0, 1, 2, 1], "x");
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_q_linear() {
+        // 3x + 6 = 3(x + 2)
+        let f = poly(&[6, 3], "x");
+        let (content, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 1);
+        verify_factorization(&f);
+        assert_eq!(content, BigRational::from_integer(BigInt::from(3)));
+    }
+
+    #[test]
+    fn test_factor_cyclotomic_6() {
+        // x⁶-1 = (x-1)(x+1)(x²+x+1)(x²-x+1)
+        let f = poly(&[-1, 0, 0, 0, 0, 0, 1], "x");
+        let (_, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 4);
+        verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_large_coeffs() {
+        // (2x+3)(3x-5) = 6x² - x - 15
+        let f = poly(&[-15, -1, 6], "x");
+        verify_factorization(&f);
     }
 }

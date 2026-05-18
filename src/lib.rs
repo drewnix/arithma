@@ -59,7 +59,7 @@ pub mod polynomial;
 pub use crate::polynomial::Polynomial;
 
 pub mod mod_poly;
-pub use crate::mod_poly::{factor_mod_p, ModPoly};
+pub use crate::mod_poly::{factor_mod_p, factor_over_q, ModPoly};
 
 pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
