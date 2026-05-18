@@ -1,210 +1,168 @@
-# Arithma 
+# Arithma
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://github.com/drewnix/arithma/actions/workflows/ci.yml/badge.svg)](https://github.com/drewnix/arithma/actions/workflows/ci.yml)
+A computer algebra system written in Rust. Exact arithmetic, not floating-point
+approximation. LaTeX in, LaTeX out. A single binary with no runtime dependencies.
 
-Arithma is a Computer Algebra System (CAS) written in Rust with WebAssembly
-support and a typescript front-end. It provides symbolic mathematics 
-capabilities with a focus on elegance, performance, and extensibility.
+Arithma exists because AI agents deserve a mathematics tool that is *correct* ---
+not approximately correct, not usually correct, but correct in the way that exact
+rational arithmetic and well-chosen algorithms make possible. The MCP server gives
+any Claude session (or any MCP-compatible client) access to symbolic mathematics
+that would otherwise require a Python runtime, a Wolfram kernel, or faith in
+floating-point.
 
-## Features
+## What it does
 
-- **Symbolic Mathematics**: Manipulate algebraic expressions, solve equations, perform calculus operations
-- **LaTeX Integration**: Parse and render mathematical expressions in LaTeX format
-- **Web Ready**: WebAssembly compilation for seamless integration with the Front End
-- **Comprehensive Mathematical Capabilities**:
-  - ✅ Variable substitution
-  - ✅ Basic arithmetic operations
-  - ✅ Function composition
-  - ✅ Differentiation (including product, quotient, chain rules)
-  - ✅ Basic integration techniques
-  - ✅ Definite integrals
+**Algebra.** Exact rational arithmetic. Polynomial operations through multivariate
+GCD. Simplification with a verified idempotency contract: `simplify(simplify(e)) = simplify(e)`.
+Trigonometric identities, logarithmic properties, power rules. Expression equivalence
+checking with symbolic and numerical verification.
 
-## Getting Started
+**Calculus.** Differentiation with chain rule, product rule, quotient rule, and the
+general f^g formula. Integration via polynomial rules, transcendental table,
+integration by parts (tabular method), u-substitution, and inverse trigonometric
+antiderivatives. Taylor and Maclaurin series with exact rational coefficients.
+Symbolic limits through direct substitution, GCD cancellation, and L'Hopital's rule.
 
-### Prerequisites
+**Equation solving.** Linear through quartic, exactly. Rational root theorem with
+synthetic division. Cardano's formula for cubics (including the trigonometric method
+for *casus irreducibilis*). Ferrari's method for quartics.
 
-- Rust (latest stable version)
-- wasm-pack (for WebAssembly compilation)
-- Node.js and npm (for the frontend)
-- Docker (for containerized deployment)
-- Kubernetes CLI (kubectl) and Helm (for Kubernetes deployment)
+**Linear algebra.** Determinant, inverse, eigenvalues, rank, transpose, multiplication,
+linear system solving (Ax = b), and row echelon form.
 
-### Installation
+**Series.** Taylor and Maclaurin expansion via repeated symbolic differentiation.
+Coefficients are exact rationals, not floating-point approximations:
+`sin(x)` to order 5 gives `x - \frac{1}{6}x^3 + \frac{1}{120}x^5`, not
+`x - 0.16667x^3 + 0.00833x^5`.
 
-1. **Clone the repository**:
-   ```
-   git clone https://github.com/drewnix/arithma.git
-   cd arithma
-   ```
+## The MCP server
 
-2. **Build the Rust backend**:
-   ```
-   cargo build
-   ```
+The `arithma-mcp` binary speaks MCP (Model Context Protocol) over stdio. It gives
+Claude --- or any MCP-compatible AI agent --- access to 11 tools:
 
-3. **Build the WebAssembly package**:
-   ```
-   wasm-pack build --target web
-   ```
+| Tool | Purpose |
+|------|---------|
+| `simplify` | Reduce an expression to canonical form |
+| `differentiate` | Symbolic derivative with respect to any variable |
+| `integrate` | Indefinite and definite integrals |
+| `substitute` | Replace a variable with an expression |
+| `solve` | Solve equations (degree 1--4) |
+| `factor` | Square-free factorization |
+| `limit` | Symbolic limits |
+| `taylor_series` | Series expansion with exact coefficients |
+| `evaluate` | Numerical evaluation with variable assignments |
+| `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
+| `equivalent` | Check if two expressions are mathematically equal |
 
-4. **Install frontend dependencies**:
-   ```
-   cd frontend
-   npm install
-   ```
+Every tool accepts LaTeX and returns LaTeX. No intermediate formats, no ambiguity.
 
-### Running the Application
+### Adding to Claude Code
 
-- **Backend CLI**:
-  ```
-  cargo run
-  ```
+In your project's `.claude/settings.json` (or `~/.claude/settings.json` for global):
 
-- **Frontend development server**:
-  ```
-  cd frontend
-  npm run dev
-  ```
+```json
+{
+  "mcpServers": {
+    "arithma": {
+      "command": "/path/to/arithma-mcp"
+    }
+  }
+}
+```
 
-- **Using Docker**:
-  ```
-  make docker-build             # Build the Docker image
-  make docker-build-multiarch   # Build for both ARM64 and AMD64
-  make docker-run               # Run the container locally
-  make docker-publish           # Build, tag and push to DockerHub
-  make docker-publish-multiarch # Build and push multi-arch image to DockerHub
-  ```
+Replace `/path/to/arithma-mcp` with the path to the built binary (e.g.,
+`/Users/you/arithma/target/release/arithma-mcp`).
 
-### Deploying with Helm
+### Adding to Claude Desktop
 
-Arithma can be deployed to a Kubernetes cluster using the provided Helm chart:
+In your Claude Desktop configuration file:
 
-1. **Build the Docker image**:
-   ```
-   make docker-build
-   ```
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
-2. **Verify the Helm chart**:
-   ```
-   make helm-lint
-   ```
+```json
+{
+  "mcpServers": {
+    "arithma": {
+      "command": "/path/to/arithma-mcp"
+    }
+  }
+}
+```
 
-3. **Deploy to Kubernetes**:
-   ```
-   make k8s-deploy
-   ```
+Restart Claude Desktop after editing. The 11 tools will appear in your tool list.
 
-   This will:
-   - Build the Docker image locally
-   - Save the image to a tar file and copy it directly to your Kubernetes nodes
-   - Set image pull policy to "Never" so Kubernetes uses the local image
-   - Install the Helm chart with LoadBalancer service type
+### Building the MCP server
 
+```
+cargo build --release --bin arithma-mcp
+```
 
-4. **Alternative deployment methods**:
+The binary lands at `target/release/arithma-mcp`. It is approximately 1.4 MB,
+statically linked, with no runtime dependencies --- no Python, no Java, no
+Wolfram, no network calls.
 
-   - Deploy using a registry (if you have one configured):
-     ```
-     make k8s-deploy-registry
-     ```
+## Building and testing
 
-   - Deploy using DockerHub (requires DockerHub credentials):
-     ```
-     make k8s-deploy-dockerhub
-     ```
+```
+cargo build          # debug build
+cargo build --release  # optimized build
+cargo test --all     # run all 487 tests
+```
 
-5. **Advanced deployment options**:
+Or with make:
 
-   - Preview the Kubernetes manifests:
-     ```
-     make helm-template
-     ```
+```
+make build   # release build
+make test    # all tests
+make check   # format + lint + test
+make mcp     # build the MCP server
+make wasm    # build WebAssembly module
+```
 
-   - Upgrade an existing deployment:
-     ```
-     make helm-upgrade
-     ```
+## Design principles
 
-   - Uninstall the application:
-     ```
-     make helm-uninstall
-     ```
+**Correct first.** Every algorithm is verified against known results. The test
+suite uses exact arithmetic, not floating-point approximation, wherever possible.
+The simplifier has a verified idempotency contract.
 
-5. **Customizing the deployment**:
+**Well-chosen algorithms.** Not the first algorithm that works --- the right
+algorithm for the data structure. Polynomial GCD via subresultant remainder
+sequence. Horner evaluation. Rational root theorem with synthetic division.
+Cardano and Ferrari for cubics and quartics.
 
-   Edit the `charts/arithma/values.yaml` file to customize:
-   - Image repository and tag
-   - Number of replicas
-   - Resource limits
-   - Ingress configuration
-   - Service type (ClusterIP, NodePort, LoadBalancer)
+**Readable code.** A reader should be able to verify the implementation against
+the mathematical reference. Non-trivial algorithms cite their source.
 
-## Design and Architecture
+**No hardcoded answers.** The system computes its results; it does not look
+them up from a table of special cases.
 
-Arithma is designed around a core expression tree (AST) representation with 
-modules for parsing, manipulation, and evaluation:
+## Architecture
 
-1. **Expression Representation**: Mathematical expressions are represented as 
-abstract syntax trees (ASTs) using the `Node` enum
-2. **Parsing**: LaTeX expressions are tokenized and parsed into AST nodes
-3. **Manipulation**: Modules for differentiation, integration, substitution, and
-simplification transform expression trees
-4. **Evaluation**: Expressions can be numerically evaluated with the `Evaluator`
-5. **WebAssembly**: WASM bindings expose functionality to JavaScript environments
+```
+src/
+  node.rs          -- expression AST
+  exact.rs         -- exact rational arithmetic (BigRational)
+  parser.rs        -- LaTeX tokenizer and parser
+  simplify.rs      -- rule-based simplification with idempotency contract
+  polynomial.rs    -- dense univariate polynomials over Q
+  multipoly.rs     -- multivariate polynomials (recursive representation)
+  derivative.rs    -- symbolic differentiation
+  integration.rs   -- symbolic integration (polynomials, transcendentals,
+                      IBP, u-substitution, inverse trig)
+  series.rs        -- Taylor/Maclaurin series
+  limits.rs        -- symbolic limits
+  matrix.rs        -- matrix operations
+  expression.rs    -- equation solving
+  evaluator.rs     -- numerical evaluation
+  bin/arithma-mcp.rs -- MCP server (JSON-RPC 2.0 over stdio)
+```
 
-## Development and Testing
-
-### Build and Test Commands
-
-#### Rust Backend
-- Build: `cargo build`
-- Run: `cargo run`
-- Test all: `cargo test`
-- Test specific: `cargo test algebra_tests::test_basic_operations`
-- Format: `cargo fmt`
-- Lint: `cargo clippy`
-- Build WASM: `wasm-pack build --target web`
-
-#### TypeScript/React Frontend
-- Install: `cd frontend && npm install`
-- Dev server: `cd frontend && npm run dev`
-- Build: `cd frontend && npm run build`
-- Lint: `cd frontend && npm run lint`
-- Storybook: `cd frontend && npm run storybook`
-
-### CI/CD Pipeline
-
-Arithma uses GitHub Actions for continuous integration and deployment:
-
-- **CI Workflow**: Automatically builds, lints, and tests both the Rust backend 
-and TypeScript frontend on every push and pull request.
-- **Nightly Builds**: Runs comprehensive tests, security audits, and 
-cross-platform checks daily.
-- **Release Pipeline**: Automatically creates GitHub releases with assets when 
-version tags are pushed.
-
-All workflows can be found in the `.github/workflows` directory.
-
-## Roadmap
-
-For detailed development plans, see the [ROADMAP.md](ROADMAP.md) file.
-
-## Contributing
-
-Contributions to Arithma are welcome, please feel free to submit pull requests, create issues, or suggest enhancements.
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add some amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a pull request
+Expressions are represented as trees of `Node` variants. `ExactNum` wraps
+`BigRational` for exact arithmetic, falling back to `f64` only for transcendental
+constants (e, pi) and transcendental function results. The parser reads LaTeX;
+the display implementation writes LaTeX. Round-trip stability is tested.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- The project draws inspiration from established CAS projects like SymPy, Mathematica, and Maxima
-- Thanks to the Rust, WebAssembly, and React communities for the excellent tools that make this project possible
+MIT. See [LICENSE](LICENSE).
