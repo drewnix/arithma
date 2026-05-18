@@ -23,7 +23,13 @@ never guesses, approximates heuristically, or returns an unverified result.
 An agent that gets "I can't do this" can try a different approach. An agent
 that gets a wrong answer propagates it through its entire reasoning chain.
 
-**608 tests, zero failures.** Every algorithm is verified against known results.
+**Knows what's impossible.** The Risch algorithm doesn't just integrate — it
+can *prove* when no elementary antiderivative exists. Ask for ∫e^{-x²}dx and
+you get a mathematically rigorous explanation of why no closed form exists,
+not silence or a wrong answer. An agent that knows the boundary of what's
+computable can reason about that boundary.
+
+**711 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -36,11 +42,13 @@ properties, and power rules. Partial fraction decomposition. Expression
 equivalence checking. Assumption system for domain-aware simplification:
 declare `x > 0` and `sqrt(x^2)` simplifies to `x` instead of `|x|`.
 
-**Calculus.** Differentiation with full chain rule. Integration via 8 techniques:
-polynomial rules, transcendental table, integration by parts (tabular method),
-u-substitution, trig powers (all parities), inverse trig, partial fractions,
-and trig substitution. Taylor/Maclaurin series with exact rational coefficients.
-Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's rule.
+**Calculus.** Differentiation with full chain rule. Integration via heuristic
+methods (polynomial rules, transcendental table, integration by parts, u-sub,
+trig powers, inverse trig, partial fractions, trig substitution) plus the
+**Risch algorithm** for transcendental integration — the decision procedure
+that can prove an integral has no elementary closed form. Taylor/Maclaurin
+series with exact rational coefficients. Symbolic limits via direct
+substitution, GCD cancellation, and L'Hopital's rule.
 
 **Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
 Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
@@ -62,7 +70,7 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 14 tools:
 |------|---------|
 | `simplify` | Reduce an expression to canonical form |
 | `differentiate` | Symbolic derivative with respect to any variable |
-| `integrate` | Indefinite and definite integrals |
+| `integrate` | Indefinite/definite integrals; proves non-elementary when applicable |
 | `substitute` | Replace a variable with an expression |
 | `solve` | Solve equations (any degree, via factoring) |
 | `factor` | Irreducible factoring over Q (Berlekamp-Zassenhaus) |
@@ -148,6 +156,14 @@ y = C_{1} + \frac{1}{3} \cdot x^{3}
 
 $ arithma ode --cc 1 0 1
 y = C_{1} \cdot \cos(x) + C_{2} \cdot \sin(x)
+
+$ arithma integrate "\exp(-x^2)" x
+No elementary antiderivative exists. The Risch algorithm proves that
+the differential equation q' + (-2x)·q = 1 has no polynomial solution,
+so ∫1·exp(-x^2) dx cannot be expressed in terms of elementary functions.
+
+$ arithma integrate "\ln(x)^2" x
+2x + -2x \cdot \ln(x) + x \cdot \ln(x)^{2} + C
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -159,7 +175,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 608 tests
+cargo test                                # run all 711 tests
 ```
 
 ## Design principles
@@ -188,7 +204,11 @@ src/
   mod_poly.rs          -- polynomial arithmetic over Z_p, Berlekamp-Zassenhaus
   partial_fractions.rs -- partial fraction decomposition via extended GCD
   derivative.rs        -- symbolic differentiation
-  integration.rs       -- symbolic integration (8 techniques)
+  integration.rs       -- symbolic integration (heuristics + Risch fallback)
+  rational_function.rs -- p(x)/q(x) arithmetic for Risch algorithm
+  ext_poly.rs          -- polynomials in tower variable θ over Q(x)
+  risch.rs             -- Risch algorithm: Hermite reduction, DE solver,
+                          exponential/logarithmic integration, non-elementary proofs
   ode.rs               -- ODE solver (separable, linear, constant-coefficient)
   series.rs            -- Taylor/Maclaurin series
   limits.rs            -- symbolic limits
@@ -198,7 +218,7 @@ src/
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-~15.5K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~19K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
