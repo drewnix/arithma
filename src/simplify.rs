@@ -515,28 +515,38 @@ impl Simplifiable for Node {
                                         return Ok(*exp.clone());
                                     }
                                 }
-                                // ln(a^b) → b·ln(a)
-                                return Ok(Node::Multiply(
+                                // ln(a^b) → b·ln(a), then re-simplify since ln(a)
+                                // may itself expand (e.g. a = x·y → ln(x)+ln(y))
+                                let inner_ln = Node::Function(
+                                    "ln".to_string(),
+                                    vec![*base.clone()],
+                                ).simplify(env)?;
+                                return Node::Multiply(
                                     exp.clone(),
-                                    Box::new(Node::Function(
-                                        "ln".to_string(),
-                                        vec![*base.clone()],
-                                    )),
-                                ));
+                                    Box::new(inner_ln),
+                                ).simplify(env);
                             }
-                            // ln(a·b) → ln(a) + ln(b)
+                            // ln(a·b) → ln(a) + ln(b), re-simplify each ln
                             if let Node::Multiply(a, b) = arg {
-                                return Ok(Node::Add(
-                                    Box::new(Node::Function("ln".to_string(), vec![*a.clone()])),
-                                    Box::new(Node::Function("ln".to_string(), vec![*b.clone()])),
-                                ));
+                                let ln_a = Node::Function("ln".to_string(), vec![*a.clone()])
+                                    .simplify(env)?;
+                                let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
+                                    .simplify(env)?;
+                                return Node::Add(
+                                    Box::new(ln_a),
+                                    Box::new(ln_b),
+                                ).simplify(env);
                             }
-                            // ln(a/b) → ln(a) - ln(b)
+                            // ln(a/b) → ln(a) - ln(b), re-simplify each ln
                             if let Node::Divide(a, b) = arg {
-                                return Ok(Node::Subtract(
-                                    Box::new(Node::Function("ln".to_string(), vec![*a.clone()])),
-                                    Box::new(Node::Function("ln".to_string(), vec![*b.clone()])),
-                                ));
+                                let ln_a = Node::Function("ln".to_string(), vec![*a.clone()])
+                                    .simplify(env)?;
+                                let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
+                                    .simplify(env)?;
+                                return Node::Subtract(
+                                    Box::new(ln_a),
+                                    Box::new(ln_b),
+                                ).simplify(env);
                             }
                         }
                         "exp" => {
@@ -655,39 +665,56 @@ fn collect_terms(
 fn rebuild_expression(term_map: HashMap<String, ExactNum>) -> Node {
     let mut terms: Vec<(String, ExactNum)> = term_map.into_iter().collect();
 
-    // Sort terms by the variable name (lexicographically)
-    terms.sort_by(|a, b| a.0.cmp(&b.0));
+    // Sort: variables alphabetically first, constant term last
+    terms.sort_by(|a, b| match (a.0.is_empty(), b.0.is_empty()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a.0.cmp(&b.0),
+    });
 
-    let mut result_terms: Vec<Node> = vec![];
+    // Build (abs_node, is_negative) pairs for non-zero terms
+    let mut signed_terms: Vec<(Node, bool)> = vec![];
 
     for (var, coef) in terms {
-        if var.is_empty() {
-            if !coef.is_zero() {
-                result_terms.push(Node::Num(coef));
-            }
-        } else if !coef.is_zero() {
-            if coef.is_one() {
-                result_terms.push(Node::Variable(var));
-            } else {
-                result_terms.push(Node::Multiply(
-                    Box::new(Node::Num(coef)),
-                    Box::new(Node::Variable(var)),
-                ));
-            }
+        if coef.is_zero() {
+            continue;
         }
+        let negative = coef.is_negative();
+        let abs_coef = if negative { -coef.clone() } else { coef.clone() };
+
+        let node = if var.is_empty() {
+            Node::Num(abs_coef)
+        } else if abs_coef.is_one() {
+            Node::Variable(var)
+        } else {
+            Node::Multiply(
+                Box::new(Node::Num(abs_coef)),
+                Box::new(Node::Variable(var)),
+            )
+        };
+        signed_terms.push((node, negative));
     }
 
-    if result_terms.is_empty() {
+    if signed_terms.is_empty() {
         return Node::Num(ExactNum::zero());
     }
 
-    // Combine all terms into a single expression (iterate from start to end)
-    let mut simplified_expr = result_terms.remove(0);
-    for term in result_terms {
-        simplified_expr = Node::Add(Box::new(simplified_expr), Box::new(term));
+    let (first_node, first_neg) = signed_terms.remove(0);
+    let mut result = if first_neg {
+        Node::Negate(Box::new(first_node))
+    } else {
+        first_node
+    };
+
+    for (node, negative) in signed_terms {
+        result = if negative {
+            Node::Subtract(Box::new(result), Box::new(node))
+        } else {
+            Node::Add(Box::new(result), Box::new(node))
+        };
     }
 
-    simplified_expr
+    result
 }
 
 fn find_single_variable(node: &Node) -> Option<String> {
