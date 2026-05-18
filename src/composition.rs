@@ -86,10 +86,8 @@ pub fn validate_composition(
 /// Helper function to collect variables from an expression
 fn collect_variables(node: &Node, vars: &mut Vec<String>) {
     match node {
-        Node::Variable(name) => {
-            if !vars.contains(name) {
-                vars.push(name.clone());
-            }
+        Node::Variable(name) if !vars.contains(name) => {
+            vars.push(name.clone());
         }
         Node::Add(left, right)
         | Node::Subtract(left, right)
@@ -134,7 +132,7 @@ fn collect_variables(node: &Node, vars: &mut Vec<String>) {
 /// # Arguments
 ///
 /// * `functions` - A vector of (function_expr, variable) pairs, where each function
-///                 will be composed with the next one.
+///   will be composed with the next one.
 ///
 /// # Returns
 ///

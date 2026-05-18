@@ -594,7 +594,7 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
         Box::new(a_simplified.clone()),
         Box::new(b_simplified.clone()),
     );
-    let diff_simplified = diff.simplify(&env).unwrap_or_else(|_| diff);
+    let diff_simplified = diff.simplify(&env).unwrap_or(diff);
     let diff_form = format!("{}", diff_simplified);
     if diff_form == "0" {
         return Ok(format!(
@@ -622,17 +622,15 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
         let a_val = Evaluator::evaluate(&a_simplified, &test_env);
         let b_val = Evaluator::evaluate(&b_simplified, &test_env);
         match (a_val, b_val) {
-            (Ok(a), Ok(b)) => {
-                if (a - b).abs() > 1e-10 * (1.0 + a.abs().max(b.abs())) {
-                    all_match = false;
-                    mismatches.push(format!(
-                        "  At {} = {}: A = {:.6}, B = {:.6}",
-                        var_list.first().unwrap_or(&"x".to_string()),
-                        point,
-                        a,
-                        b
-                    ));
-                }
+            (Ok(a), Ok(b)) if (a - b).abs() > 1e-10 * (1.0 + a.abs().max(b.abs())) => {
+                all_match = false;
+                mismatches.push(format!(
+                    "  At {} = {}: A = {:.6}, B = {:.6}",
+                    var_list.first().unwrap_or(&"x".to_string()),
+                    point,
+                    a,
+                    b
+                ));
             }
             _ => {} // Skip points where evaluation fails (domain issues)
         }

@@ -123,7 +123,7 @@ impl<'a> Tokenizer<'a> {
         if let Some(last) = tokens.last() {
             let needs_mul = last == ")"
                 || last.chars().all(|c| c.is_ascii_digit() || c == '.')
-                || (last.len() == 1 && last.chars().next().map_or(false, |c| c.is_alphabetic()));
+                || (last.len() == 1 && last.chars().next().is_some_and(|c| c.is_alphabetic()));
             let is_value_producing = matches!(
                 stripped_token.as_str(),
                 "sin"
@@ -227,7 +227,7 @@ impl<'a> Tokenizer<'a> {
     fn consume_brace_group(&mut self) -> Option<String> {
         let mut depth = 1;
         let mut content = String::new();
-        while let Some(c) = self.chars.next() {
+        for c in self.chars.by_ref() {
             if c == '{' {
                 depth += 1;
             } else if c == '}' {

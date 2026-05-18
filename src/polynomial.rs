@@ -44,7 +44,7 @@ impl Polynomial {
     }
 
     pub fn from_coeffs(mut coeffs: Vec<BigRational>, var: &str) -> Self {
-        while coeffs.last().map_or(false, |c| c.is_zero()) {
+        while coeffs.last().is_some_and(|c| c.is_zero()) {
             coeffs.pop();
         }
         Polynomial {
@@ -648,7 +648,7 @@ impl<'a> Mul for &'a Polynomial {
     }
 }
 
-impl<'a> Neg for &'a Polynomial {
+impl Neg for &Polynomial {
     type Output = Polynomial;
     fn neg(self) -> Polynomial {
         let coeffs = self.coeffs.iter().map(|c| -c).collect();

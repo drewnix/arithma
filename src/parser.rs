@@ -36,16 +36,8 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
             || token == "<="
             || token == "=="
             || token == "="
+            || "+-*/^".contains(token.as_str())
         {
-            while let Some(top) = operator_stack.last() {
-                if get_precedence(top) >= get_precedence(&token) {
-                    output_queue.push(operator_stack.pop().unwrap());
-                } else {
-                    break;
-                }
-            }
-            operator_stack.push(token);
-        } else if "+-*/^".contains(&token) {
             while let Some(top) = operator_stack.last() {
                 if get_precedence(top) >= get_precedence(&token) {
                     output_queue.push(operator_stack.pop().unwrap());
@@ -198,7 +190,7 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 stack.push(Node::Function(token.clone(), args));
             } else {
                 // Variable-argument function: collect all remaining stack items as arguments
-                let mut args: Vec<Node> = stack.drain(..).collect();
+                let mut args: Vec<Node> = std::mem::take(&mut stack);
                 args.reverse();
                 stack.push(Node::Function(token.clone(), args));
             }

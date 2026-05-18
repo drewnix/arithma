@@ -155,13 +155,11 @@ impl Simplifiable for Node {
                 }
 
                 // x * x → x^2
-                if left_simplified == right_simplified {
-                    if !matches!(left_simplified, Node::Num(_)) {
-                        return Ok(Node::Power(
-                            Box::new(left_simplified),
-                            Box::new(Node::Num(ExactNum::two())),
-                        ));
-                    }
+                if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
+                    return Ok(Node::Power(
+                        Box::new(left_simplified),
+                        Box::new(Node::Num(ExactNum::two())),
+                    ));
                 }
 
                 let result = Node::Multiply(Box::new(left_simplified), Box::new(right_simplified));

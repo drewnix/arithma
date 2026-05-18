@@ -60,7 +60,7 @@ impl MultiPoly {
     }
 
     fn from_coeffs(var: &str, mut coeffs: Vec<MultiPoly>) -> Self {
-        while coeffs.last().map_or(false, |c| c.is_zero()) {
+        while coeffs.last().is_some_and(|c| c.is_zero()) {
             coeffs.pop();
         }
         if coeffs.is_empty() {
@@ -71,7 +71,7 @@ impl MultiPoly {
             // degree-0 poly: just the coefficient itself, unless it references
             // a variable that should sort after var (in which case we collapse)
             let c = &coeffs[0];
-            if c.main_var().map_or(true, |v| v.as_str() > var) {
+            if c.main_var().is_none_or(|v| v.as_str() > var) {
                 coeffs.pop().unwrap()
             } else {
                 MultiPoly::Poly {
@@ -115,13 +115,7 @@ impl MultiPoly {
     /// Total degree of the polynomial.
     pub fn total_degree(&self) -> usize {
         match self {
-            MultiPoly::Constant(c) => {
-                if c.is_zero() {
-                    0
-                } else {
-                    0
-                }
-            }
+            MultiPoly::Constant(_) => 0,
             MultiPoly::Poly { coeffs, .. } => {
                 let mut max_deg = 0;
                 for (i, c) in coeffs.iter().enumerate() {
@@ -343,7 +337,7 @@ impl MultiPoly {
         // Leading terms cancel, degree drops by ≥1. After δ+1 steps we have
         // lc(other)^(δ+1)·self ≡ q·other + rem.
         while !rem.is_zero() {
-            let still_in_var = rem.main_var().map_or(false, |v| *v == var);
+            let still_in_var = rem.main_var().is_some_and(|v| *v == var);
             if !still_in_var || rem.main_degree() < other_deg {
                 break;
             }
@@ -397,10 +391,7 @@ impl MultiPoly {
         }
         let result = self.exact_div(&c);
         // Normalize sign: leading coefficient should be positive
-        if result
-            .leading_constant()
-            .map_or(false, |lc| lc.is_negative())
-        {
+        if result.leading_constant().is_some_and(|lc| lc.is_negative()) {
             result.negate()
         } else {
             result
@@ -493,7 +484,7 @@ impl MultiPoly {
         let mut rem = self.clone();
 
         while !rem.is_zero() {
-            let in_var = rem.main_var().map_or(false, |v| *v == var);
+            let in_var = rem.main_var().is_some_and(|v| *v == var);
             if !in_var {
                 panic!("exact_div: nonzero remainder in wrong variable");
             }
@@ -520,7 +511,7 @@ impl MultiPoly {
     /// Negate if leading constant is negative, so the result has positive
     /// leading coefficient. Used for GCD normalization.
     fn make_positive(&self) -> MultiPoly {
-        if self.leading_constant().map_or(false, |lc| lc.is_negative()) {
+        if self.leading_constant().is_some_and(|lc| lc.is_negative()) {
             self.negate()
         } else {
             self.clone()
@@ -564,7 +555,7 @@ impl MultiPoly {
 
                     loop {
                         // If g dropped below the main variable, primitives are coprime
-                        if g.is_zero() || g.main_var().map_or(true, |v| *v != var) {
+                        if g.is_zero() || g.main_var().is_none_or(|v| *v != var) {
                             return d.make_positive();
                         }
                         let r = f.pseudo_remainder(&g);
@@ -724,7 +715,7 @@ impl MultiPoly {
     fn is_negative(&self) -> bool {
         match self {
             MultiPoly::Constant(c) => c.is_negative(),
-            MultiPoly::Poly { coeffs, .. } => coeffs.last().map_or(false, |lc| lc.is_negative()),
+            MultiPoly::Poly { coeffs, .. } => coeffs.last().is_some_and(|lc| lc.is_negative()),
         }
     }
 
@@ -741,7 +732,7 @@ impl MultiPoly {
             MultiPoly::Constant(_) => true,
             MultiPoly::Poly { coeffs, .. } => {
                 coeffs.iter().filter(|c| !c.is_zero()).count() == 1
-                    && coeffs.last().map_or(true, |c| c.is_single_term())
+                    && coeffs.last().is_none_or(|c| c.is_single_term())
             }
         }
     }
@@ -783,9 +774,10 @@ impl MultiPoly {
                     match c {
                         MultiPoly::Constant(r) => rat_coeffs.push(r.clone()),
                         _ => {
-                            return Err(format!(
+                            return Err(
                                 "Cannot convert to univariate: coefficient contains variable"
-                            ))
+                                    .to_string(),
+                            )
                         }
                     }
                 }
@@ -875,6 +867,7 @@ impl<'a> Add for &'a MultiPoly {
 impl<'a> Sub for &'a MultiPoly {
     type Output = MultiPoly;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: &'a MultiPoly) -> MultiPoly {
         self + &rhs.negate()
     }
@@ -941,7 +934,7 @@ impl<'a> Mul for &'a MultiPoly {
     }
 }
 
-impl<'a> Neg for &'a MultiPoly {
+impl Neg for &MultiPoly {
     type Output = MultiPoly;
 
     fn neg(self) -> MultiPoly {
