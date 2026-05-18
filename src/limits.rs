@@ -5,6 +5,7 @@ use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
+use crate::series::try_rationalize;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
 
@@ -14,7 +15,8 @@ const MAX_LHOPITAL_ITERATIONS: usize = 6;
 pub fn compute_limit(expr: &Node, var: &str, point: &ExactNum) -> Result<ExactNum, String> {
     let env = Environment::new();
     let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
-    limit_internal(&simplified, var, point, 0)
+    let result = limit_internal(&simplified, var, point, 0)?;
+    Ok(try_rationalize(&result))
 }
 
 fn limit_internal(

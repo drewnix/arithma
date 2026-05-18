@@ -85,7 +85,7 @@ fn factorial_exact(n: usize) -> ExactNum {
 /// Convert an ExactNum to rational if it's a float that represents an exact
 /// rational number. Recognizes integers, half-integers, and common fractions
 /// p/q for small q (up to q=120, covering factorials through 5!).
-fn try_rationalize(n: &ExactNum) -> ExactNum {
+pub fn try_rationalize(n: &ExactNum) -> ExactNum {
     match n {
         ExactNum::Rational(_) => n.clone(),
         ExactNum::Float(f) => {

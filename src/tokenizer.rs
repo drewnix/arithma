@@ -119,6 +119,24 @@ impl<'a> Tokenizer<'a> {
 
         let stripped_token = current_token.trim_start_matches('\\').to_string();
 
+        // Implicit multiplication: x\sin(x), 2\frac{1}{2}, )\cos(x)
+        if let Some(last) = tokens.last() {
+            let needs_mul = last == ")"
+                || last.chars().all(|c| c.is_ascii_digit() || c == '.')
+                || (last.len() == 1 && last.chars().next().map_or(false, |c| c.is_alphabetic()));
+            let is_value_producing = matches!(
+                stripped_token.as_str(),
+                "sin" | "cos" | "tan" | "sec" | "csc" | "cot"
+                    | "sinh" | "cosh" | "tanh" | "coth"
+                    | "arcsin" | "arccos" | "arctan"
+                    | "log" | "ln" | "lg" | "exp" | "sqrt"
+                    | "frac" | "pi"
+            );
+            if needs_mul && is_value_producing {
+                tokens.push("*".to_string());
+            }
+        }
+
         match stripped_token.as_str() {
             "pi" => tokens.push(std::f64::consts::PI.to_string()),
             "mathrm" => {
