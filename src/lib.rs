@@ -6,6 +6,9 @@ pub use crate::exact::ExactNum;
 mod node;
 pub use crate::node::Node;
 
+pub mod assumptions;
+pub use crate::assumptions::Assumptions;
+
 // Declare the environment module and make Environment public
 mod environment;
 pub use crate::environment::Environment;

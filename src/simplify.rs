@@ -217,6 +217,13 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // (-1)^(2n) → 1 when n is integer (even exponent of -1)
+                if is_neg_one(&base_simplified) {
+                    if is_even_integer_expr(&exponent_simplified, env) {
+                        return Ok(Node::Num(ExactNum::one()));
+                    }
+                }
+
                 Ok(Node::Power(
                     Box::new(base_simplified),
                     Box::new(exponent_simplified),
@@ -473,6 +480,15 @@ impl Simplifiable for Node {
                 if let Node::Num(ref n) = simplified {
                     return Ok(Node::Num(n.abs()));
                 }
+                // |x| → x when x is nonnegative
+                if let Node::Variable(ref v) = simplified {
+                    if env.assumptions().is_nonneg(v) {
+                        return Ok(simplified);
+                    }
+                    if env.assumptions().is_negative(v) {
+                        return Ok(Node::Negate(Box::new(simplified)));
+                    }
+                }
                 // |-x| → |x|
                 if let Node::Negate(inner) = simplified {
                     return Ok(Node::Abs(inner));
@@ -487,6 +503,19 @@ impl Simplifiable for Node {
                 let simplified = operand.simplify(env)?;
                 if let Node::Num(ref n) = simplified {
                     return Ok(Node::Num(n.sqrt()));
+                }
+                // sqrt(x²) → x when x positive, |x| otherwise
+                if let Node::Power(ref base, ref exp) = simplified {
+                    if let Node::Num(ref e) = **exp {
+                        if e == &ExactNum::two() {
+                            if let Node::Variable(ref v) = **base {
+                                if env.assumptions().is_nonneg(v) {
+                                    return Ok(*base.clone());
+                                }
+                            }
+                            return Ok(Node::Abs(base.clone()));
+                        }
+                    }
                 }
                 Ok(Node::Sqrt(Box::new(simplified)))
             }
@@ -542,10 +571,15 @@ impl Simplifiable for Node {
                             }
                         }
                         "sqrt" => {
-                            // sqrt(x²) → |x|
+                            // sqrt(x²) → x when x nonneg, |x| otherwise
                             if let Node::Power(base, exp) = arg {
                                 if let Node::Num(ref e) = **exp {
                                     if e == &ExactNum::two() {
+                                        if let Node::Variable(ref v) = **base {
+                                            if env.assumptions().is_nonneg(v) {
+                                                return Ok(*base.clone());
+                                            }
+                                        }
                                         return Ok(Node::Abs(base.clone()));
                                     }
                                 }
@@ -902,4 +936,31 @@ fn extract_coeff_trig_sq(node: &Node, func_name: &str) -> Option<(ExactNum, Vec<
         }
     }
     None
+}
+
+fn is_neg_one(node: &Node) -> bool {
+    match node {
+        Node::Num(n) => n == &ExactNum::integer(-1),
+        Node::Negate(inner) => {
+            matches!(&**inner, Node::Num(n) if n.is_one())
+        }
+        _ => false,
+    }
+}
+
+fn is_even_integer_expr(node: &Node, env: &Environment) -> bool {
+    // 2n, 2*n, k*n where k is even and n is integer
+    if let Node::Multiply(left, right) = node {
+        match (&**left, &**right) {
+            (Node::Num(k), Node::Variable(v)) | (Node::Variable(v), Node::Num(k)) => {
+                return k.is_even() && env.assumptions().is_integer(v);
+            }
+            _ => {}
+        }
+    }
+    // A numeric even integer by itself
+    if let Node::Num(n) = node {
+        return n.is_even();
+    }
+    false
 }

@@ -2,6 +2,7 @@ use std::io::{self, BufRead, Write};
 
 use serde_json::{json, Value};
 
+use arithma::assumptions::Assumptions;
 use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_latex, integrate_latex};
@@ -99,18 +100,33 @@ fn handle_tools_list(id: Option<Value>) -> Value {
     })
 }
 
+fn assumptions_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "Optional variable assumptions. Map variable names to arrays of properties: \"positive\", \"nonnegative\", \"negative\", \"nonzero\", \"real\", \"integer\". Example: {\"x\": [\"positive\"], \"n\": [\"integer\"]}",
+        "additionalProperties": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["positive", "nonnegative", "negative", "nonzero", "real", "integer"]
+            }
+        }
+    })
+}
+
 fn tools_schema() -> Value {
     json!([
         {
             "name": "simplify",
-            "description": "Simplify a mathematical expression. Returns the simplified form in LaTeX. Handles polynomial normalization, trigonometric identities, logarithmic properties, and multivariate GCD cancellation.",
+            "description": "Simplify a mathematical expression. Returns the simplified form in LaTeX. Handles polynomial normalization, trigonometric identities, logarithmic properties, and multivariate GCD cancellation. Supports optional assumptions about variables (e.g. positive, integer) to enable additional simplifications like sqrt(x^2) → x when x > 0.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "expr": {
                         "type": "string",
                         "description": "LaTeX expression to simplify, e.g. \"x^2 + 2x + 1\" or \"\\frac{x^2 - 1}{x - 1}\""
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -129,7 +145,8 @@ fn tools_schema() -> Value {
                         "type": "string",
                         "description": "Variable to differentiate with respect to",
                         "default": "x"
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -156,7 +173,8 @@ fn tools_schema() -> Value {
                     "upper": {
                         "type": "number",
                         "description": "Upper bound for definite integral (omit for indefinite)"
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -178,7 +196,8 @@ fn tools_schema() -> Value {
                     "value": {
                         "type": "string",
                         "description": "LaTeX expression or number to substitute, e.g. \"3\" or \"y + 1\""
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr", "variable", "value"]
             }
@@ -197,7 +216,8 @@ fn tools_schema() -> Value {
                         "type": "string",
                         "description": "Variable to solve for",
                         "default": "x"
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["equation"]
             }
@@ -263,7 +283,8 @@ fn tools_schema() -> Value {
                         "type": "number",
                         "description": "The point the variable approaches",
                         "default": 0
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -292,7 +313,8 @@ fn tools_schema() -> Value {
                         "type": "integer",
                         "description": "Maximum degree of the expansion",
                         "default": 5
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -311,7 +333,8 @@ fn tools_schema() -> Value {
                         "type": "object",
                         "description": "Variable assignments as key-value pairs, e.g. {\"x\": 3, \"y\": 4}",
                         "additionalProperties": { "type": "number" }
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr"]
             }
@@ -352,7 +375,8 @@ fn tools_schema() -> Value {
                     "expr_b": {
                         "type": "string",
                         "description": "Second LaTeX expression"
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr_a", "expr_b"]
             }
@@ -407,24 +431,36 @@ fn get_str_or<'a>(args: &'a Value, key: &str, default: &'a str) -> &'a str {
     get_str(args, key).unwrap_or(default)
 }
 
-fn parse_and_simplify(expr_str: &str) -> Result<String, String> {
+fn env_from_args(args: &Value) -> Result<Environment, String> {
+    match args.get("assumptions") {
+        Some(v) if !v.is_null() => {
+            let assumptions = Assumptions::from_json(v)?;
+            Ok(Environment::with_assumptions(assumptions))
+        }
+        _ => Ok(Environment::new()),
+    }
+}
+
+fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr_str);
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
-    let env = Environment::new();
-    let simplified = expr.simplify(&env).unwrap_or(expr);
+    let simplified = expr.simplify(env).unwrap_or(expr);
     Ok(format!("{}", simplified))
 }
 
 fn tool_simplify(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    parse_and_simplify(expr)
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(expr, &env)
 }
 
 fn tool_differentiate(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_str_or(args, "variable", "x");
-    differentiate_latex(expr, var)
+    let result = differentiate_latex(expr, var)?;
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_integrate(args: &Value) -> Result<String, String> {
@@ -434,10 +470,12 @@ fn tool_integrate(args: &Value) -> Result<String, String> {
     let has_lower = args.get("lower").and_then(|v| v.as_f64());
     let has_upper = args.get("upper").and_then(|v| v.as_f64());
 
-    match (has_lower, has_upper) {
+    let result = match (has_lower, has_upper) {
         (Some(lower), Some(upper)) => definite_integral_latex(expr, var, lower, upper),
         _ => integrate_latex(expr, var),
-    }
+    }?;
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_substitute(args: &Value) -> Result<String, String> {
@@ -446,7 +484,8 @@ fn tool_substitute(args: &Value) -> Result<String, String> {
     let value = get_str(args, "value").ok_or("Missing required parameter: value")?;
     let subs = vec![(var.to_string(), value.to_string())];
     let result = substitute_latex(expr, &subs)?;
-    parse_and_simplify(&result).or(Ok(result))
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(&result, &env).or(Ok(result))
 }
 
 fn tool_solve(args: &Value) -> Result<String, String> {
@@ -527,7 +566,9 @@ fn tool_limit(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_str_or(args, "variable", "x");
     let point = args.get("point").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    limit_latex(expr, var, point)
+    let result = limit_latex(expr, var, point)?;
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_taylor_series(args: &Value) -> Result<String, String> {
@@ -535,7 +576,9 @@ fn tool_taylor_series(args: &Value) -> Result<String, String> {
     let var = get_str_or(args, "variable", "x");
     let center = args.get("center").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-    taylor_series_latex(expr, var, center, order)
+    let result = taylor_series_latex(expr, var, center, order)?;
+    let env = env_from_args(args)?;
+    parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_evaluate(args: &Value) -> Result<String, String> {
@@ -545,12 +588,12 @@ fn tool_evaluate(args: &Value) -> Result<String, String> {
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
 
-    let env_simplified = Environment::new();
+    let env_simplified = env_from_args(args)?;
     let simplified = expr
         .simplify(&env_simplified)
         .unwrap_or_else(|_| expr.clone());
 
-    let mut env = Environment::new();
+    let mut env = env_from_args(args)?;
     if let Some(vars) = args.get("variables").and_then(|v| v.as_object()) {
         for (k, v) in vars {
             if let Some(f) = v.as_f64() {
@@ -628,7 +671,7 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
     let a_str = get_str(args, "expr_a").ok_or("Missing required parameter: expr_a")?;
     let b_str = get_str(args, "expr_b").ok_or("Missing required parameter: expr_b")?;
 
-    let env = Environment::new();
+    let env = env_from_args(args)?;
 
     let a_tokens = Tokenizer::new(a_str).tokenize();
     let a_expr = build_expression_tree(a_tokens)?;

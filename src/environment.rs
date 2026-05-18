@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::assumptions::Assumptions;
 use crate::exact::ExactNum;
 
 #[derive(Serialize, Deserialize)]
@@ -11,6 +12,7 @@ struct EnvironmentJson {
 #[derive(Debug, Clone)]
 pub struct Environment {
     vars: HashMap<String, ExactNum>,
+    assumptions: Assumptions,
 }
 
 impl Default for Environment {
@@ -40,7 +42,10 @@ impl<'de> Deserialize<'de> for Environment {
             .into_iter()
             .map(|(k, v)| (k, ExactNum::from_f64(v)))
             .collect();
-        Ok(Environment { vars })
+        Ok(Environment {
+            vars,
+            assumptions: Assumptions::new(),
+        })
     }
 }
 
@@ -48,7 +53,19 @@ impl Environment {
     pub fn new() -> Self {
         Environment {
             vars: HashMap::new(),
+            assumptions: Assumptions::new(),
         }
+    }
+
+    pub fn with_assumptions(assumptions: Assumptions) -> Self {
+        Environment {
+            vars: HashMap::new(),
+            assumptions,
+        }
+    }
+
+    pub fn assumptions(&self) -> &Assumptions {
+        &self.assumptions
     }
 
     pub fn get(&self, var: &str) -> Option<f64> {
