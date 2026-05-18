@@ -285,6 +285,14 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
             Ok(Node::Negate(Box::new(inner_integral)))
         }
 
+        // Sqrt node: try trig substitution for √(quadratic)
+        Node::Sqrt(inner) => {
+            if let Some(result) = try_trig_substitution_sqrt(inner, var_name) {
+                return result;
+            }
+            Err("Integration of this sqrt expression is not yet implemented".to_string())
+        }
+
         // Standard function integrals
         Node::Function(name, args) if args.len() == 1 => {
             let arg = &args[0];
@@ -300,6 +308,12 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 let inv_a =
                     Node::Divide(Box::new(Node::Num(ExactNum::one())), Box::new(Node::Num(a)));
                 return Ok(Node::Multiply(Box::new(inv_a), Box::new(base_integral)));
+            }
+            // sqrt(quadratic) → trig substitution
+            if name == "sqrt" {
+                if let Some(result) = try_trig_substitution_sqrt(arg, var_name) {
+                    return result;
+                }
             }
             // Try u-substitution on the full expression (may help with composed functions)
             let full_expr = Node::Function(name.clone(), args.clone());
@@ -1317,6 +1331,228 @@ fn integrate_pf_term(
             q_deg, k
         ))
     }
+}
+
+/// Trig substitution for ∫√(ax²+bx+c) dx.
+///
+/// Completes the square: ax²+bx+c = a(x+b/2a)² + (c - b²/4a).
+/// Then depending on the signs of a and the remainder:
+///   √(k² - u²) → u = k·sin(θ): result = (k²/2)(θ + sin(θ)cos(θ))
+///   √(u² + k²) → u = k·tan(θ): result = (k²/2)(ln|sec(θ)+tan(θ)| + sec(θ)tan(θ))
+///   √(u² - k²) → u = k·sec(θ): result involves sec and log terms
+fn try_trig_substitution_sqrt(
+    inner: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    let poly = Polynomial::from_node(inner, var).ok()?;
+    if poly.degree()? != 2 {
+        return None;
+    }
+
+    let a_coeff = poly.coeff(2);
+    let b_coeff = poly.coeff(1);
+    let c_coeff = poly.coeff(0);
+
+    let env = crate::environment::Environment::new();
+
+    // Complete the square: a(x + b/2a)² + (c - b²/4a)
+    let two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+    let four = num_rational::BigRational::from_integer(num_bigint::BigInt::from(4));
+    let shift = &b_coeff / (&two * &a_coeff); // b/(2a)
+    let remainder = &c_coeff - &b_coeff * &b_coeff / (&four * &a_coeff); // c - b²/(4a)
+
+    let a_f64 = rat_to_f64(&a_coeff);
+    let remainder_f64 = rat_to_f64(&remainder);
+    let shift_f64 = rat_to_f64(&shift);
+
+    // u = x + shift, du = dx
+    // Inner becomes: a·u² + remainder
+
+    if a_f64 < 0.0 && remainder_f64 > 0.0 {
+        // Form: √(k² - α·u²) where k² = remainder, α = -a
+        // = √(remainder + a·u²) = √(remainder - |a|·u²)
+        // Substitute u = √(remainder/|a|)·sin(θ)
+        // √(k² - α·u²) = √remainder · cos(θ)
+        // du = √(remainder/|a|) · cos(θ) dθ
+        // ∫√(k²-α·u²) du = (remainder/|a|^{1/2}) · ∫cos²(θ) dθ
+        //   wait, let me redo this more carefully.
+        // Let |a| = α. Inner = remainder - α·u²
+        // Let u = √(remainder/α) · sin(θ), then α·u² = remainder·sin²(θ)
+        // √(inner) = √(remainder - remainder·sin²(θ)) = √remainder · cos(θ)
+        // du = √(remainder/α) · cos(θ) dθ
+        // ∫√(inner) du = √remainder · cos(θ) · √(remainder/α) · cos(θ) dθ
+        //              = (remainder/√α) · ∫cos²(θ) dθ
+        //              = (remainder/√α) · (θ/2 + sin(2θ)/4)
+        //              = (remainder/(2√α)) · (θ + sin(θ)cos(θ))
+        // Back-substitute: sin(θ) = u·√(α/remainder), so θ = arcsin(u·√(α/remainder))
+        //   cos(θ) = √(1-sin²(θ)) = √(inner)/√remainder
+        //   sin(θ)·cos(θ) = u·√α·√inner/remainder
+
+        let alpha = -a_f64;
+        let k_sq = remainder_f64; // k² = remainder
+        let scale = k_sq / alpha.sqrt(); // remainder / √α
+
+        // u = x + shift
+        let u_node = if shift_f64.abs() < 1e-14 {
+            Node::Variable(var.to_string())
+        } else {
+            Node::Add(
+                Box::new(Node::Variable(var.to_string())),
+                Box::new(Node::Num(ExactNum::from_f64(shift_f64))),
+            )
+        };
+
+        // θ = arcsin(u · √(α/k²))
+        let sin_arg_scale = (alpha / k_sq).sqrt();
+        let theta = Node::Function(
+            "arcsin".to_string(),
+            vec![Node::Multiply(
+                Box::new(Node::Num(ExactNum::from_f64(sin_arg_scale))),
+                Box::new(u_node.clone()),
+            )],
+        );
+
+        // sin(θ)·cos(θ) = u · √α · √(inner) / k²
+        // where √(inner) = original sqrt argument evaluated
+        let sqrt_inner = Node::Sqrt(Box::new(inner.clone()));
+        let sin_cos_product = Node::Divide(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::from_f64(alpha.sqrt()))),
+                Box::new(Node::Multiply(
+                    Box::new(u_node),
+                    Box::new(sqrt_inner),
+                )),
+            )),
+            Box::new(Node::Num(ExactNum::from_f64(k_sq))),
+        );
+
+        // Result: (scale/2) · (θ + sin(θ)cos(θ))
+        let half_scale = scale / 2.0;
+        let result = Node::Multiply(
+            Box::new(Node::Num(ExactNum::from_f64(half_scale))),
+            Box::new(Node::Add(
+                Box::new(theta),
+                Box::new(sin_cos_product),
+            )),
+        );
+
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        return Some(Ok(result));
+    }
+
+    if a_f64 > 0.0 && remainder_f64 > 0.0 {
+        // Form: √(a·u² + k²) where k² = remainder
+        // Substitute u = (k/√a)·tan(θ)
+        // √(a·u² + k²) = k·sec(θ)
+        // du = (k/√a)·sec²(θ) dθ
+        // ∫√(a·u² + k²) du = (k²/√a) · ∫sec³(θ) dθ
+        //   = (k²/(2√a)) · (sec(θ)tan(θ) + ln|sec(θ)+tan(θ)|)
+        // Back-substitute: tan(θ) = u·√a/k
+        //   sec(θ) = √(a·u²+k²)/k = √(inner)/k
+
+        let k = remainder_f64.sqrt();
+        let sqrt_a = a_f64.sqrt();
+        let coeff = k * k / (2.0 * sqrt_a); // k²/(2√a)
+
+        let u_node = if shift_f64.abs() < 1e-14 {
+            Node::Variable(var.to_string())
+        } else {
+            Node::Add(
+                Box::new(Node::Variable(var.to_string())),
+                Box::new(Node::Num(ExactNum::from_f64(shift_f64))),
+            )
+        };
+
+        // tan(θ) = u·√a/k
+        let tan_val = Node::Multiply(
+            Box::new(Node::Num(ExactNum::from_f64(sqrt_a / k))),
+            Box::new(u_node),
+        );
+        // sec(θ) = √(inner)/k
+        let sec_val = Node::Divide(
+            Box::new(Node::Sqrt(Box::new(inner.clone()))),
+            Box::new(Node::Num(ExactNum::from_f64(k))),
+        );
+
+        // sec(θ)·tan(θ) = √(inner)/k · u·√a/k = u·√a·√(inner)/k²
+        let sec_tan = Node::Multiply(Box::new(sec_val.clone()), Box::new(tan_val.clone()));
+
+        // ln|sec(θ) + tan(θ)|
+        let log_arg = Node::Add(Box::new(sec_val), Box::new(tan_val));
+        let log_term = Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(log_arg))],
+        );
+
+        let result = Node::Multiply(
+            Box::new(Node::Num(ExactNum::from_f64(coeff))),
+            Box::new(Node::Add(
+                Box::new(sec_tan),
+                Box::new(log_term),
+            )),
+        );
+
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        return Some(Ok(result));
+    }
+
+    if a_f64 > 0.0 && remainder_f64 < 0.0 {
+        // Form: √(a·u² - k²) where k² = -remainder
+        // Substitute u = (k/√a)·sec(θ)
+        // √(a·u² - k²) = k·tan(θ)
+        // du = (k/√a)·sec(θ)tan(θ) dθ
+        // ∫√(a·u² - k²) du = (k²/√a) · ∫tan²(θ)sec(θ) dθ
+        //   = (k²/(2√a)) · (sec(θ)tan(θ) - ln|sec(θ)+tan(θ)|)
+
+        let k_sq = -remainder_f64;
+        let k = k_sq.sqrt();
+        let sqrt_a = a_f64.sqrt();
+        let coeff = k_sq / (2.0 * sqrt_a);
+
+        let u_node = if shift_f64.abs() < 1e-14 {
+            Node::Variable(var.to_string())
+        } else {
+            Node::Add(
+                Box::new(Node::Variable(var.to_string())),
+                Box::new(Node::Num(ExactNum::from_f64(shift_f64))),
+            )
+        };
+
+        // sec(θ) = u·√a/k
+        let sec_val = Node::Multiply(
+            Box::new(Node::Num(ExactNum::from_f64(sqrt_a / k))),
+            Box::new(u_node),
+        );
+        // tan(θ) = √(inner)/k
+        let tan_val = Node::Divide(
+            Box::new(Node::Sqrt(Box::new(inner.clone()))),
+            Box::new(Node::Num(ExactNum::from_f64(k))),
+        );
+
+        let sec_tan = Node::Multiply(Box::new(sec_val.clone()), Box::new(tan_val.clone()));
+        let log_arg = Node::Add(Box::new(sec_val), Box::new(tan_val));
+        let log_term = Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(log_arg))],
+        );
+
+        let result = Node::Multiply(
+            Box::new(Node::Num(ExactNum::from_f64(coeff))),
+            Box::new(Node::Subtract(
+                Box::new(sec_tan),
+                Box::new(log_term),
+            )),
+        );
+
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        return Some(Ok(result));
+    }
+
+    None
+}
+
+fn rat_to_f64(r: &num_rational::BigRational) -> f64 {
+    r.numer().to_f64().unwrap_or(0.0) / r.denom().to_f64().unwrap_or(1.0)
 }
 
 fn rational_to_node(r: &num_rational::BigRational) -> Node {
