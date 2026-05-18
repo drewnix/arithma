@@ -3,7 +3,7 @@ use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
 use crate::tokenizer::Tokenizer;
-use num_traits::Zero;
+use num_traits::{One, ToPrimitive, Zero};
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
@@ -207,6 +207,35 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // ∫1/(ax+b) dx = (1/a)·ln|ax+b| for linear denominators
+            if let Ok(den_poly) = Polynomial::from_node(right, var_name) {
+                if den_poly.degree() == Some(1) {
+                    if let Ok(num_poly) = Polynomial::from_node(left, var_name) {
+                        if num_poly.degree().unwrap_or(0) == 0 && !num_poly.is_zero() {
+                            let k = num_poly.coeff(0); // numerator constant
+                            let a = den_poly.coeff(1); // coefficient of x
+                            let coeff = k / a;
+                            let ln_term = Node::Function(
+                                "ln".to_string(),
+                                vec![Node::Abs(Box::new(right.as_ref().clone()))],
+                            );
+                            if coeff == num_rational::BigRational::one() {
+                                return Ok(ln_term);
+                            } else {
+                                let coeff_node = Node::Num(ExactNum::rational(
+                                    coeff.numer().to_i64().unwrap_or(0),
+                                    coeff.denom().to_i64().unwrap_or(1),
+                                ));
+                                return Ok(Node::Multiply(
+                                    Box::new(coeff_node),
+                                    Box::new(ln_term),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
             // ∫1/(1+x²) dx = arctan(x), ∫1/√(1-x²) dx = arcsin(x)
             if let Node::Num(ref n) = **left {
                 if n.is_one() {
@@ -240,6 +269,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
             // U-substitution on division expressions
             if let Some(result) = try_u_substitution(expr, var_name) {
+                return result;
+            }
+
+            // Partial fraction decomposition for rational functions
+            if let Some(result) = try_partial_fraction_integration(left, right, var_name) {
                 return result;
             }
 
@@ -1074,6 +1108,227 @@ fn try_inverse_trig_integral(denom: &Node, var: &str) -> Option<Node> {
     }
 
     None
+}
+
+/// Integrate a rational function P(x)/Q(x) via partial fraction decomposition.
+///
+/// Each partial fraction term integrates as:
+/// - A/(x-a) → A·ln|x-a|
+/// - A/(x-a)^k (k≥2) → A·(x-a)^(1-k)/(1-k)
+/// - (Ax+B)/(x²+bx+c) → (A/2)·ln(x²+bx+c) + (2B-Ab)/√(4c-b²)·arctan((2x+b)/√(4c-b²))
+fn try_partial_fraction_integration(
+    numerator: &Node,
+    denominator: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    let num_poly = Polynomial::from_node(numerator, var).ok()?;
+    let den_poly = Polynomial::from_node(denominator, var).ok()?;
+
+    // Need at least a non-trivial rational function
+    if den_poly.degree().unwrap_or(0) < 1 {
+        return None;
+    }
+    // Skip if numerator degree < denominator degree and denominator is linear
+    // (handled by the linear denominator path above)
+    if den_poly.degree().unwrap_or(0) < 2
+        && num_poly.degree().unwrap_or(0) < den_poly.degree().unwrap_or(0)
+    {
+        return None;
+    }
+
+    let decomp = crate::partial_fractions::partial_fraction_decomposition(&num_poly, &den_poly)
+        .ok()?;
+
+    if decomp.terms.is_empty() && decomp.polynomial_part.is_zero() {
+        return None;
+    }
+
+    let env = crate::environment::Environment::new();
+    let mut result_terms: Vec<Node> = Vec::new();
+
+    // Integrate polynomial part
+    if !decomp.polynomial_part.is_zero() {
+        match integrate(&decomp.polynomial_part.to_node(), var) {
+            Ok(r) => result_terms.push(r),
+            Err(_) => return None,
+        }
+    }
+
+    // Integrate each partial fraction term
+    for term in &decomp.terms {
+        match integrate_pf_term(term, var) {
+            Ok(r) => result_terms.push(r),
+            Err(_) => return None,
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(Ok(Node::Num(ExactNum::zero())));
+    }
+
+    let mut result = result_terms.remove(0);
+    for t in result_terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+
+    let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+    Some(Ok(result))
+}
+
+/// Integrate a single partial fraction term: N(x) / q(x)^k.
+fn integrate_pf_term(
+    term: &crate::partial_fractions::PartialFractionTerm,
+    var: &str,
+) -> Result<Node, String> {
+    let q = &term.denominator;
+    let n = &term.numerator;
+    let k = term.power;
+    let q_deg = q.degree().unwrap_or(0);
+
+    if q_deg == 1 {
+        // Linear factor: q = x + a (monic)
+        // N is a constant A
+        let a = q.coeff(0); // the constant term
+        let coeff_a = n.coeff(0); // numerator constant
+
+        // ∫ A/(x+a)^k dx
+        let x_plus_a = q.to_node();
+
+        if k == 1 {
+            // A·ln|x+a|
+            let ln_term = Node::Function(
+                "ln".to_string(),
+                vec![Node::Abs(Box::new(x_plus_a))],
+            );
+            if coeff_a == num_rational::BigRational::one() {
+                Ok(ln_term)
+            } else {
+                Ok(Node::Multiply(
+                    Box::new(rational_to_node(&coeff_a)),
+                    Box::new(ln_term),
+                ))
+            }
+        } else {
+            // A·(x+a)^(1-k)/(1-k)
+            let exp = 1i64 - k as i64;
+            let power_term = Node::Power(
+                Box::new(x_plus_a),
+                Box::new(Node::Num(ExactNum::integer(exp))),
+            );
+            use num_traits::ToPrimitive;
+            let a_numer = coeff_a.numer().to_i64().unwrap_or(0);
+            let a_denom = coeff_a.denom().to_i64().unwrap_or(1);
+            let coeff = ExactNum::rational(a_numer, a_denom * exp);
+            Ok(Node::Multiply(
+                Box::new(Node::Num(coeff)),
+                Box::new(power_term),
+            ))
+        }
+    } else if q_deg == 2 && k == 1 {
+        // Irreducible quadratic, power 1: (Ax+B)/(x²+bx+c)
+        // Split: A/2·(2x+b)/(x²+bx+c) + (B-Ab/2)/(x²+bx+c)
+        // First part: (A/2)·ln(x²+bx+c)
+        // Second part: (B-Ab/2) · (2/√(4c-b²)) · arctan((2x+b)/√(4c-b²))
+
+        let a_coeff = n.coeff(1); // coefficient of x in numerator
+        let b_coeff = n.coeff(0); // constant in numerator
+        let b_denom = q.coeff(1); // b in x²+bx+c
+        let c_denom = q.coeff(0); // c in x²+bx+c
+
+        let env = crate::environment::Environment::new();
+        let mut terms: Vec<Node> = Vec::new();
+
+        // Log term: (A/2)·ln|x²+bx+c|
+        if !a_coeff.is_zero() {
+            let half_a = &a_coeff / &num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+            let ln_arg = q.to_node();
+            let ln_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(ln_arg))]);
+            if half_a == num_rational::BigRational::one() {
+                terms.push(ln_term);
+            } else {
+                terms.push(Node::Multiply(
+                    Box::new(rational_to_node(&half_a)),
+                    Box::new(ln_term),
+                ));
+            }
+        }
+
+        // Arctan term: (B - A·b/2) · (2/√(4c-b²)) · arctan((2x+b)/√(4c-b²))
+        let ab_half = &a_coeff * &b_denom
+            / &num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+        let residual = &b_coeff - &ab_half;
+
+        if !residual.is_zero() {
+            // discriminant = 4c - b²
+            let four = num_rational::BigRational::from_integer(num_bigint::BigInt::from(4));
+            let disc = &four * &c_denom - &b_denom * &b_denom;
+            let disc_f64 = disc.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                / disc.denom().to_string().parse::<f64>().unwrap_or(1.0);
+
+            if disc_f64 > 0.0 {
+                let sqrt_disc = disc_f64.sqrt();
+                // coeff = residual · 2 / sqrt_disc
+                let two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+                let overall_coeff_f64 = {
+                    let res_f64 = residual.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                        / residual.denom().to_string().parse::<f64>().unwrap_or(1.0);
+                    res_f64 * 2.0 / sqrt_disc
+                };
+
+                // arctan arg: (2x + b) / sqrt(4c - b²)
+                let two_x_plus_b = Node::Add(
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Num(ExactNum::from_f64(2.0))),
+                        Box::new(Node::Variable(var.to_string())),
+                    )),
+                    Box::new(rational_to_node(&b_denom)),
+                );
+                let arctan_arg = Node::Divide(
+                    Box::new(two_x_plus_b),
+                    Box::new(Node::Num(ExactNum::from_f64(sqrt_disc))),
+                );
+                let arctan_term =
+                    Node::Function("arctan".to_string(), vec![arctan_arg]);
+
+                if (overall_coeff_f64 - 1.0).abs() < 1e-14 {
+                    terms.push(arctan_term);
+                } else {
+                    terms.push(Node::Multiply(
+                        Box::new(Node::Num(ExactNum::from_f64(overall_coeff_f64))),
+                        Box::new(arctan_term),
+                    ));
+                }
+            }
+        }
+
+        if terms.is_empty() {
+            return Ok(Node::Num(ExactNum::zero()));
+        }
+        let mut result = terms.remove(0);
+        for t in terms {
+            result = Node::Add(Box::new(result), Box::new(t));
+        }
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        Ok(result)
+    } else {
+        // Higher degree or higher power — not yet implemented
+        Err(format!(
+            "Integration of degree-{} factor to power {} not yet implemented",
+            q_deg, k
+        ))
+    }
+}
+
+fn rational_to_node(r: &num_rational::BigRational) -> Node {
+    use num_traits::ToPrimitive;
+    if r.is_integer() {
+        Node::Num(ExactNum::integer(r.numer().to_i64().unwrap_or(0)))
+    } else {
+        Node::Num(ExactNum::rational(
+            r.numer().to_i64().unwrap_or(0),
+            r.denom().to_i64().unwrap_or(1),
+        ))
+    }
 }
 
 /// U-substitution: Given ∫h(x)dx, find g(x) such that h(x) = f(g(x))·g'(x)·c,
