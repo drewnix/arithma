@@ -157,7 +157,22 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 ));
             }
 
-            // Handle more complex cases or return an error
+            // Integration by parts via tabular method for polynomial × {sin, cos, exp}
+            if let Some(result) = try_tabular_integration(left, right, var_name) {
+                return result;
+            }
+            if let Some(result) = try_tabular_integration(right, left, var_name) {
+                return result;
+            }
+
+            // Single-step IBP for polynomial × ln: u=ln(...), dv=polynomial
+            if let Some(result) = try_log_integration(left, right, var_name) {
+                return result;
+            }
+            if let Some(result) = try_log_integration(right, left, var_name) {
+                return result;
+            }
+
             Err("Integration of this product is not yet implemented".to_string())
         }
 
@@ -331,6 +346,186 @@ fn extract_linear_arg(expr: &Node, var: &str) -> Option<(ExactNum, ExactNum)> {
         }
         _ => None,
     }
+}
+
+/// Tabular integration by parts for polynomial × {sin, cos, exp}.
+/// `u_candidate` is tested as the polynomial side, `dv_candidate` as the
+/// transcendental side. Returns None if the pattern doesn't match.
+///
+/// Algorithm: repeatedly differentiate u (until 0) and integrate dv,
+/// then combine with alternating signs:
+///   ∫u·dv = u·V₁ - u'·V₂ + u''·V₃ - ...
+/// where Vₖ is the k-th iterated integral of dv.
+/// Returns true if the expression is suitable as the "dv" side of tabular
+/// integration — a function whose repeated integrals stay bounded in complexity.
+fn is_repeatedly_integratable(expr: &Node, var: &str) -> bool {
+    match expr {
+        Node::Function(name, args) if args.len() == 1 => {
+            matches!(name.as_str(), "sin" | "cos" | "exp" | "sinh" | "cosh")
+                && contains_var(&args[0], var)
+        }
+        // e^x (parsed as Power with Euler's number base)
+        Node::Power(base, exp) => {
+            if let Node::Num(b) = &**base {
+                if (b.to_f64() - std::f64::consts::E).abs() < 1e-10 {
+                    return contains_var(exp, var);
+                }
+            }
+            false
+        }
+        Node::Multiply(left, right) => {
+            // k * f(x) where f is repeatedly integratable
+            (matches!(&**left, Node::Num(_)) && is_repeatedly_integratable(right, var))
+                || (matches!(&**right, Node::Num(_)) && is_repeatedly_integratable(left, var))
+        }
+        Node::Negate(inner) => is_repeatedly_integratable(inner, var),
+        _ => false,
+    }
+}
+
+fn contains_var(expr: &Node, var: &str) -> bool {
+    match expr {
+        Node::Variable(v) => v == var,
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r)
+        | Node::Divide(l, r) | Node::Power(l, r) => {
+            contains_var(l, var) || contains_var(r, var)
+        }
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
+        Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
+        _ => false,
+    }
+}
+
+fn try_tabular_integration(
+    u_candidate: &Node,
+    dv_candidate: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    // u must be polynomial, dv must be repeatedly integratable (sin/cos/exp)
+    if Polynomial::from_node(u_candidate, var).is_err() {
+        return None;
+    }
+    if !is_repeatedly_integratable(dv_candidate, var) {
+        return None;
+    }
+
+    let env = crate::environment::Environment::new();
+    let mut u = crate::simplify::Simplifiable::simplify(u_candidate, &env)
+        .unwrap_or_else(|_| u_candidate.clone());
+    let mut v_integral = match integrate(dv_candidate, var) {
+        Ok(v) => v,
+        Err(e) => return Some(Err(e)),
+    };
+
+    let mut terms: Vec<Node> = Vec::new();
+    let mut positive = true;
+
+    for _ in 0..20 {
+        // Simplify v_integral
+        v_integral = crate::simplify::Simplifiable::simplify(&v_integral, &env)
+            .unwrap_or(v_integral);
+
+        // Term: ±u · V
+        let term = Node::Multiply(Box::new(u.clone()), Box::new(v_integral.clone()));
+        if positive {
+            terms.push(term);
+        } else {
+            terms.push(Node::Negate(Box::new(term)));
+        }
+
+        // Differentiate u
+        let du = match crate::derivative::differentiate(&u, var) {
+            Ok(d) => crate::simplify::Simplifiable::simplify(&d, &env).unwrap_or(d),
+            Err(e) => return Some(Err(e)),
+        };
+
+        // If derivative is zero, we're done
+        if matches!(&du, Node::Num(n) if n.is_zero()) {
+            break;
+        }
+
+        // Integrate v_integral one more time
+        v_integral = match integrate(&v_integral, var) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+
+        u = du;
+        positive = !positive;
+    }
+
+    if terms.is_empty() {
+        return Some(Ok(Node::Num(ExactNum::zero())));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Some(Ok(result))
+}
+
+/// Single-step integration by parts for ln(x) × polynomial.
+/// Uses u = ln(x), dv = polynomial. Result: uv - ∫v·du.
+fn try_log_integration(
+    log_candidate: &Node,
+    poly_candidate: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    // Check log_candidate is ln(x) or similar
+    let is_log = match log_candidate {
+        Node::Function(name, args) if args.len() == 1 => {
+            matches!(name.as_str(), "ln" | "log") && contains_var(&args[0], var)
+        }
+        _ => false,
+    };
+    if !is_log {
+        return None;
+    }
+
+    // Check poly_candidate is a polynomial
+    if Polynomial::from_node(poly_candidate, var).is_err() {
+        return None;
+    }
+
+    let env = crate::environment::Environment::new();
+
+    // u = ln_candidate, dv = poly_candidate
+    // du = d/dx(ln_candidate)
+    // v = ∫poly_candidate dx
+    let du = match crate::derivative::differentiate(log_candidate, var) {
+        Ok(d) => crate::simplify::Simplifiable::simplify(&d, &env).unwrap_or(d),
+        Err(e) => return Some(Err(e)),
+    };
+    let v = match integrate(poly_candidate, var) {
+        Ok(i) => crate::simplify::Simplifiable::simplify(&i, &env).unwrap_or(i),
+        Err(e) => return Some(Err(e)),
+    };
+
+    // uv - ∫v·du
+    let uv = Node::Multiply(Box::new(log_candidate.clone()), Box::new(v.clone()));
+
+    // v·du — simplify aggressively, try polynomial path
+    let v_du = Node::Multiply(Box::new(v), Box::new(du));
+    let v_du_str = format!("{}", v_du);
+    let v_du_reparsed = {
+        let mut tok = crate::tokenizer::Tokenizer::new(&v_du_str);
+        let toks = tok.tokenize();
+        crate::parser::build_expression_tree(toks)
+            .ok()
+            .and_then(|e| crate::simplify::Simplifiable::simplify(&e, &env).ok())
+            .unwrap_or_else(|| {
+                crate::simplify::Simplifiable::simplify(&v_du, &env).unwrap_or(v_du)
+            })
+    };
+
+    let remaining = match integrate(&v_du_reparsed, var) {
+        Ok(r) => crate::simplify::Simplifiable::simplify(&r, &env).unwrap_or(r),
+        Err(e) => return Some(Err(e)),
+    };
+
+    Some(Ok(Node::Subtract(Box::new(uv), Box::new(remaining))))
 }
 
 /// Integrates a LaTeX expression with respect to a variable

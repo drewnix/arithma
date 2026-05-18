@@ -177,4 +177,70 @@ mod integration_tests {
             "Definite integral of x³ + x² - 2x + 1 from 0 to 1 should be approximately 0.583"
         );
     }
+
+    #[test]
+    fn test_trig_integration() {
+        let result = integrate_latex("\\sin(x)", "x").unwrap();
+        assert!(result.contains("cos"), "∫sin(x) should contain cos: {}", result);
+    }
+
+    #[test]
+    fn test_exp_integration() {
+        let result = integrate_latex("e^x", "x").unwrap();
+        assert!(result.contains("e"), "∫e^x should contain e: {}", result);
+    }
+
+    #[test]
+    fn test_tabular_x_sin() {
+        // ∫x·sin(x)dx = -x·cos(x) + sin(x)
+        // Verify via definite integral: ∫₀^π x·sin(x)dx = π
+        let result = definite_integral_latex("x \\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
+        let value = result.parse::<f64>().unwrap_or(0.0);
+        assert!(
+            approx_eq(value, std::f64::consts::PI, 0.01),
+            "∫₀^π x·sin(x)dx should be π ≈ 3.14, got {}", value
+        );
+    }
+
+    #[test]
+    fn test_tabular_x2_exp() {
+        // ∫x²·eˣdx = eˣ(x² - 2x + 2)
+        // Verify: at x=0, antiderivative = e⁰(0 - 0 + 2) = 2
+        // at x=1, antiderivative = e¹(1 - 2 + 2) = e
+        let result = definite_integral_latex("x^2 e^x", "x", 0.0, 1.0).unwrap();
+        let value = result.parse::<f64>().unwrap_or(0.0);
+        let expected = std::f64::consts::E * 1.0 - 2.0; // e(1-2+2) - 1(0-0+2) = e - 2
+        assert!(
+            approx_eq(value, expected, 0.01),
+            "∫₀¹ x²·eˣdx should be e-2 ≈ 0.718, got {}", value
+        );
+    }
+
+    #[test]
+    fn test_log_integration() {
+        // ∫x·ln(x)dx = x²/2·ln(x) - x²/4
+        use arithma::integration::integrate;
+        use arithma::simplify::Simplifiable;
+        use arithma::Environment;
+        let x = arithma::Node::Variable("x".to_string());
+        let ln_x = arithma::Node::Function("ln".to_string(), vec![x.clone()]);
+        let expr = arithma::Node::Multiply(Box::new(x), Box::new(ln_x));
+        let env = Environment::new();
+        eprintln!("expr: {:?}", expr);
+        let simplified = expr.simplify(&env).unwrap_or(expr);
+        eprintln!("simplified: {:?}", simplified);
+        let result = integrate(&simplified, "x");
+        eprintln!("result: {:?}", result);
+        assert!(result.is_ok(), "∫x·ln(x)dx should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_definite_sin() {
+        let result = definite_integral_latex("\\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
+        let value = result.parse::<f64>().unwrap_or(0.0);
+        assert!(
+            approx_eq(value, 2.0, 0.01),
+            "∫₀^π sin(x)dx should be 2, got {}", value
+        );
+    }
 }
