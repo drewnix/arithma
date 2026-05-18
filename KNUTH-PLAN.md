@@ -28,11 +28,11 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 17)
+## Current State (Post Session 18)
 
-**608 tests pass. 0 failures. 14 MCP tools. ~16K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**703 tests pass. 0 failures. 14 MCP tools. ~18K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints (positive, nonnegative, negative, nonzero, real, integer) across 9 MCP tools. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) in progress: exponential case operational, logarithmic case pending. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, and **Risch exponential integration with non-elementary detection**. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -59,19 +59,25 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 
 **Completed Session 17.** Variable constraints (positive, nonnegative, negative, nonzero, real, integer) with implication rules. Assumption-aware simplification: `√(x²)` → `x` when x ≥ 0, `|x|` → `x` when x ≥ 0, `(-1)^{2n}` → `1` when n ∈ ℤ. Conservative default preserved. 9 of 12 MCP tools accept optional `assumptions` parameter. 21 new tests.
 
-#### Phase 9: Risch Decision Procedure (Transcendental Case)
+#### Phase 9: Risch Decision Procedure (Transcendental Case) — In Progress
 
-**Goal:** Decide whether an elementary antiderivative exists. The single most important missing feature.
+**Goal:** Decide whether an elementary antiderivative exists. The single most important feature.
 
-**Why this matters:** When an agent asks for ∫e^(-x²)dx and gets silence, it doesn't know if arithma lacks the technique or if no closed form exists. The Risch algorithm answers that question: "this integral has no elementary closed form — use numerical methods or express it via the error function." An agent that knows the boundary of what's computable can reason about that boundary.
+**Sessions 1-2 completed (Session 18).** The exponential case is operational:
 
-The transcendental case of Risch handles the most common integrands (compositions of exp, log, and rational functions). The full algebraic case is significantly harder and lower priority.
+- **Foundation types:** `RationalFunction` (p(x)/q(x) with full arithmetic), `ExtPoly` (polynomial in tower variable θ with Q(x) coefficients), `DifferentialExtension` (log/exp tower with derivative computation). 64 tests.
+- **Hermite reduction:** Splits ∫A/D into rational part + squarefree-denominator integral. Handles single-factor, multi-factor, and polynomial-division cases. Verified by formal differentiation identity.
+- **Risch DE solver:** Solves q' + f·q = g over Q[x] or proves no polynomial solution exists. Degree bound + top-down coefficient matching. 11 tests.
+- **Exponential integration:** For ∫r(x)·exp(g(x))dx, reduces to Risch DE via Liouville's theorem. Returns elementary antiderivative or proof of non-elementarity.
+- **Engine wiring:** Risch inserted as last-resort fallback. Non-elementary results surfaced cleanly via MCP (as success) and CLI (exit code 0).
 
-- Risch-Norman algorithm for the transcendental case
-- Returns: the antiderivative if it exists, or a proof that no elementary form exists
-- Integrates into the integration engine as a fallback after all heuristic methods fail
+**Key results:** ∫e^{-x²}dx → "non-elementary" ✓. ∫e^{x³}dx → "non-elementary" ✓. ∫x²·e^{-x²}dx → "non-elementary" ✓. ∫2x·e^{x²}dx = e^{x²} ✓.
 
-**Estimated effort:** 4-6 sessions. This is the deepest algorithmic work remaining. The mathematics is well-documented (Bronstein's book is the reference) but the implementation has many cases.
+**Remaining (2-3 sessions):**
+- Logarithmic extension integration (Rothstein-Trager resultant method)
+- Tower builder (automatic Node → DifferentialExtension conversion)
+- Risch DE for rational coefficients (extends to exp(rational))
+- Multi-extension towers (exp + log combinations)
 
 **Reference:** Manuel Bronstein, *Symbolic Integration I: Transcendental Functions*.
 
@@ -158,6 +164,17 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 18 (2026-05-18)
+- Phase 9 Session 1: RationalFunction type (p(x)/q(x), full arithmetic, derivative)
+- Phase 9 Session 1: ExtPoly type (polynomial in θ with Q(x) coefficients, GCD, extended GCD, SFD)
+- Phase 9 Session 1: DifferentialExtension (log/exp towers, derivative computation)
+- Phase 9 Session 1: Hermite reduction (split integral into rational + squarefree parts)
+- Phase 9 Session 2: Risch DE solver (q' + fq = g, degree bound, coefficient matching)
+- Phase 9 Session 2: Exponential pattern detector (extract r(x)·exp(g(x)) from Node AST)
+- Phase 9 Session 2: try_risch_exponential (integrate or prove non-elementary)
+- Phase 9 Session 2: Integration engine wiring + MCP/CLI non-elementary reporting
+- 95 new tests (64 foundation + 31 integration)
 
 ### Session 17 (2026-05-18)
 - Phase 8: Assumption system — Assumptions struct with 6 property types, implication rules
