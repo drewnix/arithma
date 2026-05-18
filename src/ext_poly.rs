@@ -99,6 +99,145 @@ impl ExtPoly {
         let coeffs = self.coeffs.iter().map(|c| c * s).collect();
         ExtPoly::from_coeffs(coeffs, &self.var)
     }
+
+    /// Build a monomial: `coeff * θ^degree`.
+    fn monomial(coeff: RationalFunction, degree: usize, var: &str) -> Self {
+        if coeff.is_zero() {
+            return Self::zero(var);
+        }
+        let mut coeffs = vec![RationalFunction::zero(var); degree + 1];
+        coeffs[degree] = coeff;
+        ExtPoly {
+            coeffs,
+            var: var.to_string(),
+        }
+    }
+
+    /// Divide all coefficients by the leading coefficient, making this polynomial monic.
+    pub fn make_monic(&self) -> Self {
+        let lc = match self.leading_coeff() {
+            Some(lc) if !lc.is_zero() => lc.clone(),
+            _ => return self.clone(),
+        };
+        let coeffs = self
+            .coeffs
+            .iter()
+            .map(|c| c.checked_div(&lc).unwrap())
+            .collect();
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+
+    /// Polynomial long division: self = quotient * divisor + remainder.
+    /// Returns (quotient, remainder).
+    pub fn div_rem(&self, divisor: &ExtPoly) -> Result<(ExtPoly, ExtPoly), String> {
+        if divisor.is_zero() {
+            return Err("Division by zero polynomial".to_string());
+        }
+
+        let divisor_deg = divisor.degree().unwrap();
+        let divisor_lc = divisor.leading_coeff().unwrap();
+
+        let mut remainder = self.clone();
+        let self_deg = match self.degree() {
+            Some(d) if d >= divisor_deg => d,
+            _ => return Ok((Self::zero(&self.var), self.clone())),
+        };
+
+        let mut quotient_coeffs: Vec<RationalFunction> =
+            vec![RationalFunction::zero(&self.var); self_deg - divisor_deg + 1];
+
+        while let Some(rem_deg) = remainder.degree() {
+            if rem_deg < divisor_deg {
+                break;
+            }
+            let rem_lc = remainder.leading_coeff().unwrap().clone();
+            let q_coeff = rem_lc.checked_div(divisor_lc)?;
+            let deg_diff = rem_deg - divisor_deg;
+
+            quotient_coeffs[deg_diff] = q_coeff.clone();
+
+            let term = Self::monomial(q_coeff, deg_diff, &self.var);
+            let sub = &term * divisor;
+            remainder = &remainder - &sub;
+        }
+
+        Ok((ExtPoly::from_coeffs(quotient_coeffs, &self.var), remainder))
+    }
+
+    /// GCD of two extended polynomials using the Euclidean algorithm.
+    /// Result is monic.
+    pub fn gcd(&self, other: &ExtPoly) -> Self {
+        if self.is_zero() {
+            return if other.is_zero() {
+                Self::zero(&self.var)
+            } else {
+                other.make_monic()
+            };
+        }
+        if other.is_zero() {
+            return self.make_monic();
+        }
+
+        let mut a = self.clone();
+        let mut b = other.clone();
+
+        if a.degree() < b.degree() {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        while !b.is_zero() {
+            let (_, r) = a.div_rem(&b).unwrap();
+            a = b;
+            b = r;
+        }
+
+        a.make_monic()
+    }
+
+    /// Extended GCD: returns (gcd, s, t) such that s*a + t*b = gcd.
+    /// The gcd is monic; s and t are adjusted accordingly.
+    pub fn extended_gcd(a: &ExtPoly, b: &ExtPoly) -> (ExtPoly, ExtPoly, ExtPoly) {
+        let var = a.variable().to_string();
+        if b.is_zero() {
+            if a.is_zero() {
+                return (Self::zero(&var), Self::one(&var), Self::zero(&var));
+            }
+            let lc = a.leading_coeff().unwrap().clone();
+            let lc_inv = RationalFunction::one(&var).checked_div(&lc).unwrap();
+            return (
+                a.scalar_mul(&lc_inv),
+                ExtPoly::from_rf(lc_inv),
+                Self::zero(&var),
+            );
+        }
+
+        let mut old_r = a.clone();
+        let mut r = b.clone();
+        let mut old_s = Self::one(&var);
+        let mut s = Self::zero(&var);
+        let mut old_t = Self::zero(&var);
+        let mut t = Self::one(&var);
+
+        while !r.is_zero() {
+            let (q, rem) = old_r.div_rem(&r).unwrap();
+            old_r = r;
+            r = rem;
+            let new_s = &old_s - &(&q * &s);
+            old_s = s;
+            s = new_s;
+            let new_t = &old_t - &(&q * &t);
+            old_t = t;
+            t = new_t;
+        }
+
+        let lc = old_r.leading_coeff().unwrap().clone();
+        let lc_inv = RationalFunction::one(&var).checked_div(&lc).unwrap();
+        (
+            old_r.scalar_mul(&lc_inv),
+            old_s.scalar_mul(&lc_inv),
+            old_t.scalar_mul(&lc_inv),
+        )
+    }
 }
 
 // --- Operator implementations ---
@@ -435,5 +574,82 @@ mod tests {
         let scaled = p.scalar_mul(&inv_x);
         assert_eq!(scaled.coeff(0), inv_x);
         assert_eq!(scaled.coeff(1), inv_x);
+    }
+
+    #[test]
+    fn test_ext_poly_div_rem_exact() {
+        // (θ^2 + 2θ + 1) / (θ + 1) = (θ + 1), remainder 0
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let (q, r) = a.div_rem(&b).unwrap();
+        assert_eq!(q, ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"));
+        assert!(r.is_zero());
+    }
+
+    #[test]
+    fn test_ext_poly_div_rem_with_remainder() {
+        // (θ^2 + 1) / (θ + 1) = (θ - 1), remainder 2
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(0), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let (q, r) = a.div_rem(&b).unwrap();
+        assert_eq!(
+            q,
+            ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(1)], "x")
+        );
+        assert_eq!(r, ExtPoly::from_rf(rf_const(2)));
+    }
+
+    #[test]
+    fn test_ext_poly_div_rem_rf_coeffs() {
+        // (xθ^2 + x) / (θ + 1) — should work with RF coefficients
+        let x_rf = rf_poly(&[0, 1]);
+        let a = ExtPoly::from_coeffs(
+            vec![x_rf.clone(), RationalFunction::zero("x"), x_rf.clone()],
+            "x",
+        );
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let (q, r) = a.div_rem(&b).unwrap();
+        // Verify: q * b + r = a
+        let check = &(&q * &b) + &r;
+        assert_eq!(check, a);
+    }
+
+    #[test]
+    fn test_ext_poly_gcd() {
+        // gcd(θ^2 - 1, θ^2 + 2θ + 1) should have degree 1 (θ+1)
+        let a = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2), rf_const(1)], "x");
+        let g = a.gcd(&b);
+        assert_eq!(g.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_ext_poly_gcd_coprime() {
+        // gcd(θ + 1, θ + 2) = 1 (constant)
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(2), rf_const(1)], "x");
+        let g = a.gcd(&b);
+        assert_eq!(g.degree(), Some(0));
+    }
+
+    #[test]
+    fn test_ext_poly_extended_gcd() {
+        // s*(θ+1) + t*(θ-1) = 1 (they're coprime)
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(1)], "x");
+        let (g, s, t) = ExtPoly::extended_gcd(&a, &b);
+        assert_eq!(g.degree(), Some(0)); // constant
+                                         // Verify: s*a + t*b = g
+        let check = &(&s * &a) + &(&t * &b);
+        assert_eq!(check, g);
+    }
+
+    #[test]
+    fn test_ext_poly_make_monic() {
+        // 2θ + 4 -> θ + 2
+        let p = ExtPoly::from_coeffs(vec![rf_const(4), rf_const(2)], "x");
+        let m = p.make_monic();
+        assert_eq!(m.coeff(0), rf_const(2));
+        assert_eq!(m.coeff(1), rf_const(1));
     }
 }
