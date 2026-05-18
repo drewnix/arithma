@@ -11,7 +11,16 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 
 ## Current State (Post Session 15)
 
-**Phases 1-3.2 complete. Phase 4 idempotency contract verified. Phase 5.1 (IBP), 5.2 (u-substitution), 5.3 (inverse trig), 5.5 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities — idempotency tested across 62 cases. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration: polynomials, transcendentals, IBP (tabular + logarithmic), u-substitution, inverse trig antiderivatives. MCP server with 10 tools including matrix operations.** 487 tests pass, 0 ignored.
+**Phases 1-3.3 complete. Phase 4 idempotency contract verified. Phase 5.1 (IBP), 5.2 (u-substitution), 5.3 (inverse trig), 5.5 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities — idempotency tested across 62 cases. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration: polynomials, transcendentals, IBP (tabular + logarithmic), u-substitution, inverse trig antiderivatives, trig powers (sin^n, cos^n, mixed products). Polynomial factoring over Q (Berlekamp-Zassenhaus). MCP server with 11 tools including matrix operations and equivalence checking.** 545 tests pass, 0 ignored.
+
+### Session 16 Changes
+- **Both-even trig product integration**: ∫sin^(2p)(x)·cos^(2q)(x)dx via Pythagorean expansion + binomial theorem. Converts smaller power via sin²=1-cos², expands, integrates each pure power term using existing reduction formula.
+- **Berlekamp-Zassenhaus polynomial factoring over Q (Phase 3.3)**: Complete four-layer pipeline:
+  - Layer 1: `ModPoly` — dense polynomial arithmetic over Z_p (add, sub, mul, div_rem, GCD, powmod, extended GCD, derivative, square-free part, conversion to/from Polynomial)
+  - Layer 2: Berlekamp's Q-matrix algorithm — builds matrix of x^(ip) mod f, null-space via Gaussian elimination, factor splitting via gcd(f, v-c) for all c in Z_p
+  - Layer 3: Hensel lifting — linear lifting from mod p to mod p^k, Bezout coefficients, multi-factor sequential lifting, Mignotte bound for target k
+  - Layer 4: Factor recombination — center-lift coefficients, subset enumeration with degree pruning, exact division verification, content tracking for non-monic inputs
+  - Public API: `factor_over_q(f) -> (content, monic_factors)`
 
 ### Session 15 Changes
 - **Simplification idempotency contract (Phase 4)**: Three bugs fixed — ln rules now re-simplify results for cascading expansion, `rebuild_expression` puts variables before constants, negative coefficients produce Subtract nodes. 62 idempotency tests added.
@@ -47,7 +56,7 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - **Derivative expansion**: sec, csc, cot, sinh, cosh, tanh, arcsin, arccos, arctan with chain rule.
 
 ### Remaining Ignored Tests
-None. All 487 tests pass.
+None. All 545 tests pass.
 
 ## Phase 1: Exact Arithmetic Foundation
 
@@ -117,11 +126,16 @@ None. All 487 tests pass.
 - **31 tests** covering arithmetic, derivatives, substitution, three-variable expansion, conversion
 - **Remaining:** GCD (sparse modular or subresultant), multivariate division, simplifier integration
 
-### 3.3 — Polynomial factoring
+### 3.3 — Polynomial factoring ✅ (Session 16)
 - Square-free factorization ✅ (Session 10)
-- Factoring over Q via Hensel lifting (Berlekamp-Zassenhaus) — algorithmically deep, future work
+- **Berlekamp-Zassenhaus factoring over Q** ✅ (Session 16):
+  - `ModPoly`: dense polynomial arithmetic over Z_p (i64 coefficients, mod_inverse, powmod)
+  - Berlekamp's Q-matrix algorithm: builds Q matrix via powmod(x, ip, f), null-space via Gaussian elimination over Z_p, factor splitting via gcd(f, v(x)-c)
+  - Hensel lifting: linear lifting from mod p to mod p^k, extended GCD for Bezout coefficients, multi-factor sequential pair lifting
+  - Factor recombination: Mignotte bound, center-lift, subset enumeration with degree pruning, exact division verification
+  - `factor_over_q(f) -> (content, monic_factors)`: the complete pipeline
 
-**Estimated effort:** 3.1 complete. 3.2 core complete (Session 13); GCD and simplifier integration remain. 3.3 is a separate project.
+**Estimated effort:** 3.1 complete. 3.2 core complete (Session 13); GCD and simplifier integration remain. 3.3 complete.
 
 ## Phase 4: Simplification Engine
 
