@@ -296,6 +296,13 @@ impl Simplifiable for Node {
                 if let Node::Negate(inner) = simplified {
                     return Ok(*inner);
                 }
+                // -(a + b) → (-a) - b, -(a - b) → b - a
+                if let Node::Add(a, b) = simplified {
+                    return Node::Subtract(Box::new(Node::Negate(a)), b).simplify(env);
+                }
+                if let Node::Subtract(a, b) = simplified {
+                    return Node::Subtract(b, a).simplify(env);
+                }
                 Ok(Node::Negate(Box::new(simplified)))
             }
             Node::Divide(left, right) => {

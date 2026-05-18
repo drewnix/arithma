@@ -135,6 +135,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // ∫sin^n(x) dx, ∫cos^n(x) dx via half-angle / reduction
+            if let Some(result) = try_trig_power_integral(base, exponent, var_name) {
+                return result;
+            }
+
             // Try u-substitution on power expressions
             if let Some(result) = try_u_substitution(expr, var_name) {
                 return result;
@@ -174,6 +179,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 return result;
             }
             if let Some(result) = try_log_integration(right, left, var_name) {
+                return result;
+            }
+
+            // ∫sin^m(x)·cos^n(x) dx — mixed trig power products
+            if let Some(result) = try_trig_product_integral(expr, var_name) {
                 return result;
             }
 
@@ -565,6 +575,315 @@ fn try_log_integration(
     };
 
     Some(Ok(Node::Subtract(Box::new(uv), Box::new(remaining))))
+}
+
+/// Extract (function_name, argument, exponent) from a trig power like sin^n(x).
+/// Returns None if the node isn't a trig power.
+fn extract_trig_power(node: &Node) -> Option<(&str, &Node, u32)> {
+    if let Node::Power(base, exp) = node {
+        if let Node::Function(name, args) = base.as_ref() {
+            if args.len() == 1 && matches!(name.as_str(), "sin" | "cos") {
+                if let Node::Num(n) = exp.as_ref() {
+                    if let Some(e) = n.to_i64() {
+                        if e >= 1 {
+                            return Some((name.as_str(), &args[0], e as u32));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // sin(x) alone is sin^1(x)
+    if let Node::Function(name, args) = node {
+        if args.len() == 1 && matches!(name.as_str(), "sin" | "cos") {
+            return Some((name.as_str(), &args[0], 1));
+        }
+    }
+    None
+}
+
+/// Build sin^n(x) or cos^n(x) as a Node.
+fn trig_power_node(func: &str, arg: &Node, n: u32) -> Node {
+    let f = Node::Function(func.to_string(), vec![arg.clone()]);
+    if n == 1 {
+        f
+    } else {
+        Node::Power(
+            Box::new(f),
+            Box::new(Node::Num(ExactNum::integer(n as i64))),
+        )
+    }
+}
+
+/// Integrate sin^n(x) or cos^n(x).
+///
+/// Even n: use half-angle identity repeatedly.
+///   sin²(x) = (1 - cos(2x))/2
+///   cos²(x) = (1 + cos(2x))/2
+///
+/// Odd n: peel off one factor, convert rest via Pythagorean identity.
+///   ∫sin³(x)dx = ∫(1-cos²(x))·sin(x)dx → u = cos(x)
+///   ∫cos³(x)dx = ∫(1-sin²(x))·cos(x)dx → u = sin(x)
+fn try_trig_power_integral(
+    base: &Node,
+    exponent: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    let power_node = Node::Power(Box::new(base.clone()), Box::new(exponent.clone()));
+    let (func, arg, n) = extract_trig_power(&power_node)?;
+
+    // Only handle direct variable argument
+    if !matches!(arg, Node::Variable(v) if v == var) {
+        return None;
+    }
+
+    Some(integrate_trig_power(func, var, n))
+}
+
+fn integrate_trig_power(func: &str, var: &str, n: u32) -> Result<Node, String> {
+    let env = crate::environment::Environment::new();
+    let x = || Node::Variable(var.to_string());
+
+    if n == 0 {
+        return Ok(Node::Variable(var.to_string()));
+    }
+    if n == 1 {
+        return integrate_standard_function(func, var);
+    }
+
+    if n.is_multiple_of(2) {
+        // Even power: half-angle reduction
+        // sin²(x) = (1 - cos(2x))/2, cos²(x) = (1 + cos(2x))/2
+        // Apply to one pair, leaving sin^(n-2) or cos^(n-2) to recurse on.
+        // For sin^2k: expand as ((1-cos(2x))/2)^k and integrate.
+        // Simpler: use the reduction formula:
+        //   ∫sin^n(x)dx = -sin^(n-1)(x)·cos(x)/n + (n-1)/n · ∫sin^(n-2)(x)dx
+        //   ∫cos^n(x)dx = cos^(n-1)(x)·sin(x)/n + (n-1)/n · ∫cos^(n-2)(x)dx
+        let n_i = n as i64;
+        let (other_func, sign) = if func == "sin" {
+            ("cos", ExactNum::integer(-1))
+        } else {
+            ("sin", ExactNum::one())
+        };
+
+        // First term: ±trig^(n-1)(x) · other_trig(x) / n
+        let first_term = Node::Divide(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(sign)),
+                Box::new(Node::Multiply(
+                    Box::new(trig_power_node(func, &x(), n - 1)),
+                    Box::new(Node::Function(other_func.to_string(), vec![x()])),
+                )),
+            )),
+            Box::new(Node::Num(ExactNum::integer(n_i))),
+        );
+
+        // Second term: (n-1)/n · ∫trig^(n-2)(x) dx
+        let sub_integral = integrate_trig_power(func, var, n - 2)?;
+        let second_term = Node::Multiply(
+            Box::new(Node::Divide(
+                Box::new(Node::Num(ExactNum::integer(n_i - 1))),
+                Box::new(Node::Num(ExactNum::integer(n_i))),
+            )),
+            Box::new(sub_integral),
+        );
+
+        let result = Node::Add(Box::new(first_term), Box::new(second_term));
+        Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
+    } else {
+        // Odd power: peel off one factor, convert rest via Pythagorean identity
+        // ∫sin^(2k+1)(x)dx = ∫(1-cos²(x))^k · sin(x) dx → u = cos(x)
+        // ∫cos^(2k+1)(x)dx = ∫(1-sin²(x))^k · cos(x) dx → u = sin(x)
+        let k = (n - 1) / 2;
+        let (u_func, du_sign) = if func == "sin" {
+            ("cos", -1i64) // du = -sin(x)dx → sin(x)dx = -du
+        } else {
+            ("sin", 1i64) // du = cos(x)dx
+        };
+
+        // Expand (1 - u²)^k as a polynomial in u, then integrate each term
+        let u_var = "_u_";
+        let one_minus_u2 = Node::Subtract(
+            Box::new(Node::Num(ExactNum::one())),
+            Box::new(Node::Power(
+                Box::new(Node::Variable(u_var.to_string())),
+                Box::new(Node::Num(ExactNum::two())),
+            )),
+        );
+
+        // Build (1 - u²)^k
+        let mut integrand = if k == 0 {
+            Node::Num(ExactNum::one())
+        } else if k == 1 {
+            one_minus_u2.clone()
+        } else {
+            Node::Power(
+                Box::new(one_minus_u2),
+                Box::new(Node::Num(ExactNum::integer(k as i64))),
+            )
+        };
+
+        // Simplify (expands the polynomial)
+        integrand = crate::simplify::Simplifiable::simplify(&integrand, &env).unwrap_or(integrand);
+
+        // Integrate with respect to u
+        let integral_in_u = integrate(&integrand, u_var)?;
+
+        // Back-substitute u = cos(x) or u = sin(x)
+        let back_sub = Node::Function(u_func.to_string(), vec![Node::Variable(var.to_string())]);
+        let result = crate::substitute::substitute_variable(&integral_in_u, u_var, &back_sub)?;
+
+        // Multiply by the du sign factor (-1 for sin case)
+        let result = if du_sign == -1 {
+            Node::Negate(Box::new(result))
+        } else {
+            result
+        };
+
+        Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
+    }
+}
+
+/// Integrate products sin^m(x) · cos^n(x).
+fn try_trig_product_integral(expr: &Node, var: &str) -> Option<Result<Node, String>> {
+    let env = crate::environment::Environment::new();
+
+    // Flatten factors and identify trig powers
+    let mut factors = Vec::new();
+    collect_factors(expr, &mut factors);
+
+    let mut sin_power: u32 = 0;
+    let mut cos_power: u32 = 0;
+    let mut trig_arg: Option<Node> = None;
+    let mut other_factors: Vec<Node> = Vec::new();
+
+    for f in &factors {
+        if let Some((func, arg, n)) = extract_trig_power(f) {
+            if !matches!(arg, Node::Variable(v) if v == var) {
+                return None;
+            }
+            match trig_arg {
+                None => trig_arg = Some(arg.clone()),
+                Some(ref existing) if existing == arg => {}
+                _ => return None, // different arguments
+            }
+            match func {
+                "sin" => sin_power += n,
+                "cos" => cos_power += n,
+                _ => return None,
+            }
+        } else {
+            other_factors.push(f.clone());
+        }
+    }
+
+    if sin_power == 0 && cos_power == 0 {
+        return None;
+    }
+
+    // Need at least two trig factors to be a "product" (single powers handled elsewhere)
+    if sin_power == 0 || cos_power == 0 {
+        return None;
+    }
+
+    // Strategy: if one exponent is odd, peel from that side
+    let result = if cos_power % 2 == 1 {
+        // cos is odd: peel one cos, convert rest to sin
+        // ∫sin^m · cos^(2k+1) dx = ∫sin^m · (1-sin²)^k · cos dx → u = sin(x)
+        let k = (cos_power - 1) / 2;
+        integrate_mixed_odd("sin", sin_power, k, var)
+    } else if sin_power % 2 == 1 {
+        // sin is odd: peel one sin, convert rest to cos
+        // ∫sin^(2k+1) · cos^n dx = ∫(1-cos²)^k · cos^n · sin dx → u = cos(x)
+        let k = (sin_power - 1) / 2;
+        integrate_mixed_odd("cos", cos_power, k, var)
+    } else {
+        // Both even: fall through — u-substitution or future reduction will handle it
+        return None;
+    };
+
+    match result {
+        Ok(trig_result) => {
+            if other_factors.is_empty() {
+                Some(Ok(crate::simplify::Simplifiable::simplify(
+                    &trig_result,
+                    &env,
+                )
+                .unwrap_or(trig_result)))
+            } else {
+                // Multiply back the non-trig constant factors
+                let mut product = other_factors.remove(0);
+                for f in other_factors {
+                    product = Node::Multiply(Box::new(product), Box::new(f));
+                }
+                let full = Node::Multiply(Box::new(product), Box::new(trig_result));
+                Some(Ok(
+                    crate::simplify::Simplifiable::simplify(&full, &env).unwrap_or(full)
+                ))
+            }
+        }
+        Err(e) => Some(Err(e)),
+    }
+}
+
+/// Integrate sin^m(x)·cos^(2k+1)(x)dx or cos^n(x)·sin^(2k+1)(x)dx
+/// by peeling one trig factor and converting the rest via Pythagorean identity.
+///
+/// `u_func` is the function that becomes u (e.g., "sin" when cos is odd).
+/// `u_power` is the existing power of u_func.
+/// `k` is the number of squared pairs to convert: (1-u²)^k.
+fn integrate_mixed_odd(u_func: &str, u_power: u32, k: u32, var: &str) -> Result<Node, String> {
+    let env = crate::environment::Environment::new();
+    let u_var = "_u_";
+
+    let du_sign = if u_func == "sin" { 1i64 } else { -1i64 };
+
+    // Build u^m · (1 - u²)^k in terms of u
+    let u_to_m = if u_power == 0 {
+        Node::Num(ExactNum::one())
+    } else if u_power == 1 {
+        Node::Variable(u_var.to_string())
+    } else {
+        Node::Power(
+            Box::new(Node::Variable(u_var.to_string())),
+            Box::new(Node::Num(ExactNum::integer(u_power as i64))),
+        )
+    };
+
+    let one_minus_u2 = Node::Subtract(
+        Box::new(Node::Num(ExactNum::one())),
+        Box::new(Node::Power(
+            Box::new(Node::Variable(u_var.to_string())),
+            Box::new(Node::Num(ExactNum::two())),
+        )),
+    );
+
+    let pythagorean_part = if k == 0 {
+        Node::Num(ExactNum::one())
+    } else if k == 1 {
+        one_minus_u2
+    } else {
+        Node::Power(
+            Box::new(one_minus_u2),
+            Box::new(Node::Num(ExactNum::integer(k as i64))),
+        )
+    };
+
+    let mut integrand = Node::Multiply(Box::new(u_to_m), Box::new(pythagorean_part));
+    integrand = crate::simplify::Simplifiable::simplify(&integrand, &env).unwrap_or(integrand);
+
+    let integral_in_u = integrate(&integrand, u_var)?;
+
+    let back_sub = Node::Function(u_func.to_string(), vec![Node::Variable(var.to_string())]);
+    let result = crate::substitute::substitute_variable(&integral_in_u, u_var, &back_sub)?;
+
+    let result = if du_sign == -1 {
+        Node::Negate(Box::new(result))
+    } else {
+        result
+    };
+
+    Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
 }
 
 /// Recognize inverse trig patterns in the denominator of 1/(...).
