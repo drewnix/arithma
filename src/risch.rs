@@ -702,6 +702,305 @@ pub fn try_risch_exponential(expr: &Node, var: &str) -> Option<RischResult> {
     }
 }
 
+/// Try to decompose a Node into a polynomial in ln(f(x)) with polynomial-in-x coefficients.
+/// Returns (coefficients, f) where coefficients[i] is the coefficient of ln(f)^i,
+/// and f is the argument to ln.
+///
+/// Only handles depth-1 patterns: ln(x) (f = x).
+/// Returns None for expressions that don't contain ln or have non-polynomial structure.
+pub fn extract_log_pattern(expr: &Node, var: &str) -> Option<(Vec<Polynomial>, Polynomial)> {
+    // Try unsimplified first, then simplified (same strategy as extract_exp_pattern)
+    if let Some(result) = extract_log_pattern_inner(expr, var) {
+        return Some(result);
+    }
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    extract_log_pattern_inner(&simplified, var)
+}
+
+/// Inner helper for extract_log_pattern.
+fn extract_log_pattern_inner(expr: &Node, var: &str) -> Option<(Vec<Polynomial>, Polynomial)> {
+    match expr {
+        // ln(arg) → if arg is the variable, coeffs = [0, 1], f = x
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            let arg_poly = Polynomial::from_node(&args[0], var).ok()?;
+            // Only handle f = x (the variable itself)
+            if arg_poly != Polynomial::x(var) {
+                return None;
+            }
+            let coeffs = vec![Polynomial::zero(var), Polynomial::one(var)];
+            Some((coeffs, arg_poly))
+        }
+
+        // ln(x)^n → coeffs = [0, ..., 0, 1] with n+1 entries
+        Node::Power(base, exp) => {
+            if let Node::Function(name, args) = base.as_ref() {
+                if name == "ln" && args.len() == 1 {
+                    let arg_poly = Polynomial::from_node(&args[0], var).ok()?;
+                    if arg_poly != Polynomial::x(var) {
+                        return None;
+                    }
+                    if let Node::Num(n) = exp.as_ref() {
+                        let e = n.to_i64()?;
+                        if e <= 0 {
+                            return None;
+                        }
+                        let e = e as usize;
+                        let mut coeffs = vec![Polynomial::zero(var); e + 1];
+                        coeffs[e] = Polynomial::one(var);
+                        return Some((coeffs, arg_poly));
+                    }
+                }
+            }
+            None
+        }
+
+        // Multiply: one side is a log pattern, the other is a polynomial
+        Node::Multiply(left, right) => {
+            // Try log pattern on the right, polynomial on the left
+            if let Some((rhs_coeffs, f)) = extract_log_pattern_inner(right, var) {
+                if let Ok(poly) = Polynomial::from_node(left, var) {
+                    let scaled: Vec<Polynomial> = rhs_coeffs.iter().map(|c| &poly * c).collect();
+                    return Some((scaled, f));
+                }
+            }
+            // Try log pattern on the left, polynomial on the right
+            if let Some((lhs_coeffs, f)) = extract_log_pattern_inner(left, var) {
+                if let Ok(poly) = Polynomial::from_node(right, var) {
+                    let scaled: Vec<Polynomial> = lhs_coeffs.iter().map(|c| &poly * c).collect();
+                    return Some((scaled, f));
+                }
+            }
+            None
+        }
+
+        // Add: combine log patterns with the same f, or add a polynomial to coeffs[0]
+        Node::Add(left, right) => {
+            let lhs = extract_log_pattern_inner(left, var);
+            let rhs = extract_log_pattern_inner(right, var);
+
+            match (lhs, rhs) {
+                (Some((lc, lf)), Some((rc, rf))) => {
+                    if lf != rf {
+                        return None;
+                    }
+                    Some((add_coeff_vecs(&lc, &rc, var), lf))
+                }
+                (Some((lc, f)), None) => {
+                    // Right side is a plain polynomial — add to coeffs[0]
+                    if let Ok(poly) = Polynomial::from_node(right, var) {
+                        let mut coeffs = lc;
+                        if coeffs.is_empty() {
+                            coeffs.push(Polynomial::zero(var));
+                        }
+                        coeffs[0] = &coeffs[0] + &poly;
+                        Some((coeffs, f))
+                    } else {
+                        None
+                    }
+                }
+                (None, Some((rc, f))) => {
+                    // Left side is a plain polynomial — add to coeffs[0]
+                    if let Ok(poly) = Polynomial::from_node(left, var) {
+                        let mut coeffs = rc;
+                        if coeffs.is_empty() {
+                            coeffs.push(Polynomial::zero(var));
+                        }
+                        coeffs[0] = &coeffs[0] + &poly;
+                        Some((coeffs, f))
+                    } else {
+                        None
+                    }
+                }
+                (None, None) => None,
+            }
+        }
+
+        // Subtract: left - right
+        Node::Subtract(left, right) => {
+            let lhs = extract_log_pattern_inner(left, var);
+            let rhs = extract_log_pattern_inner(right, var);
+
+            match (lhs, rhs) {
+                (Some((lc, lf)), Some((rc, rf))) => {
+                    if lf != rf {
+                        return None;
+                    }
+                    Some((sub_coeff_vecs(&lc, &rc, var), lf))
+                }
+                (Some((lc, f)), None) => {
+                    // Right side is a plain polynomial — subtract from coeffs[0]
+                    if let Ok(poly) = Polynomial::from_node(right, var) {
+                        let mut coeffs = lc;
+                        if coeffs.is_empty() {
+                            coeffs.push(Polynomial::zero(var));
+                        }
+                        coeffs[0] = &coeffs[0] - &poly;
+                        Some((coeffs, f))
+                    } else {
+                        None
+                    }
+                }
+                (None, Some((rc, f))) => {
+                    // Left side is a plain polynomial, subtract rc from it
+                    if let Ok(poly) = Polynomial::from_node(left, var) {
+                        let negated: Vec<Polynomial> = rc.iter().map(|c| -c).collect();
+                        let mut coeffs = negated;
+                        if coeffs.is_empty() {
+                            coeffs.push(Polynomial::zero(var));
+                        }
+                        coeffs[0] = &coeffs[0] + &poly;
+                        Some((coeffs, f))
+                    } else {
+                        None
+                    }
+                }
+                (None, None) => None,
+            }
+        }
+
+        // Negate: negate all coefficients
+        Node::Negate(inner) => {
+            let (coeffs, f) = extract_log_pattern_inner(inner, var)?;
+            let negated: Vec<Polynomial> = coeffs.iter().map(|c| -c).collect();
+            Some((negated, f))
+        }
+
+        // Plain polynomial or anything else — not a log pattern
+        _ => None,
+    }
+}
+
+/// Add two coefficient vectors element-wise, extending the shorter one with zeros.
+fn add_coeff_vecs(a: &[Polynomial], b: &[Polynomial], var: &str) -> Vec<Polynomial> {
+    let len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let ai = a.get(i).cloned().unwrap_or_else(|| Polynomial::zero(var));
+        let bi = b.get(i).cloned().unwrap_or_else(|| Polynomial::zero(var));
+        result.push(&ai + &bi);
+    }
+    result
+}
+
+/// Subtract two coefficient vectors element-wise, extending the shorter one with zeros.
+fn sub_coeff_vecs(a: &[Polynomial], b: &[Polynomial], var: &str) -> Vec<Polynomial> {
+    let len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let ai = a.get(i).cloned().unwrap_or_else(|| Polynomial::zero(var));
+        let bi = b.get(i).cloned().unwrap_or_else(|| Polynomial::zero(var));
+        result.push(&ai - &bi);
+    }
+    result
+}
+
+/// Try to integrate an expression using the Risch algorithm for logarithmic extensions.
+///
+/// Handles integrands that are polynomial in ln(x) with polynomial coefficients:
+///   ∫ (a₀(x) + a₁(x)·ln(x) + ... + aₙ(x)·ln(x)ⁿ) dx
+///
+/// The antiderivative (if elementary) has the form:
+///   q₀(x) + q₁(x)·ln(x) + ... + qₘ(x)·ln(x)ᵐ
+/// where m ≤ n.
+///
+/// Differentiating Q = Σ qₖ θᵏ where θ = ln(x):
+///   d/dx[Q] = Σ [qₖ' θᵏ + k·qₖ·(1/x)·θᵏ⁻¹]
+///
+/// Coefficient of θᵏ: qₖ' + (k+1)·q_{k+1}·(1/x) = aₖ
+///
+/// Solving top-down from k = n:
+///   q_n' = a_n  →  q_n = ∫a_n dx
+///   For k < n: q_k' = a_k - (k+1)·q_{k+1}/x
+///     If q_{k+1} has nonzero constant term, q_{k+1}/x has a 1/x term
+///     which integrates to ln(x), not a polynomial → non-elementary.
+///
+/// Returns Some(Elementary/NonElementary) or None if not a log pattern.
+pub fn try_risch_logarithmic(expr: &Node, var: &str) -> Option<RischResult> {
+    // 1. Extract the log pattern
+    let (coeffs, _f) = extract_log_pattern(expr, var)?;
+
+    let n = coeffs.len() - 1; // degree in θ = ln(x)
+
+    // 2. Solve top-down for q_k
+    let mut q = vec![Polynomial::zero(var); n + 1];
+
+    // Degree n: q_n' = a_n, so q_n = ∫a_n dx
+    q[n] = coeffs[n].integral();
+
+    // Degrees n-1 down to 0
+    for k in (0..n).rev() {
+        // Need q_{k+1}/x. Check if q_{k+1} has zero constant term.
+        let q_kp1 = &q[k + 1];
+
+        if !q_kp1.coeff(0).is_zero() {
+            // q_{k+1}/x has a 1/x term → integral would produce ln(x),
+            // so no polynomial solution for q_k exists.
+            let reason = format!(
+                "No elementary antiderivative of the required polynomial-in-ln(x) form exists. \
+                 At degree {} in ln(x), the coefficient q_{} = {} has nonzero constant term, \
+                 so q_{}/x is not a polynomial and no polynomial q_{} exists.",
+                k + 1,
+                k + 1,
+                q_kp1,
+                k + 1,
+                k
+            );
+            return Some(RischResult::NonElementary(reason));
+        }
+
+        // q_{k+1}/x: divide by x (shift coefficients down by 1, since constant term is 0)
+        let x_poly = Polynomial::x(var);
+        let (q_kp1_div_x, rem) = q_kp1.div_rem(&x_poly).unwrap();
+        debug_assert!(rem.is_zero());
+
+        // rhs = a_k - (k+1) * q_{k+1}/x
+        let scalar = BigRational::from_integer(BigInt::from(k as i64 + 1));
+        let correction = q_kp1_div_x.scalar_mul(&scalar);
+        let rhs = &coeffs[k] - &correction;
+
+        // q_k = ∫rhs dx
+        q[k] = rhs.integral();
+    }
+
+    // 3. Build the result node: Σ q_k(x) · ln(x)^k
+    let ln_x = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
+
+    let mut terms: Vec<Node> = Vec::new();
+    for (k, q_k) in q.iter().enumerate() {
+        if q_k.is_zero() {
+            continue;
+        }
+        let q_node = q_k.to_node();
+        let term = if k == 0 {
+            q_node
+        } else if k == 1 {
+            Node::Multiply(Box::new(q_node), Box::new(ln_x.clone()))
+        } else {
+            Node::Multiply(
+                Box::new(q_node),
+                Box::new(Node::Power(
+                    Box::new(ln_x.clone()),
+                    Box::new(Node::Num(ExactNum::integer(k as i64))),
+                )),
+            )
+        };
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1414,5 +1713,148 @@ mod tests {
             "∫2x·e^(x²)dx should be elementary, got {:?}",
             result
         );
+    }
+
+    // ======== extract_log_pattern tests ========
+
+    #[test]
+    fn test_extract_log_simple() {
+        // ln(x) → coeffs = [0, 1], f = x
+        let expr = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let (coeffs, f) = extract_log_pattern(&expr, "x").unwrap();
+        assert_eq!(coeffs.len(), 2);
+        assert!(coeffs[0].is_zero());
+        assert_eq!(coeffs[1], Polynomial::one("x"));
+        assert_eq!(f, Polynomial::x("x"));
+    }
+
+    #[test]
+    fn test_extract_log_x_times_ln() {
+        // x * ln(x) → coeffs = [0, x], f = x
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let (coeffs, f) = extract_log_pattern(&expr, "x").unwrap();
+        assert_eq!(coeffs[1], Polynomial::x("x"));
+        assert_eq!(f, Polynomial::x("x"));
+    }
+
+    #[test]
+    fn test_extract_log_ln_squared() {
+        // ln(x)^2 → coeffs = [0, 0, 1], f = x
+        let expr = Node::Power(
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let (coeffs, _f) = extract_log_pattern(&expr, "x").unwrap();
+        assert_eq!(coeffs.len(), 3);
+        assert!(coeffs[0].is_zero());
+        assert!(coeffs[1].is_zero());
+        assert_eq!(coeffs[2], Polynomial::one("x"));
+    }
+
+    #[test]
+    fn test_extract_log_no_match() {
+        // x^2 — no log, should return None
+        let expr = Node::Power(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        assert!(extract_log_pattern(&expr, "x").is_none());
+    }
+
+    // ======== try_risch_logarithmic tests ========
+
+    #[test]
+    fn test_risch_log_ln_x() {
+        // ∫ln(x) dx = x·ln(x) - x (elementary)
+        let expr = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = try_risch_logarithmic(&expr, "x");
+        match result {
+            Some(RischResult::Elementary(node)) => {
+                // Verify numerically: at x = e, should be e·1 - e = 0
+                let mut env = crate::environment::Environment::new();
+                env.set("x", std::f64::consts::E);
+                let val = crate::evaluator::Evaluator::evaluate(&node, &env).unwrap();
+                assert!(
+                    (val - 0.0).abs() < 1e-10,
+                    "At x=e, ∫ln(x)dx = 0, got {}",
+                    val
+                );
+            }
+            other => panic!("Expected Elementary for ∫ln(x)dx, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_risch_log_x_ln_x() {
+        // ∫x·ln(x) dx = (x²/2)·ln(x) - x²/4 (elementary)
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let result = try_risch_logarithmic(&expr, "x");
+        match result {
+            Some(RischResult::Elementary(node)) => {
+                // Verify numerically: at x=e, should be e²/2 - e²/4 = e²/4 ≈ 1.8473
+                let mut env = crate::environment::Environment::new();
+                env.set("x", std::f64::consts::E);
+                let val = crate::evaluator::Evaluator::evaluate(&node, &env).unwrap();
+                let expected = std::f64::consts::E.powi(2) / 4.0;
+                assert!(
+                    (val - expected).abs() < 1e-8,
+                    "At x=e, expected {}, got {}",
+                    expected,
+                    val
+                );
+            }
+            other => panic!("Expected Elementary for ∫x·ln(x)dx, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_risch_log_ln_squared() {
+        // ∫ln(x)² dx = x·ln(x)² - 2x·ln(x) + 2x (elementary)
+        let expr = Node::Power(
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let result = try_risch_logarithmic(&expr, "x");
+        match result {
+            Some(RischResult::Elementary(node)) => {
+                // Verify numerically: at x=e, should be e·1 - 2e + 2e = e ≈ 2.718
+                let mut env = crate::environment::Environment::new();
+                env.set("x", std::f64::consts::E);
+                let val = crate::evaluator::Evaluator::evaluate(&node, &env).unwrap();
+                let expected = std::f64::consts::E; // e·1² - 2e·1 + 2e = e
+                assert!(
+                    (val - expected).abs() < 1e-8,
+                    "At x=e, expected {}, got {}",
+                    expected,
+                    val
+                );
+            }
+            other => panic!("Expected Elementary for ∫ln(x)²dx, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_risch_log_not_applicable() {
+        // sin(x) — not a log pattern
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(try_risch_logarithmic(&expr, "x").is_none());
     }
 }
