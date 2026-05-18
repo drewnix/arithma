@@ -1,4 +1,6 @@
 use crate::rational_function::RationalFunction;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 use std::fmt;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -192,6 +194,84 @@ impl ExtPoly {
         }
 
         a.make_monic()
+    }
+
+    /// True if this is a constant polynomial (degree 0 or zero).
+    pub fn is_constant(&self) -> bool {
+        self.coeffs.len() <= 1
+    }
+
+    /// Formal derivative with respect to θ.
+    /// d/dθ[Σ aᵢ θⁱ] = Σ i·aᵢ θⁱ⁻¹
+    pub fn formal_derivative(&self) -> Self {
+        if self.coeffs.len() <= 1 {
+            return Self::zero(&self.var);
+        }
+        let mut coeffs = Vec::with_capacity(self.coeffs.len() - 1);
+        for (i, c) in self.coeffs.iter().enumerate().skip(1) {
+            let scalar = RationalFunction::from_constant(
+                BigRational::from_integer(BigInt::from(i)),
+                &self.var,
+            );
+            coeffs.push(c * &scalar);
+        }
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+
+    /// Square-free part: f / gcd(f, f').
+    pub fn square_free_part(&self) -> Self {
+        if self.degree().unwrap_or(0) <= 1 {
+            return self.clone();
+        }
+        let deriv = self.formal_derivative();
+        let g = self.gcd(&deriv);
+        if g.is_constant() {
+            return self.make_monic();
+        }
+        let (q, _) = self.div_rem(&g).unwrap();
+        q.make_monic()
+    }
+
+    /// Full square-free decomposition: f = a₁ · a₂² · a₃³ · …
+    /// Returns vec of (factor, multiplicity) pairs where each factor is square-free
+    /// and coprime to all others.
+    pub fn square_free_decomposition(&self) -> Vec<(ExtPoly, usize)> {
+        if self.is_zero() {
+            return vec![];
+        }
+        if self.degree().unwrap_or(0) == 0 {
+            return vec![(self.make_monic(), 1)];
+        }
+
+        let mut factors = Vec::new();
+        let f = self.make_monic();
+        let mut g = self.gcd(&self.formal_derivative());
+        let mut h = {
+            let (q, _) = f.div_rem(&g).unwrap();
+            q
+        };
+        let mut multiplicity = 1;
+
+        while !h.is_constant() {
+            let next_g = h.gcd(&g);
+            let factor = {
+                let (q, _) = h.div_rem(&next_g).unwrap();
+                q
+            };
+            if !factor.is_constant() {
+                factors.push((factor.make_monic(), multiplicity));
+            }
+            h = next_g.clone();
+            let (new_g, _) = g.div_rem(&next_g).unwrap();
+            g = new_g;
+            multiplicity += 1;
+        }
+
+        if !g.is_constant() {
+            factors.push((g.make_monic(), multiplicity));
+        }
+
+        factors
     }
 
     /// Extended GCD: returns (gcd, s, t) such that s*a + t*b = gcd.
@@ -651,5 +731,63 @@ mod tests {
         let m = p.make_monic();
         assert_eq!(m.coeff(0), rf_const(2));
         assert_eq!(m.coeff(1), rf_const(1));
+    }
+
+    #[test]
+    fn test_ext_poly_formal_derivative() {
+        // d/dθ[3θ^2 + 2θ + 1] = 6θ + 2
+        let p = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2), rf_const(3)], "x");
+        let dp = p.formal_derivative();
+        assert_eq!(dp.degree(), Some(1));
+        assert_eq!(dp.coeff(0), rf_const(2));
+        assert_eq!(dp.coeff(1), rf_const(6));
+    }
+
+    #[test]
+    fn test_ext_poly_formal_derivative_constant() {
+        let p = ExtPoly::from_rf(rf_const(5));
+        let dp = p.formal_derivative();
+        assert!(dp.is_zero());
+    }
+
+    #[test]
+    fn test_ext_poly_square_free_part() {
+        // (θ+1)^2 = θ^2 + 2θ + 1 -> square-free part is (θ+1)
+        let f = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2), rf_const(1)], "x");
+        let sf = f.square_free_part();
+        assert_eq!(sf.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_ext_poly_square_free_already() {
+        // θ^2 - 1 = (θ-1)(θ+1) — already square-free
+        let f = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let sf = f.square_free_part();
+        assert_eq!(sf.degree(), Some(2));
+    }
+
+    #[test]
+    fn test_ext_poly_sfd_simple() {
+        // (θ+1)^2 (θ-1) — decomposition should give [(θ-1, 1), (θ+1, 2)]
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let t_minus_1 = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(1)], "x");
+        let f = &(&t_plus_1 * &t_plus_1) * &t_minus_1;
+        let decomp = f.square_free_decomposition();
+        assert_eq!(decomp.len(), 2);
+        // Check multiplicities
+        let mults: Vec<usize> = decomp.iter().map(|(_, m)| *m).collect();
+        assert!(mults.contains(&1));
+        assert!(mults.contains(&2));
+    }
+
+    #[test]
+    fn test_ext_poly_sfd_cube() {
+        // (θ+1)^3
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let f = &(&t_plus_1 * &t_plus_1) * &t_plus_1;
+        let decomp = f.square_free_decomposition();
+        assert_eq!(decomp.len(), 1);
+        let (_, mult) = &decomp[0];
+        assert_eq!(*mult, 3);
     }
 }
