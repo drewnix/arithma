@@ -3,8 +3,8 @@
 A computer algebra system written in Rust. Exact arithmetic, not floating-point
 approximation. LaTeX in, LaTeX out. A single binary with no runtime dependencies.
 
-Arithma exists because AI agents deserve a mathematics tool that is *correct* ---
-not approximately correct, not usually correct, but correct in the way that exact
+Arithma exists because AI agents deserve a mathematics tool that is *correct*. 
+Not approximately correct, not usually correct, but correct in the way that exact
 rational arithmetic and well-chosen algorithms make possible. The MCP server gives
 any Claude session (or any MCP-compatible client) access to symbolic mathematics
 that would otherwise require a Python runtime, a Wolfram kernel, or faith in
@@ -43,7 +43,7 @@ Coefficients are exact rationals, not floating-point approximations:
 ## The MCP server
 
 The `arithma-mcp` binary speaks MCP (Model Context Protocol) over stdio. It gives
-Claude --- or any MCP-compatible AI agent --- access to 13 tools:
+Claude or any MCP-compatible AI agent access to 13 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -105,7 +105,7 @@ cargo build --release --bin arithma-mcp
 ```
 
 The binary lands at `target/release/arithma-mcp`. It is approximately 1.5 MB,
-statically linked, with no runtime dependencies --- no Python, no Java, no
+statically linked, with no runtime dependencies: no Python, no Java, no
 Wolfram, no network calls.
 
 ## Building and testing
@@ -122,7 +122,7 @@ cargo test             # run all 568 tests
 suite uses exact arithmetic, not floating-point approximation, wherever possible.
 The simplifier has a verified idempotency contract.
 
-**Well-chosen algorithms.** Not the first algorithm that works --- the right
+**Well-chosen algorithms.** Not the first algorithm that works but the right
 algorithm for the data structure. Berlekamp-Zassenhaus for polynomial factoring.
 Subresultant remainder sequence for GCD. Horner evaluation. Cardano and Ferrari
 for cubics and quartics. The choice matters.
