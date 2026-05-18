@@ -4,10 +4,11 @@ use serde_json::{json, Value};
 
 use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
-use arithma::integration::integrate_latex;
+use arithma::integration::{definite_integral_latex, integrate_latex};
 use arithma::limits::limit_latex;
 use arithma::series::taylor_series_latex;
 use arithma::simplify::Simplifiable;
+use arithma::substitute::substitute_latex;
 use arithma::{
     build_expression_tree, solve_for_variable_exact, Environment, Evaluator, Polynomial, Tokenizer,
 };
@@ -130,7 +131,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "integrate",
-            "description": "Compute the indefinite integral of an expression. Returns the antiderivative in LaTeX (without the +C constant).",
+            "description": "Compute the integral of an expression. Without bounds: returns the indefinite integral (antiderivative). With lower and upper bounds: returns the definite integral (a number).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -142,9 +143,39 @@ fn tools_schema() -> Value {
                         "type": "string",
                         "description": "Variable of integration",
                         "default": "x"
+                    },
+                    "lower": {
+                        "type": "number",
+                        "description": "Lower bound for definite integral (omit for indefinite)"
+                    },
+                    "upper": {
+                        "type": "number",
+                        "description": "Upper bound for definite integral (omit for indefinite)"
                     }
                 },
                 "required": ["expr"]
+            }
+        },
+        {
+            "name": "substitute",
+            "description": "Substitute a value or expression for a variable in an expression. Returns the simplified result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expr": {
+                        "type": "string",
+                        "description": "LaTeX expression, e.g. \"x^2 + 2x + 1\""
+                    },
+                    "variable": {
+                        "type": "string",
+                        "description": "Variable to replace"
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "LaTeX expression or number to substitute, e.g. \"3\" or \"y + 1\""
+                    }
+                },
+                "required": ["expr", "variable", "value"]
             }
         },
         {
@@ -268,6 +299,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "simplify" => tool_simplify(&args),
         "differentiate" => tool_differentiate(&args),
         "integrate" => tool_integrate(&args),
+        "substitute" => tool_substitute(&args),
         "solve" => tool_solve(&args),
         "factor" => tool_factor(&args),
         "limit" => tool_limit(&args),
@@ -326,7 +358,23 @@ fn tool_differentiate(args: &Value) -> Result<String, String> {
 fn tool_integrate(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_str_or(args, "variable", "x");
-    integrate_latex(expr, var)
+
+    let has_lower = args.get("lower").and_then(|v| v.as_f64());
+    let has_upper = args.get("upper").and_then(|v| v.as_f64());
+
+    match (has_lower, has_upper) {
+        (Some(lower), Some(upper)) => definite_integral_latex(expr, var, lower, upper),
+        _ => integrate_latex(expr, var),
+    }
+}
+
+fn tool_substitute(args: &Value) -> Result<String, String> {
+    let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
+    let var = get_str(args, "variable").ok_or("Missing required parameter: variable")?;
+    let value = get_str(args, "value").ok_or("Missing required parameter: value")?;
+    let subs = vec![(var.to_string(), value.to_string())];
+    let result = substitute_latex(expr, &subs)?;
+    parse_and_simplify(&result).or(Ok(result))
 }
 
 fn tool_solve(args: &Value) -> Result<String, String> {

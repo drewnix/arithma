@@ -258,7 +258,11 @@ impl<'a> Tokenizer<'a> {
                 break;
             }
         }
-        tokens.push(current_token.clone());
+        if current_token == "e" {
+            tokens.push(std::f64::consts::E.to_string());
+        } else {
+            tokens.push(current_token.clone());
+        }
     }
 
     /// Handle operators and parentheses

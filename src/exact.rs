@@ -254,7 +254,15 @@ impl fmt::Display for ExactNum {
                     write!(f, "\\frac{{{}}}{{{}}}", r.numer(), r.denom())
                 }
             }
-            ExactNum::Float(v) => write!(f, "{}", v),
+            ExactNum::Float(v) => {
+                if (*v - std::f64::consts::E).abs() < 1e-15 {
+                    write!(f, "e")
+                } else if (*v - std::f64::consts::PI).abs() < 1e-15 {
+                    write!(f, "\\pi")
+                } else {
+                    write!(f, "{}", v)
+                }
+            }
         }
     }
 }

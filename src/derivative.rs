@@ -129,38 +129,56 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     Box::new(Node::Multiply(Box::new(coefficient), Box::new(power_term))),
                     Box::new(base_derivative),
                 ))
-            } else if let Node::Variable(exp_var) = &**exponent {
-                // Handle the special case where the exponent is a variable: d/dx(f(x)^y) = y*f(x)^(y-1)*f'(x)
-                // This assumes y is not the variable we're differentiating with respect to
-                if exp_var != var_name {
-                    let base_derivative = differentiate(base, var_name)?;
+            } else {
+                // General case: d/dx(f^g) = f^g * (g'*ln(f) + g*f'/f)
+                let base_deriv = differentiate(base, var_name)?;
+                let exp_deriv = differentiate(exponent, var_name)?;
 
-                    // y * f(x)^(y-1)
-                    let new_exponent = Node::Subtract(
-                        Box::new(Node::Variable(exp_var.clone())),
-                        Box::new(Node::Num(ExactNum::one())),
+                let base_is_const = matches!(base_deriv, Node::Num(ref n) if n.is_zero());
+                let exp_is_const = matches!(exp_deriv, Node::Num(ref n) if n.is_zero());
+
+                if exp_is_const && !base_is_const {
+                    // d/dx(f(x)^c) = c * f^(c-1) * f' — already handled above,
+                    // but as a fallback for non-Num constant exponents
+                    let power_term = Node::Power(
+                        base.clone(),
+                        Box::new(Node::Subtract(
+                            exponent.clone(),
+                            Box::new(Node::Num(ExactNum::one())),
+                        )),
                     );
-
-                    let power_term = Node::Power(base.clone(), Box::new(new_exponent));
-
-                    // y * f(x)^(y-1) * f'(x)
+                    Ok(Node::Multiply(
+                        Box::new(Node::Multiply(exponent.clone(), Box::new(power_term))),
+                        Box::new(base_deriv),
+                    ))
+                } else if base_is_const && !exp_is_const {
+                    // d/dx(a^g(x)) = a^g(x) * ln(a) * g'(x)
+                    let original = Node::Power(base.clone(), exponent.clone());
+                    let ln_base = Node::Function("ln".to_string(), vec![*base.clone()]);
                     Ok(Node::Multiply(
                         Box::new(Node::Multiply(
-                            Box::new(Node::Variable(exp_var.clone())),
-                            Box::new(power_term),
+                            Box::new(original),
+                            Box::new(ln_base),
                         )),
-                        Box::new(base_derivative),
+                        Box::new(exp_deriv),
                     ))
+                } else if base_is_const && exp_is_const {
+                    Ok(Node::Num(ExactNum::zero()))
                 } else {
-                    // For now, return an error for the case where the exponent is the variable we're differentiating with respect to
-                    Err(
-                        "Differentiation with respect to the exponent not yet implemented"
-                            .to_string(),
-                    )
+                    // Both base and exponent depend on x:
+                    // d/dx(f^g) = f^g * (g'*ln(f) + g*f'/f)
+                    let original = Node::Power(base.clone(), exponent.clone());
+                    let ln_base = Node::Function("ln".to_string(), vec![*base.clone()]);
+                    let term1 = Node::Multiply(Box::new(exp_deriv), Box::new(ln_base));
+                    let term2 = Node::Multiply(
+                        exponent.clone(),
+                        Box::new(Node::Divide(Box::new(base_deriv), base.clone())),
+                    );
+                    Ok(Node::Multiply(
+                        Box::new(original),
+                        Box::new(Node::Add(Box::new(term1), Box::new(term2))),
+                    ))
                 }
-            } else {
-                // For now, return an error for more complex cases
-                Err("Differentiation of non-constant exponents not yet implemented".to_string())
             }
         }
 
