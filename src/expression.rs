@@ -73,9 +73,41 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
             roots.extend(solve_quartic_ferrari(&remaining));
         }
         Some(d) => {
-            if roots.is_empty() {
+            // Factor the remaining polynomial into irreducible pieces
+            // and solve each piece that has degree ≤ 4.
+            let (_, factors) = crate::mod_poly::factor_over_q(&remaining);
+            let mut found_any = false;
+            for factor in &factors {
+                match factor.degree() {
+                    Some(1) => {
+                        let a = factor.coeff(1);
+                        let b = factor.coeff(0);
+                        let root = -b / a;
+                        roots.push(rational_to_exact(&root));
+                        found_any = true;
+                    }
+                    Some(2) => {
+                        if let Ok(qr) = solve_quadratic(factor) {
+                            found_any = found_any || !qr.is_empty();
+                            roots.extend(qr);
+                        }
+                    }
+                    Some(3) => {
+                        let cr = solve_cubic_cardano(factor);
+                        found_any = found_any || !cr.is_empty();
+                        roots.extend(cr);
+                    }
+                    Some(4) => {
+                        let qr = solve_quartic_ferrari(factor);
+                        found_any = found_any || !qr.is_empty();
+                        roots.extend(qr);
+                    }
+                    _ => {}
+                }
+            }
+            if !found_any && roots.is_empty() {
                 return Err(format!(
-                    "Polynomial degree {} — cannot solve (no rational roots found)",
+                    "Polynomial degree {} — irreducible factors of degree > 4 have no closed-form solution",
                     d
                 ));
             }

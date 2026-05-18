@@ -814,4 +814,46 @@ mod algebra_tests {
         // det() should panic or return an error
         assert!(evaluate_expression_with_env("\\det{}", &env).is_err());
     }
+
+    // --- Solver with factoring (degree ≥ 5) ---
+
+    #[test]
+    fn test_solve_quintic_factors() {
+        // x⁵ - x = x(x⁴-1) = x(x-1)(x+1)(x²+1) → roots: -1, 0, 1
+        let expr = parse_eq("x^5 - x = 0");
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        assert!(vals.iter().any(|&v| (v - 0.0).abs() < 1e-10), "Missing root 0");
+        assert!(vals.iter().any(|&v| (v - 1.0).abs() < 1e-10), "Missing root 1");
+        assert!(vals.iter().any(|&v| (v + 1.0).abs() < 1e-10), "Missing root -1");
+    }
+
+    #[test]
+    fn test_solve_degree6() {
+        // x⁶ - 1 = (x-1)(x+1)(x²+x+1)(x²-x+1)
+        // Only ±1 are real (both quadratics have discriminant -3)
+        let expr = parse_eq("x^6 - 1 = 0");
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        assert!(vals.iter().any(|&v| (v - 1.0).abs() < 1e-10), "Missing root 1");
+        assert!(vals.iter().any(|&v| (v + 1.0).abs() < 1e-10), "Missing root -1");
+        assert_eq!(solutions.len(), 2, "Should find exactly 2 real roots");
+    }
+
+    #[test]
+    fn test_solve_quintic_with_rational_and_quadratic() {
+        // (x-2)(x-3)(x²+1) = x⁴ - 5x³ + 7x² - 5x + 6
+        // roots: 2, 3 (x²+1 has no real roots)
+        let expr = parse_eq("x^4 - 5x^3 + 7x^2 - 5x + 6 = 0");
+        let solutions = solve_for_variable_exact(&expr, "x").unwrap();
+        let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
+        assert!(vals.iter().any(|&v| (v - 2.0).abs() < 1e-10), "Missing root 2");
+        assert!(vals.iter().any(|&v| (v - 3.0).abs() < 1e-10), "Missing root 3");
+    }
+
+    fn parse_eq(latex: &str) -> arithma::Node {
+        let mut tokenizer = Tokenizer::new(latex);
+        let tokens = tokenizer.tokenize();
+        build_expression_tree(tokens).expect(&format!("Failed to parse: {}", latex))
+    }
 }
