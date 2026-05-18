@@ -1,4 +1,5 @@
 use crate::ext_poly::ExtPoly;
+use crate::node::Node;
 use crate::polynomial::Polynomial;
 use crate::rational_function::RationalFunction;
 use num_bigint::BigInt;
@@ -556,12 +557,64 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
     }
 }
 
+/// Try to decompose a Node into r(x) · exp(g(x)) where r and g are polynomials in var.
+/// Returns (r, g) if the pattern matches, None otherwise.
+pub fn extract_exp_pattern(expr: &Node, var: &str) -> Option<(Polynomial, Polynomial)> {
+    // Simplify to canonical form first.
+    let env = crate::environment::Environment::new();
+    let expr = crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+
+    extract_exp_pattern_inner(&expr, var)
+}
+
+/// Inner helper that pattern-matches on an already-simplified expression.
+fn extract_exp_pattern_inner(expr: &Node, var: &str) -> Option<(Polynomial, Polynomial)> {
+    match expr {
+        // Pattern 1: exp(arg) → r=1, g=from_node(arg)
+        Node::Function(name, args) if name == "exp" && args.len() == 1 => {
+            let g = Polynomial::from_node(&args[0], var).ok()?;
+            Some((Polynomial::one(var), g))
+        }
+
+        // Pattern 3 & 4: Negate(inner)
+        Node::Negate(inner) => {
+            let (r, g) = extract_exp_pattern_inner(inner, var)?;
+            Some((-&r, g))
+        }
+
+        // Pattern 2 & 5: Multiply(left, right) — try exp on either side
+        Node::Multiply(left, right) => {
+            // Try exp on the right
+            if let Node::Function(name, args) = right.as_ref() {
+                if name == "exp" && args.len() == 1 {
+                    let g = Polynomial::from_node(&args[0], var).ok()?;
+                    let r = Polynomial::from_node(left, var).ok()?;
+                    return Some((r, g));
+                }
+            }
+            // Try exp on the left
+            if let Node::Function(name, args) = left.as_ref() {
+                if name == "exp" && args.len() == 1 {
+                    let g = Polynomial::from_node(&args[0], var).ok()?;
+                    let r = Polynomial::from_node(right, var).ok()?;
+                    return Some((r, g));
+                }
+            }
+            None
+        }
+
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exact::ExactNum;
     use crate::polynomial::Polynomial;
     use num_bigint::BigInt;
     use num_rational::BigRational;
+    use num_traits::Signed;
 
     fn int(n: i64) -> BigRational {
         BigRational::from_integer(BigInt::from(n))
@@ -1045,5 +1098,118 @@ mod tests {
         let g = Polynomial::zero("x");
         let q = solve_risch_de_poly(&f, &g, "x").unwrap();
         assert!(q.is_zero());
+    }
+
+    // ======== extract_exp_pattern tests ========
+
+    #[test]
+    fn test_extract_exp_simple() {
+        // exp(x) → r=1, g=x
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let (r, g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert_eq!(r, Polynomial::one("x"));
+        assert_eq!(g, Polynomial::x("x"));
+    }
+
+    #[test]
+    fn test_extract_exp_neg_x_sq() {
+        // exp(-x^2) → r=1, g=-x²
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Negate(Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )))],
+        );
+        let (r, g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert_eq!(r, Polynomial::one("x"));
+        // g should be -x²
+        assert_eq!(g.degree(), Some(2));
+        assert!(g.leading_coeff().unwrap().is_negative());
+    }
+
+    #[test]
+    fn test_extract_exp_with_coeff() {
+        // x * exp(x) → r=x, g=x
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let (r, g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert_eq!(r, Polynomial::x("x"));
+        assert_eq!(g, Polynomial::x("x"));
+    }
+
+    #[test]
+    fn test_extract_exp_coeff_left() {
+        // exp(-x^2) * x → r=x, g=-x² (exp on left)
+        let exp_node = Node::Function(
+            "exp".to_string(),
+            vec![Node::Negate(Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )))],
+        );
+        let expr = Node::Multiply(
+            Box::new(exp_node),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let (r, _g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert_eq!(r, Polynomial::x("x"));
+    }
+
+    #[test]
+    fn test_extract_exp_numeric_coeff() {
+        // 3 * exp(x) → r=3, g=x
+        let expr = Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(3))),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let (r, _g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert_eq!(
+            r,
+            Polynomial::constant(
+                num_rational::BigRational::from_integer(num_bigint::BigInt::from(3)),
+                "x"
+            )
+        );
+    }
+
+    #[test]
+    fn test_extract_exp_no_match_sin() {
+        // sin(x) — not an exponential pattern
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(extract_exp_pattern(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_extract_exp_no_match_non_poly_arg() {
+        // exp(sin(x)) — arg is not a polynomial
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Function(
+                "sin".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )],
+        );
+        assert!(extract_exp_pattern(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_extract_exp_negated() {
+        // -exp(x) → r=-1, g=x
+        let expr = Node::Negate(Box::new(Node::Function(
+            "exp".to_string(),
+            vec![Node::Variable("x".to_string())],
+        )));
+        let (r, g) = extract_exp_pattern(&expr, "x").unwrap();
+        assert!(r.leading_coeff().unwrap().is_negative());
+        assert_eq!(g, Polynomial::x("x"));
     }
 }
