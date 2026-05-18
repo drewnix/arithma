@@ -235,6 +235,55 @@ impl Polynomial {
         a.make_monic()
     }
 
+    /// Extended GCD: returns (gcd, s, t) such that s*a + t*b = gcd.
+    /// The gcd is monic; s, t are adjusted accordingly.
+    pub fn extended_gcd(a: &Polynomial, b: &Polynomial) -> (Polynomial, Polynomial, Polynomial) {
+        let var = a.variable().to_string();
+        if b.is_zero() {
+            if a.is_zero() {
+                return (
+                    Self::zero(&var),
+                    Self::one(&var),
+                    Self::zero(&var),
+                );
+            }
+            let lc = a.leading_coeff().unwrap().clone();
+            let lc_inv = BigRational::one() / lc;
+            return (
+                a.scalar_mul(&lc_inv),
+                Self::constant(lc_inv, &var),
+                Self::zero(&var),
+            );
+        }
+
+        let mut old_r = a.clone();
+        let mut r = b.clone();
+        let mut old_s = Self::one(&var);
+        let mut s = Self::zero(&var);
+        let mut old_t = Self::zero(&var);
+        let mut t = Self::one(&var);
+
+        while !r.is_zero() {
+            let (q, rem) = old_r.div_rem(&r).unwrap();
+            old_r = r;
+            r = rem;
+            let new_s = &old_s - &(&q * &s);
+            old_s = s;
+            s = new_s;
+            let new_t = &old_t - &(&q * &t);
+            old_t = t;
+            t = new_t;
+        }
+
+        let lc = old_r.leading_coeff().unwrap().clone();
+        let lc_inv = BigRational::one() / lc;
+        (
+            old_r.scalar_mul(&lc_inv),
+            old_s.scalar_mul(&lc_inv),
+            old_t.scalar_mul(&lc_inv),
+        )
+    }
+
     /// Formal derivative: d/dx(a_n x^n + ... + a_0) = n*a_n x^(n-1) + ...
     pub fn derivative(&self) -> Self {
         if self.coeffs.len() <= 1 {

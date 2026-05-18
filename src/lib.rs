@@ -61,6 +61,9 @@ pub use crate::polynomial::Polynomial;
 pub mod mod_poly;
 pub use crate::mod_poly::{factor_mod_p, factor_over_q, ModPoly};
 
+pub mod partial_fractions;
+pub use crate::partial_fractions::{partial_fraction_decomposition, partial_fractions_latex};
+
 pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
 
