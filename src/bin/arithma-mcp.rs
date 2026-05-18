@@ -6,6 +6,7 @@ use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_latex, integrate_latex};
 use arithma::limits::limit_latex;
+use arithma::matrix::parse_latex_matrix;
 use arithma::series::taylor_series_latex;
 use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
@@ -287,6 +288,29 @@ fn tools_schema() -> Value {
                 },
                 "required": ["expr"]
             }
+        },
+        {
+            "name": "matrix",
+            "description": "Perform matrix operations: determinant, inverse, eigenvalues, rank, transpose, multiply, solve (Ax=b), or RREF. Matrices use LaTeX pmatrix notation.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Operation to perform",
+                        "enum": ["determinant", "inverse", "eigenvalues", "rank", "transpose", "multiply", "solve", "rref"]
+                    },
+                    "matrix": {
+                        "type": "string",
+                        "description": "LaTeX matrix, e.g. \"\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}\""
+                    },
+                    "matrix_b": {
+                        "type": "string",
+                        "description": "Second matrix for multiply (A*B) or solve (Ax=b). For solve, this is the column vector b."
+                    }
+                },
+                "required": ["operation", "matrix"]
+            }
         }
     ])
 }
@@ -305,6 +329,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "limit" => tool_limit(&args),
         "taylor_series" => tool_taylor_series(&args),
         "evaluate" => tool_evaluate(&args),
+        "matrix" => tool_matrix(&args),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
 
@@ -478,5 +503,57 @@ fn tool_evaluate(args: &Value) -> Result<String, String> {
                 Err(_) => Ok(format!("{}", simplified)),
             }
         }
+    }
+}
+
+fn tool_matrix(args: &Value) -> Result<String, String> {
+    let op = get_str(args, "operation").ok_or("Missing required parameter: operation")?;
+    let matrix_str = get_str(args, "matrix").ok_or("Missing required parameter: matrix")?;
+    let env = Environment::new();
+
+    let a = parse_latex_matrix(matrix_str, &env)?;
+
+    match op {
+        "determinant" => {
+            let det = a.determinant(&env)?;
+            let simplified = det.simplify(&env).unwrap_or(det);
+            Ok(format!("{}", simplified))
+        }
+        "inverse" => {
+            let inv = a.inverse(&env)?;
+            Ok(inv.to_latex())
+        }
+        "eigenvalues" => {
+            let vals = a.eigenvalues(&env)?;
+            let strs: Vec<String> = vals.iter().map(|v| format!("{}", v)).collect();
+            Ok(strs.join(", "))
+        }
+        "rank" => {
+            let r = a.rank(&env)?;
+            Ok(r.to_string())
+        }
+        "transpose" => Ok(a.transpose().to_latex()),
+        "rref" => {
+            let r = a.rref(&env)?;
+            Ok(r.to_latex())
+        }
+        "multiply" => {
+            let b_str = get_str(args, "matrix_b")
+                .ok_or("multiply requires matrix_b parameter")?;
+            let b = parse_latex_matrix(b_str, &env)?;
+            let result = a.multiply(&b, &env)?;
+            Ok(result.to_latex())
+        }
+        "solve" => {
+            let b_str = get_str(args, "matrix_b")
+                .ok_or("solve requires matrix_b parameter (column vector b in Ax=b)")?;
+            let b = parse_latex_matrix(b_str, &env)?;
+            let result = a.solve(&b, &env)?;
+            Ok(result.to_latex())
+        }
+        _ => Err(format!(
+            "Unknown matrix operation: {}. Use: determinant, inverse, eigenvalues, rank, transpose, multiply, solve, rref",
+            op
+        )),
     }
 }
