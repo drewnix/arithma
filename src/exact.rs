@@ -78,6 +78,13 @@ impl ExactNum {
         }
     }
 
+    pub fn is_nan_or_inf(&self) -> bool {
+        match self {
+            ExactNum::Rational(_) => false,
+            ExactNum::Float(f) => f.is_nan() || f.is_infinite(),
+        }
+    }
+
     pub fn abs(&self) -> Self {
         match self {
             ExactNum::Rational(r) => ExactNum::Rational(r.abs()),

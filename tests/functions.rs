@@ -93,10 +93,21 @@ mod function_tests {
     }
 
     #[test]
-    #[ignore = "Limit evaluation not implemented"]
-    fn test_lim_function() {
-        let result = evaluate_expression("\\lim{f(x), 0}").unwrap();
-        assert_eq!(result, 0.0);
+    fn test_lim_sinx_over_x() {
+        // lim_{x→0} sin(x)/x = 1
+        let result = arithma::compute_limit(
+            &arithma::Node::Divide(
+                Box::new(arithma::Node::Function(
+                    "sin".to_string(),
+                    vec![arithma::Node::Variable("x".to_string())],
+                )),
+                Box::new(arithma::Node::Variable("x".to_string())),
+            ),
+            "x",
+            &arithma::ExactNum::zero(),
+        )
+        .unwrap();
+        assert!((result.to_f64() - 1.0).abs() < 1e-10);
     }
 
     #[test]
