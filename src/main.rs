@@ -126,6 +126,9 @@ fn cmd_integrate(args: &[String]) {
     let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
     match arithma::integration::integrate_latex(expr, var) {
         Ok(result) => println!("{}", result),
+        Err(e) if e.starts_with("NON_ELEMENTARY:") => {
+            println!("{}", e.replacen("NON_ELEMENTARY: ", "", 1));
+        }
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);

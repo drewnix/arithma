@@ -510,9 +510,16 @@ fn tool_integrate(args: &Value) -> Result<String, String> {
     let result = match (has_lower, has_upper) {
         (Some(lower), Some(upper)) => definite_integral_latex(expr, var, lower, upper),
         _ => integrate_latex(expr, var),
-    }?;
-    let env = env_from_args(args)?;
-    parse_and_simplify_with_env(&result, &env)
+    };
+
+    match result {
+        Ok(r) => {
+            let env = env_from_args(args)?;
+            parse_and_simplify_with_env(&r, &env)
+        }
+        Err(e) if e.starts_with("NON_ELEMENTARY:") => Ok(e.replacen("NON_ELEMENTARY: ", "", 1)),
+        Err(e) => Err(e),
+    }
 }
 
 fn tool_substitute(args: &Value) -> Result<String, String> {

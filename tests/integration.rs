@@ -241,15 +241,32 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_integrate_latex_non_elementary() {
+    fn test_integrate_latex_non_elementary_message() {
+        // The non-elementary error should contain a helpful explanation
         let result = integrate_latex("\\exp(-x^2)", "x");
         assert!(result.is_err());
         let err = result.unwrap_err();
+        assert!(err.starts_with("NON_ELEMENTARY:"));
         assert!(
-            err.contains("NON_ELEMENTARY") || err.contains("no elementary"),
-            "Expected non-elementary message, got: {}",
+            err.contains("no elementary antiderivative")
+                || err.contains("No elementary antiderivative"),
+            "Expected non-elementary explanation, got: {}",
             err
         );
+    }
+
+    #[test]
+    fn test_integrate_latex_exp_x_cubed_non_elementary() {
+        let result = integrate_latex("\\exp(x^3)", "x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
+    }
+
+    #[test]
+    fn test_integrate_exp_x_still_elementary() {
+        // Basic ∫e^x dx = e^x should still work normally
+        let result = integrate_latex("\\exp(x)", "x").unwrap();
+        assert!(result.contains("+ C"));
     }
 
     #[test]
