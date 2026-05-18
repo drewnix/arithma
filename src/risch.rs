@@ -1,8 +1,9 @@
 use crate::ext_poly::ExtPoly;
+use crate::polynomial::Polynomial;
 use crate::rational_function::RationalFunction;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::One;
+use num_traits::{One, Zero};
 
 /// Type of transcendental extension.
 #[derive(Debug, Clone)]
@@ -430,6 +431,131 @@ fn hermite_reduce_multi_factor(
     })
 }
 
+/// Solve the Risch differential equation for polynomial solutions.
+///
+/// Given polynomials f, g ∈ Q\[x\], find q ∈ Q\[x\] such that **q' + f·q = g**,
+/// or return `None` if no polynomial solution exists (indicating the
+/// corresponding integral is non-elementary).
+///
+/// # Algorithm
+///
+/// 1. **f = 0:** q' = g, so q = ∫g dx (always succeeds).
+/// 2. **Degree bound:** For f of degree m and g of degree n:
+///    - m ≥ 1: deg(q) = n − m (if n < m and g ≠ 0, no solution).
+///    - m = 0: deg(q) = n.
+/// 3. **Top-down coefficient matching:** For m ≥ 1, the leading coefficient f_m
+///    is the divisor at each step; for m = 0, f_0 is the divisor.
+pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<Polynomial> {
+    // Special case: f = 0 → q' = g → q = ∫g
+    if f.is_zero() {
+        return Some(g.integral());
+    }
+
+    // g = 0 → q = 0 is always a solution
+    if g.is_zero() {
+        return Some(Polynomial::zero(var));
+    }
+
+    let m = f.degree().unwrap(); // f is nonzero
+    let n = g.degree().unwrap(); // g is nonzero
+
+    // Degree bound
+    let k: usize = if m >= 1 {
+        if n < m {
+            return None; // No polynomial solution exists
+        }
+        n - m
+    } else {
+        // m = 0, f is a nonzero constant
+        n
+    };
+
+    let mut b = vec![BigRational::zero(); k + 1];
+
+    // Process degrees from n down to 0.
+    //
+    // At degree r, the equation q' + f·q = g gives:
+    //   (r+1)·b_{r+1} + Σ_{i+j=r, 0≤i≤m, 0≤j≤k} f_i·b_j = g_r
+    //
+    // For m ≥ 1: the "new" unknown at degree r is b_{r-m} (coefficient f_m),
+    //   all b_j for j > r-m are already determined from higher degrees.
+    // For m = 0: the "new" unknown at degree r is b_r (coefficient f_0).
+    for r in (0..=n).rev() {
+        let g_r = g.coeff(r);
+
+        // Derivative contribution: (r+1)·b_{r+1} if r+1 ≤ k
+        let mut known = if r < k {
+            BigRational::from_integer(BigInt::from(r as i64 + 1)) * &b[r + 1]
+        } else {
+            BigRational::zero()
+        };
+
+        // Determine which b index we're solving for at this degree
+        let target_j: Option<usize> = if m >= 1 {
+            if r >= m && r - m <= k {
+                Some(r - m)
+            } else {
+                None
+            }
+        } else {
+            // m = 0
+            if r <= k {
+                Some(r)
+            } else {
+                None
+            }
+        };
+
+        // Convolution contribution: Σ_{i=0}^{min(m,r)} f_i · b_{r-i}, skipping target
+        for i in 0..=m.min(r) {
+            let j = r - i;
+            if j > k {
+                continue;
+            }
+            if Some(j) == target_j {
+                continue;
+            }
+            let f_i = f.coeff(i);
+            if !f_i.is_zero() {
+                known += &f_i * &b[j];
+            }
+        }
+
+        let residual = &g_r - &known;
+
+        match target_j {
+            Some(j) => {
+                // The coefficient of b_j in the equation
+                let divisor = if m >= 1 { f.coeff(m) } else { f.coeff(0) };
+                if divisor.is_zero() {
+                    // b_j doesn't appear; check consistency
+                    if !residual.is_zero() {
+                        return None;
+                    }
+                    // b_j is free; set to 0
+                } else {
+                    b[j] = &residual / &divisor;
+                }
+            }
+            None => {
+                // No unknown at this degree — check consistency
+                if !residual.is_zero() {
+                    return None;
+                }
+            }
+        }
+    }
+
+    // Build q and verify: q' + f·q must equal g
+    let q = Polynomial::from_coeffs(b, var);
+    let check = &q.derivative() + &(f * &q);
+    if check == *g {
+        Some(q)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -808,5 +934,116 @@ mod tests {
 
         // Verify the identity.
         verify_hermite_identity(&a, &d, &result);
+    }
+
+    // ======== Risch DE solver tests ========
+
+    fn rat(n: i64, d: i64) -> BigRational {
+        BigRational::new(BigInt::from(n), BigInt::from(d))
+    }
+
+    #[test]
+    fn test_risch_de_trivial() {
+        // q' + 0·q = 2x → q = x²
+        let f = Polynomial::zero("x");
+        let g = poly(&[0, 2], "x");
+        let result = solve_risch_de_poly(&f, &g, "x");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), poly(&[0, 0, 1], "x"));
+    }
+
+    #[test]
+    fn test_risch_de_exp_x() {
+        // q' + q = 1 → q = 1 (since 0 + 1·1 = 1)
+        let f = poly(&[1], "x");
+        let g = poly(&[1], "x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        assert_eq!(q, poly(&[1], "x"));
+    }
+
+    #[test]
+    fn test_risch_de_x_exp_neg_x_sq() {
+        // q' + (-2x)·q = x → q = -1/2
+        let f = poly(&[0, -2], "x");
+        let g = poly(&[0, 1], "x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        // Verify: q' + f*q = 0 + (-2x)(-1/2) = x ✓
+        let check = &q.derivative() + &(&f * &q);
+        assert_eq!(check, g);
+        // Also check the value: q should be -1/2
+        assert_eq!(q.coeff(0), rat(-1, 2));
+        assert!(q.degree() == Some(0));
+    }
+
+    #[test]
+    fn test_risch_de_exp_neg_x_sq_non_elementary() {
+        // q' + (-2x)·q = 1 → no solution (deg bound = 0 - 1 = -1)
+        let f = poly(&[0, -2], "x");
+        let g = poly(&[1], "x");
+        assert!(solve_risch_de_poly(&f, &g, "x").is_none());
+    }
+
+    #[test]
+    fn test_risch_de_exp_x_cubed_non_elementary() {
+        // q' + 3x²·q = 1 → no solution (deg bound = 0 - 2 = -2)
+        let f = poly(&[0, 0, 3], "x");
+        let g = poly(&[1], "x");
+        assert!(solve_risch_de_poly(&f, &g, "x").is_none());
+    }
+
+    #[test]
+    fn test_risch_de_x_sq_exp_neg_x_sq() {
+        // q' + (-2x)·q = x² → deg bound = 2-1 = 1, but contradiction at deg 0
+        let f = poly(&[0, -2], "x");
+        let g = poly(&[0, 0, 1], "x");
+        assert!(solve_risch_de_poly(&f, &g, "x").is_none());
+    }
+
+    #[test]
+    fn test_risch_de_2x_exp_x_sq() {
+        // q' + 2x·q = 2x → q = 1 (since 0 + 2x·1 = 2x)
+        let f = poly(&[0, 2], "x");
+        let g = poly(&[0, 2], "x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        assert_eq!(q, poly(&[1], "x"));
+    }
+
+    #[test]
+    fn test_risch_de_constant_f() {
+        // q' + 3q = 6x + 3
+        // q = 2x + 1/3. Check: q' + 3q = 2 + 6x + 1 = 6x + 3 ✓
+        let f = poly(&[3], "x");
+        let g = poly(&[3, 6], "x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        let check = &q.derivative() + &(&f * &q);
+        assert_eq!(check, g);
+    }
+
+    #[test]
+    fn test_risch_de_zero_g() {
+        // q' + 2x·q = 0 → q = 0
+        let f = poly(&[0, 2], "x");
+        let g = Polynomial::zero("x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        assert!(q.is_zero());
+    }
+
+    #[test]
+    fn test_risch_de_higher_degree() {
+        // q' + x·q = x³ + x²
+        // m=1, n=3, k=2, q = b₂x² + b₁x + b₀
+        // Solving top-down reveals a contradiction at deg 0
+        let f = poly(&[0, 1], "x"); // x
+        let g = poly(&[0, 0, 1, 1], "x"); // x³ + x²
+        assert!(solve_risch_de_poly(&f, &g, "x").is_none());
+    }
+
+    #[test]
+    fn test_risch_de_both_zero() {
+        // q' + 0·q = 0 → q = 0 (or any constant, but integral of 0 is 0)
+        let f = Polynomial::zero("x");
+        let g = Polynomial::zero("x");
+        let q = solve_risch_de_poly(&f, &g, "x").unwrap();
+        assert!(q.is_zero());
     }
 }
