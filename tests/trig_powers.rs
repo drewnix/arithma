@@ -118,6 +118,33 @@ mod trig_power_tests {
         verify_antiderivative("\\sin(x)^{4} \\cdot \\cos(x)", "x", POINTS);
     }
 
+    // === Both-even mixed products (Pythagorean expansion) ===
+
+    #[test]
+    fn test_sin2_cos2() {
+        verify_antiderivative("\\sin(x)^{2} \\cdot \\cos(x)^{2}", "x", POINTS);
+    }
+
+    #[test]
+    fn test_sin4_cos2() {
+        verify_antiderivative("\\sin(x)^{4} \\cdot \\cos(x)^{2}", "x", POINTS);
+    }
+
+    #[test]
+    fn test_sin2_cos4() {
+        verify_antiderivative("\\sin(x)^{2} \\cdot \\cos(x)^{4}", "x", POINTS);
+    }
+
+    #[test]
+    fn test_sin4_cos4() {
+        verify_antiderivative("\\sin(x)^{4} \\cdot \\cos(x)^{4}", "x", POINTS);
+    }
+
+    #[test]
+    fn test_sin6_cos2() {
+        verify_antiderivative("\\sin(x)^{6} \\cdot \\cos(x)^{2}", "x", POINTS);
+    }
+
     // === Output form checks ===
 
     #[test]

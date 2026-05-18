@@ -798,8 +798,15 @@ fn try_trig_product_integral(expr: &Node, var: &str) -> Option<Result<Node, Stri
         let k = (sin_power - 1) / 2;
         integrate_mixed_odd("cos", cos_power, k, var)
     } else {
-        // Both even: fall through — u-substitution or future reduction will handle it
-        return None;
+        // Both even: Pythagorean expansion + existing reduction.
+        // Convert the smaller power via sin² = 1-cos² (or cos² = 1-sin²),
+        // expand via binomial theorem, integrate each pure power term.
+        let (keep_func, expand_half, keep_half) = if sin_power <= cos_power {
+            ("cos", sin_power / 2, cos_power / 2)
+        } else {
+            ("sin", cos_power / 2, sin_power / 2)
+        };
+        integrate_mixed_even(keep_func, expand_half, keep_half, var)
     };
 
     match result {
@@ -884,6 +891,72 @@ fn integrate_mixed_odd(u_func: &str, u_power: u32, k: u32, var: &str) -> Result<
     };
 
     Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
+}
+
+/// Integrate sin^(2p)(x)·cos^(2q)(x) when both exponents are even.
+///
+/// Converts the smaller power via Pythagorean identity, expands via
+/// binomial theorem, and integrates each resulting pure power term.
+///
+/// Example: ∫sin²(x)·cos²(x)dx with p=1, q=1, keep=cos:
+///   sin²(x) = (1-cos²(x))^1 = 1 - cos²(x)
+///   ∫(1 - cos²(x))·cos²(x)dx = ∫cos²(x)dx - ∫cos⁴(x)dx
+fn integrate_mixed_even(
+    keep_func: &str,
+    expand_half: u32,
+    keep_half: u32,
+    var: &str,
+) -> Result<Node, String> {
+    let env = crate::environment::Environment::new();
+    let p = expand_half as u64;
+    let q = keep_half;
+
+    // (1 - t²)^p = Σ C(p,j)·(-1)^j·t^(2j)
+    // Multiply by t^(2q): Σ C(p,j)·(-1)^j · t^(2j+2q)
+    // Integrate term by term via existing reduction formula.
+    let mut terms: Vec<Node> = Vec::new();
+
+    for j in 0..=p {
+        let binom = binomial_coeff(p, j) as i64;
+        let coeff = if j % 2 == 0 { binom } else { -binom };
+        let power = 2 * j as u32 + 2 * q;
+
+        let integral_term = integrate_trig_power(keep_func, var, power)?;
+
+        if coeff == 1 {
+            terms.push(integral_term);
+        } else if coeff == -1 {
+            terms.push(Node::Negate(Box::new(integral_term)));
+        } else {
+            terms.push(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(coeff))),
+                Box::new(integral_term),
+            ));
+        }
+    }
+
+    if terms.is_empty() {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
+}
+
+fn binomial_coeff(n: u64, k: u64) -> u64 {
+    if k > n {
+        return 0;
+    }
+    let k = k.min(n - k);
+    let mut result: u64 = 1;
+    for i in 0..k {
+        result = result * (n - i) / (i + 1);
+    }
+    result
 }
 
 /// Recognize inverse trig patterns in the denominator of 1/(...).
