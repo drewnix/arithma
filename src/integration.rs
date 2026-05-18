@@ -136,6 +136,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // Try u-substitution on power expressions
+            if let Some(result) = try_u_substitution(expr, var_name) {
+                return result;
+            }
+
             Err("Integration of this expression is not yet implemented".to_string())
         }
 
@@ -170,6 +175,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 return result;
             }
             if let Some(result) = try_log_integration(right, left, var_name) {
+                return result;
+            }
+
+            // U-substitution: f(g(x)) · g'(x) patterns
+            if let Some(result) = try_u_substitution(expr, var_name) {
                 return result;
             }
 
@@ -241,6 +251,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     Box::new(inv_a),
                     Box::new(base_integral),
                 ));
+            }
+            // Try u-substitution on the full expression (may help with composed functions)
+            let full_expr = Node::Function(name.clone(), args.clone());
+            if let Some(result) = try_u_substitution(&full_expr, var_name) {
+                return result;
             }
             Err(format!("Integration of {}(...) with non-linear argument not yet implemented", name))
         }
@@ -362,7 +377,7 @@ fn is_repeatedly_integratable(expr: &Node, var: &str) -> bool {
     match expr {
         Node::Function(name, args) if args.len() == 1 => {
             matches!(name.as_str(), "sin" | "cos" | "exp" | "sinh" | "cosh")
-                && contains_var(&args[0], var)
+                && is_linear_in_var(&args[0], var)
         }
         // e^x (parsed as Power with Euler's number base)
         Node::Power(base, exp) => {
@@ -379,6 +394,22 @@ fn is_repeatedly_integratable(expr: &Node, var: &str) -> bool {
                 || (matches!(&**right, Node::Num(_)) && is_repeatedly_integratable(left, var))
         }
         Node::Negate(inner) => is_repeatedly_integratable(inner, var),
+        _ => false,
+    }
+}
+
+fn is_linear_in_var(expr: &Node, var: &str) -> bool {
+    match expr {
+        Node::Variable(v) => v == var,
+        Node::Multiply(left, right) => {
+            (matches!(&**left, Node::Num(_)) && is_linear_in_var(right, var))
+                || (matches!(&**right, Node::Num(_)) && is_linear_in_var(left, var))
+        }
+        Node::Add(left, right) | Node::Subtract(left, right) => {
+            (is_linear_in_var(left, var) && !contains_var(right, var))
+                || (!contains_var(left, var) && is_linear_in_var(right, var))
+        }
+        Node::Negate(inner) => is_linear_in_var(inner, var),
         _ => false,
     }
 }
@@ -414,7 +445,7 @@ fn try_tabular_integration(
         .unwrap_or_else(|_| u_candidate.clone());
     let mut v_integral = match integrate(dv_candidate, var) {
         Ok(v) => v,
-        Err(e) => return Some(Err(e)),
+        Err(_) => return None,
     };
 
     let mut terms: Vec<Node> = Vec::new();
@@ -526,6 +557,204 @@ fn try_log_integration(
     };
 
     Some(Ok(Node::Subtract(Box::new(uv), Box::new(remaining))))
+}
+
+/// U-substitution: Given ∫h(x)dx, find g(x) such that h(x) = f(g(x))·g'(x)·c,
+/// then result = c · F(g(x)) where F is the antiderivative of f.
+fn try_u_substitution(expr: &Node, var: &str) -> Option<Result<Node, String>> {
+    let env = crate::environment::Environment::new();
+
+    // Decompose into multiplicative factors
+    let mut factors = Vec::new();
+    collect_factors(expr, &mut factors);
+
+    // Collect candidates from the whole expression
+    let candidates = collect_u_candidates(expr, var);
+
+    for g_x in &candidates {
+        if !contains_var(g_x, var) {
+            continue;
+        }
+        let dg = match crate::derivative::differentiate(g_x, var) {
+            Ok(d) => crate::simplify::Simplifiable::simplify(&d, &env).unwrap_or(d),
+            Err(_) => continue,
+        };
+        if matches!(&dg, Node::Num(n) if n.is_zero()) {
+            continue;
+        }
+
+        // Rebuild the product of all factors EXCEPT those that match g(x) or contain it
+        // Then check if that product / g'(x) is constant
+        //
+        // Strategy: separate factors into "g-dependent" (contain g(x) as subexpr)
+        // and "remaining" (potential g'(x) carrier).
+        let mut remaining_factors: Vec<Node> = Vec::new();
+        let mut g_factor: Option<Node> = None;
+
+        for f in &factors {
+            let f_with_u = replace_subexpr(f, g_x, &Node::Variable("_u_".to_string()));
+            let was_changed = &f_with_u != f;
+            if was_changed && !contains_var(&f_with_u, var) {
+                // Factor contains g(x), and after substitution is free of var
+                if g_factor.is_some() {
+                    remaining_factors.push(f.clone());
+                } else {
+                    g_factor = Some(f.clone());
+                }
+            } else {
+                remaining_factors.push(f.clone());
+            }
+        }
+
+        let g_factor = match g_factor {
+            Some(f) => f,
+            None => continue,
+        };
+
+        // Build the "remaining" product and divide by g'(x)
+        let remaining = if remaining_factors.is_empty() {
+            Node::Num(ExactNum::one())
+        } else {
+            let mut prod = remaining_factors.remove(0);
+            for f in remaining_factors {
+                prod = Node::Multiply(Box::new(prod), Box::new(f));
+            }
+            prod
+        };
+
+        let ratio = Node::Divide(Box::new(remaining), Box::new(dg.clone()));
+        let ratio_simplified = crate::simplify::Simplifiable::simplify(&ratio, &env)
+            .unwrap_or(ratio);
+
+        if contains_var(&ratio_simplified, var) {
+            continue;
+        }
+
+        // ratio_simplified is the constant c
+        // g_factor with g(x)→u is f(u)
+        let f_of_u = replace_subexpr(&g_factor, g_x, &Node::Variable("_u_".to_string()));
+
+        let integral_of_f = match integrate(&f_of_u, "_u_") {
+            Ok(i) => i,
+            Err(_) => continue,
+        };
+
+        // Back-substitute u = g(x)
+        let result = match crate::substitute::substitute_variable(&integral_of_f, "_u_", g_x) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        // Multiply by constant c
+        let final_result = if matches!(&ratio_simplified, Node::Num(n) if n.is_one()) {
+            result
+        } else {
+            Node::Multiply(Box::new(ratio_simplified), Box::new(result))
+        };
+
+        let final_simplified = crate::simplify::Simplifiable::simplify(&final_result, &env)
+            .unwrap_or(final_result);
+        return Some(Ok(final_simplified));
+    }
+    None
+}
+
+/// Flatten a multiplicative expression into factors.
+fn collect_factors(expr: &Node, factors: &mut Vec<Node>) {
+    match expr {
+        Node::Multiply(l, r) => {
+            collect_factors(l, factors);
+            collect_factors(r, factors);
+        }
+        _ => factors.push(expr.clone()),
+    }
+}
+
+/// Collect candidate inner functions g(x) for u-substitution.
+fn collect_u_candidates(expr: &Node, var: &str) -> Vec<Node> {
+    let mut candidates = Vec::new();
+    collect_u_candidates_inner(expr, var, &mut candidates);
+    candidates
+}
+
+fn collect_u_candidates_inner(expr: &Node, var: &str, candidates: &mut Vec<Node>) {
+    match expr {
+        Node::Function(_, args) => {
+            // The function call itself is a candidate (e.g., sin(x) for ∫sin(x)·cos(x)dx)
+            if contains_var(expr, var) {
+                candidates.push(expr.clone());
+            }
+            for arg in args {
+                if contains_var(arg, var) && !matches!(arg, Node::Variable(_)) {
+                    candidates.push(arg.clone());
+                }
+                collect_u_candidates_inner(arg, var, candidates);
+            }
+        }
+        Node::Power(base, exp) => {
+            // If the base is a function call like sin(x), it's a candidate
+            if let Node::Function(_, _) = &**base {
+                if contains_var(base, var) {
+                    candidates.push(*base.clone());
+                }
+            }
+            // Non-trivial base expressions are candidates
+            if contains_var(base, var) && !matches!(&**base, Node::Variable(_)) {
+                candidates.push(*base.clone());
+            }
+            // Non-trivial exponent expressions are candidates
+            if contains_var(exp, var) && !matches!(&**exp, Node::Variable(_)) {
+                candidates.push(*exp.clone());
+            }
+            collect_u_candidates_inner(base, var, candidates);
+            collect_u_candidates_inner(exp, var, candidates);
+        }
+        Node::Multiply(l, r) | Node::Add(l, r) | Node::Subtract(l, r) | Node::Divide(l, r) => {
+            collect_u_candidates_inner(l, var, candidates);
+            collect_u_candidates_inner(r, var, candidates);
+        }
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+            collect_u_candidates_inner(inner, var, candidates);
+        }
+        _ => {}
+    }
+}
+
+/// Replace all occurrences of `target` subexpression with `replacement`.
+fn replace_subexpr(expr: &Node, target: &Node, replacement: &Node) -> Node {
+    if expr == target {
+        return replacement.clone();
+    }
+    match expr {
+        Node::Add(l, r) => Node::Add(
+            Box::new(replace_subexpr(l, target, replacement)),
+            Box::new(replace_subexpr(r, target, replacement)),
+        ),
+        Node::Subtract(l, r) => Node::Subtract(
+            Box::new(replace_subexpr(l, target, replacement)),
+            Box::new(replace_subexpr(r, target, replacement)),
+        ),
+        Node::Multiply(l, r) => Node::Multiply(
+            Box::new(replace_subexpr(l, target, replacement)),
+            Box::new(replace_subexpr(r, target, replacement)),
+        ),
+        Node::Divide(l, r) => Node::Divide(
+            Box::new(replace_subexpr(l, target, replacement)),
+            Box::new(replace_subexpr(r, target, replacement)),
+        ),
+        Node::Power(base, exp) => Node::Power(
+            Box::new(replace_subexpr(base, target, replacement)),
+            Box::new(replace_subexpr(exp, target, replacement)),
+        ),
+        Node::Negate(inner) => Node::Negate(Box::new(replace_subexpr(inner, target, replacement))),
+        Node::Sqrt(inner) => Node::Sqrt(Box::new(replace_subexpr(inner, target, replacement))),
+        Node::Abs(inner) => Node::Abs(Box::new(replace_subexpr(inner, target, replacement))),
+        Node::Function(name, args) => Node::Function(
+            name.clone(),
+            args.iter().map(|a| replace_subexpr(a, target, replacement)).collect(),
+        ),
+        _ => expr.clone(),
+    }
 }
 
 /// Integrates a LaTeX expression with respect to a variable
