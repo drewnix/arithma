@@ -108,10 +108,44 @@ Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
 }
 ```
 
+## Command line
+
+Arithma also works as a standalone CLI tool. Run with no arguments for an
+interactive REPL, or pass a subcommand for one-shot computation:
+
+```
+$ arithma simplify "x^2 + 2x + 1"
+x^{2} + 2x + 1
+
+$ arithma diff "x^3 + \sin(x)" x
+3x^{2} + \cos(x)
+
+$ arithma integrate "3x^2" x
+x^{3} + C
+
+$ arithma solve "x^2 - 4 = 0"
+x = 2
+x = -2
+
+$ arithma factor "x^4 - 1"
+(x + 1) * (x - 1) * (x^2 + 1)
+
+$ arithma eval "x^2 + 1" x=3
+10
+
+$ arithma taylor "\sin(x)" x 0 5
+\frac{1}{120} \cdot x^{5} - \frac{1}{6} \cdot x^{3} + x
+```
+
+All 10 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
+`solve`, `factor`, `partial-fractions` (`pf`), `evaluate` (`eval`), `limit`,
+`taylor`, `substitute` (`sub`). Run `arithma --help` for full usage.
+
 ## Building
 
 ```
-cargo build --release --bin arithma-mcp   # MCP server (1.6 MB binary)
+cargo build --release                     # both binaries
+cargo build --release --bin arithma-mcp   # MCP server only
 cargo test                                # run all 589 tests
 ```
 
