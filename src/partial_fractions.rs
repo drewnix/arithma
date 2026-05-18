@@ -287,8 +287,7 @@ pub fn partial_fractions_latex(
     let node = decomp.to_node();
 
     let env = crate::environment::Environment::new();
-    let simplified =
-        crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
+    let simplified = crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
     Ok(format!("{}", simplified))
 }
 
@@ -317,10 +316,7 @@ mod tests {
             // Cofactor = den / (q^k)
             let q_pow = poly_power(&term.denominator, term.power, var);
             let (cofactor, rem) = den.div_rem(&q_pow).unwrap();
-            assert!(
-                rem.is_zero(),
-                "Denominator not divisible by factor^power"
-            );
+            assert!(rem.is_zero(), "Denominator not divisible by factor^power");
             let contribution = &term.numerator * &cofactor;
             reconstructed = &reconstructed + &contribution;
         }

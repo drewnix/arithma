@@ -823,9 +823,18 @@ mod algebra_tests {
         let expr = parse_eq("x^5 - x = 0");
         let solutions = solve_for_variable_exact(&expr, "x").unwrap();
         let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
-        assert!(vals.iter().any(|&v| (v - 0.0).abs() < 1e-10), "Missing root 0");
-        assert!(vals.iter().any(|&v| (v - 1.0).abs() < 1e-10), "Missing root 1");
-        assert!(vals.iter().any(|&v| (v + 1.0).abs() < 1e-10), "Missing root -1");
+        assert!(
+            vals.iter().any(|&v| (v - 0.0).abs() < 1e-10),
+            "Missing root 0"
+        );
+        assert!(
+            vals.iter().any(|&v| (v - 1.0).abs() < 1e-10),
+            "Missing root 1"
+        );
+        assert!(
+            vals.iter().any(|&v| (v + 1.0).abs() < 1e-10),
+            "Missing root -1"
+        );
     }
 
     #[test]
@@ -835,8 +844,14 @@ mod algebra_tests {
         let expr = parse_eq("x^6 - 1 = 0");
         let solutions = solve_for_variable_exact(&expr, "x").unwrap();
         let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
-        assert!(vals.iter().any(|&v| (v - 1.0).abs() < 1e-10), "Missing root 1");
-        assert!(vals.iter().any(|&v| (v + 1.0).abs() < 1e-10), "Missing root -1");
+        assert!(
+            vals.iter().any(|&v| (v - 1.0).abs() < 1e-10),
+            "Missing root 1"
+        );
+        assert!(
+            vals.iter().any(|&v| (v + 1.0).abs() < 1e-10),
+            "Missing root -1"
+        );
         assert_eq!(solutions.len(), 2, "Should find exactly 2 real roots");
     }
 
@@ -847,8 +862,14 @@ mod algebra_tests {
         let expr = parse_eq("x^4 - 5x^3 + 7x^2 - 5x + 6 = 0");
         let solutions = solve_for_variable_exact(&expr, "x").unwrap();
         let vals: Vec<f64> = solutions.iter().map(|s| s.to_f64()).collect();
-        assert!(vals.iter().any(|&v| (v - 2.0).abs() < 1e-10), "Missing root 2");
-        assert!(vals.iter().any(|&v| (v - 3.0).abs() < 1e-10), "Missing root 3");
+        assert!(
+            vals.iter().any(|&v| (v - 2.0).abs() < 1e-10),
+            "Missing root 2"
+        );
+        assert!(
+            vals.iter().any(|&v| (v - 3.0).abs() < 1e-10),
+            "Missing root 3"
+        );
     }
 
     fn parse_eq(latex: &str) -> arithma::Node {

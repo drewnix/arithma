@@ -29,9 +29,11 @@ mod idempotency_tests {
 
     fn assert_roundtrip_stable(latex: &str) {
         let env = Environment::new();
-        let expr = parse_latex(latex, &env).unwrap_or_else(|_| panic!("Failed to parse: {}", latex));
+        let expr =
+            parse_latex(latex, &env).unwrap_or_else(|_| panic!("Failed to parse: {}", latex));
         let s1_str = format!("{}", expr);
-        let reparsed = parse_latex(&s1_str, &env).unwrap_or_else(|_| panic!("Failed to reparse: {}", s1_str));
+        let reparsed =
+            parse_latex(&s1_str, &env).unwrap_or_else(|_| panic!("Failed to reparse: {}", s1_str));
         let s2_str = format!("{}", reparsed);
         assert_eq!(
             s1_str, s2_str,

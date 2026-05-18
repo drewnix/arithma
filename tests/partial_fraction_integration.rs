@@ -11,8 +11,8 @@ mod pf_integration_tests {
 
     fn verify_antiderivative(integrand_latex: &str, var: &str, test_points: &[f64]) {
         let expr = parse_raw(integrand_latex);
-        let integral =
-            integrate(&expr, var).unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
+        let integral = integrate(&expr, var)
+            .unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);
@@ -83,10 +83,6 @@ mod pf_integration_tests {
     #[test]
     fn test_pf_polynomial_part() {
         // ∫(x³+1)/(x²-1) dx — has a polynomial part from long division
-        verify_antiderivative(
-            "(x^3 + 1)/(x^2 - 1)",
-            "x",
-            &[1.5, 2.0, 3.0, -1.5, -2.0],
-        );
+        verify_antiderivative("(x^3 + 1)/(x^2 - 1)", "x", &[1.5, 2.0, 3.0, -1.5, -2.0]);
     }
 }

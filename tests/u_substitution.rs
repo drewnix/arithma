@@ -15,8 +15,8 @@ mod u_sub_tests {
 
     fn verify_integral(integrand_latex: &str, var: &str, test_points: &[(f64, f64)]) {
         let expr = parse_raw(integrand_latex);
-        let integral =
-            integrate(&expr, var).unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
+        let integral = integrate(&expr, var)
+            .unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);

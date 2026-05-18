@@ -226,10 +226,7 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                                     coeff.numer().to_i64().unwrap_or(0),
                                     coeff.denom().to_i64().unwrap_or(1),
                                 ));
-                                return Ok(Node::Multiply(
-                                    Box::new(coeff_node),
-                                    Box::new(ln_term),
-                                ));
+                                return Ok(Node::Multiply(Box::new(coeff_node), Box::new(ln_term)));
                             }
                         }
                     }
@@ -1150,8 +1147,8 @@ fn try_partial_fraction_integration(
         return None;
     }
 
-    let decomp = crate::partial_fractions::partial_fraction_decomposition(&num_poly, &den_poly)
-        .ok()?;
+    let decomp =
+        crate::partial_fractions::partial_fraction_decomposition(&num_poly, &den_poly).ok()?;
 
     if decomp.terms.is_empty() && decomp.polynomial_part.is_zero() {
         return None;
@@ -1210,10 +1207,7 @@ fn integrate_pf_term(
 
         if k == 1 {
             // A·ln|x+a|
-            let ln_term = Node::Function(
-                "ln".to_string(),
-                vec![Node::Abs(Box::new(x_plus_a))],
-            );
+            let ln_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(x_plus_a))]);
             if coeff_a == num_rational::BigRational::one() {
                 Ok(ln_term)
             } else {
@@ -1254,7 +1248,8 @@ fn integrate_pf_term(
 
         // Log term: (A/2)·ln|x²+bx+c|
         if !a_coeff.is_zero() {
-            let half_a = &a_coeff / &num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+            let half_a =
+                &a_coeff / &num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
             let ln_arg = q.to_node();
             let ln_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(ln_arg))]);
             if half_a == num_rational::BigRational::one() {
@@ -1301,8 +1296,7 @@ fn integrate_pf_term(
                     Box::new(two_x_plus_b),
                     Box::new(Node::Num(ExactNum::from_f64(sqrt_disc))),
                 );
-                let arctan_term =
-                    Node::Function("arctan".to_string(), vec![arctan_arg]);
+                let arctan_term = Node::Function("arctan".to_string(), vec![arctan_arg]);
 
                 if (overall_coeff_f64 - 1.0).abs() < 1e-14 {
                     terms.push(arctan_term);
@@ -1340,10 +1334,7 @@ fn integrate_pf_term(
 ///   √(k² - u²) → u = k·sin(θ): result = (k²/2)(θ + sin(θ)cos(θ))
 ///   √(u² + k²) → u = k·tan(θ): result = (k²/2)(ln|sec(θ)+tan(θ)| + sec(θ)tan(θ))
 ///   √(u² - k²) → u = k·sec(θ): result involves sec and log terms
-fn try_trig_substitution_sqrt(
-    inner: &Node,
-    var: &str,
-) -> Option<Result<Node, String>> {
+fn try_trig_substitution_sqrt(inner: &Node, var: &str) -> Option<Result<Node, String>> {
     let poly = Polynomial::from_node(inner, var).ok()?;
     if poly.degree()? != 2 {
         return None;
@@ -1418,10 +1409,7 @@ fn try_trig_substitution_sqrt(
         let sin_cos_product = Node::Divide(
             Box::new(Node::Multiply(
                 Box::new(Node::Num(ExactNum::from_f64(alpha.sqrt()))),
-                Box::new(Node::Multiply(
-                    Box::new(u_node),
-                    Box::new(sqrt_inner),
-                )),
+                Box::new(Node::Multiply(Box::new(u_node), Box::new(sqrt_inner))),
             )),
             Box::new(Node::Num(ExactNum::from_f64(k_sq))),
         );
@@ -1430,10 +1418,7 @@ fn try_trig_substitution_sqrt(
         let half_scale = scale / 2.0;
         let result = Node::Multiply(
             Box::new(Node::Num(ExactNum::from_f64(half_scale))),
-            Box::new(Node::Add(
-                Box::new(theta),
-                Box::new(sin_cos_product),
-            )),
+            Box::new(Node::Add(Box::new(theta), Box::new(sin_cos_product))),
         );
 
         let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
@@ -1479,17 +1464,11 @@ fn try_trig_substitution_sqrt(
 
         // ln|sec(θ) + tan(θ)|
         let log_arg = Node::Add(Box::new(sec_val), Box::new(tan_val));
-        let log_term = Node::Function(
-            "ln".to_string(),
-            vec![Node::Abs(Box::new(log_arg))],
-        );
+        let log_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(log_arg))]);
 
         let result = Node::Multiply(
             Box::new(Node::Num(ExactNum::from_f64(coeff))),
-            Box::new(Node::Add(
-                Box::new(sec_tan),
-                Box::new(log_term),
-            )),
+            Box::new(Node::Add(Box::new(sec_tan), Box::new(log_term))),
         );
 
         let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
@@ -1531,17 +1510,11 @@ fn try_trig_substitution_sqrt(
 
         let sec_tan = Node::Multiply(Box::new(sec_val.clone()), Box::new(tan_val.clone()));
         let log_arg = Node::Add(Box::new(sec_val), Box::new(tan_val));
-        let log_term = Node::Function(
-            "ln".to_string(),
-            vec![Node::Abs(Box::new(log_arg))],
-        );
+        let log_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(log_arg))]);
 
         let result = Node::Multiply(
             Box::new(Node::Num(ExactNum::from_f64(coeff))),
-            Box::new(Node::Subtract(
-                Box::new(sec_tan),
-                Box::new(log_term),
-            )),
+            Box::new(Node::Subtract(Box::new(sec_tan), Box::new(log_term))),
         );
 
         let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);

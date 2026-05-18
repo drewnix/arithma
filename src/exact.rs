@@ -80,9 +80,7 @@ impl ExactNum {
 
     pub fn is_even(&self) -> bool {
         match self {
-            ExactNum::Rational(r) => {
-                r.is_integer() && (r.to_integer() % BigInt::from(2)).is_zero()
-            }
+            ExactNum::Rational(r) => r.is_integer() && (r.to_integer() % BigInt::from(2)).is_zero(),
             ExactNum::Float(f) => f.fract() == 0.0 && f.is_finite() && (*f as i64) % 2 == 0,
         }
     }

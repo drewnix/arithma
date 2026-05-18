@@ -241,11 +241,7 @@ impl Polynomial {
         let var = a.variable().to_string();
         if b.is_zero() {
             if a.is_zero() {
-                return (
-                    Self::zero(&var),
-                    Self::one(&var),
-                    Self::zero(&var),
-                );
+                return (Self::zero(&var), Self::one(&var), Self::zero(&var));
             }
             let lc = a.leading_coeff().unwrap().clone();
             let lc_inv = BigRational::one() / lc;

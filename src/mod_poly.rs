@@ -42,17 +42,11 @@ fn mod_inverse(a: i64, p: i64) -> i64 {
 
 impl ModPoly {
     pub fn zero(p: i64) -> Self {
-        ModPoly {
-            coeffs: vec![],
-            p,
-        }
+        ModPoly { coeffs: vec![], p }
     }
 
     pub fn one(p: i64) -> Self {
-        ModPoly {
-            coeffs: vec![1],
-            p,
-        }
+        ModPoly { coeffs: vec![1], p }
     }
 
     pub fn x_poly(p: i64) -> Self {
@@ -75,10 +69,7 @@ impl ModPoly {
         if c == 0 {
             Self::zero(p)
         } else {
-            ModPoly {
-                coeffs: vec![c],
-                p,
-            }
+            ModPoly { coeffs: vec![c], p }
         }
     }
 
@@ -137,10 +128,7 @@ impl ModPoly {
         while coeffs.last() == Some(&0) {
             coeffs.pop();
         }
-        ModPoly {
-            coeffs,
-            p: self.p,
-        }
+        ModPoly { coeffs, p: self.p }
     }
 
     pub fn sub(&self, other: &ModPoly) -> ModPoly {
@@ -154,18 +142,16 @@ impl ModPoly {
         while coeffs.last() == Some(&0) {
             coeffs.pop();
         }
-        ModPoly {
-            coeffs,
-            p: self.p,
-        }
+        ModPoly { coeffs, p: self.p }
     }
 
     pub fn neg(&self) -> ModPoly {
-        let coeffs = self.coeffs.iter().map(|&c| mod_reduce(-c, self.p)).collect();
-        ModPoly {
-            coeffs,
-            p: self.p,
-        }
+        let coeffs = self
+            .coeffs
+            .iter()
+            .map(|&c| mod_reduce(-c, self.p))
+            .collect();
+        ModPoly { coeffs, p: self.p }
     }
 
     pub fn scalar_mul(&self, s: i64) -> ModPoly {
@@ -181,10 +167,7 @@ impl ModPoly {
         while coeffs.last() == Some(&0) {
             coeffs.pop();
         }
-        ModPoly {
-            coeffs,
-            p: self.p,
-        }
+        ModPoly { coeffs, p: self.p }
     }
 
     pub fn mul(&self, other: &ModPoly) -> ModPoly {
@@ -204,10 +187,7 @@ impl ModPoly {
         while coeffs.last() == Some(&0) {
             coeffs.pop();
         }
-        ModPoly {
-            coeffs,
-            p: self.p,
-        }
+        ModPoly { coeffs, p: self.p }
     }
 
     pub fn make_monic(&self) -> ModPoly {
@@ -685,10 +665,7 @@ fn choose_prime(f: &crate::polynomial::Polynomial) -> i64 {
 }
 
 /// Center-lift a polynomial from [0, m) to (-m/2, m/2].
-fn center_lift(
-    poly: &crate::polynomial::Polynomial,
-    m: &BigInt,
-) -> crate::polynomial::Polynomial {
+fn center_lift(poly: &crate::polynomial::Polynomial, m: &BigInt) -> crate::polynomial::Polynomial {
     let half = m / BigInt::from(2);
     let deg = match poly.degree() {
         Some(d) => d,
@@ -1381,8 +1358,7 @@ mod tests {
         use num_bigint::BigInt;
         use num_rational::BigRational;
         let int = |n: i64| BigRational::from_integer(BigInt::from(n));
-        let poly =
-            crate::polynomial::Polynomial::from_coeffs(vec![int(7), int(-3), int(12)], "x");
+        let poly = crate::polynomial::Polynomial::from_coeffs(vec![int(7), int(-3), int(12)], "x");
         let mp = ModPoly::from_polynomial(&poly, 5);
         assert_eq!(mp.coeff(0), 2); // 7 mod 5
         assert_eq!(mp.coeff(1), 2); // -3 mod 5
@@ -1409,7 +1385,7 @@ mod tests {
         let b = ModPoly::from_coeffs(&[1, 1], 5); // x+1
         let (g, s, t) = ModPoly::extended_gcd(&a, &b);
         assert_eq!(g, ModPoly::from_coeffs(&[1, 1], 5)); // x+1
-        // Verify: s*a + t*b = g
+                                                         // Verify: s*a + t*b = g
         let check = s.mul(&a).add(&t.mul(&b));
         assert_eq!(check, g);
     }
@@ -1430,10 +1406,7 @@ mod tests {
     #[test]
     fn test_hensel_lift_x2_minus_1() {
         // f = x²-1, factors mod 3: (x+1)(x+2) since -1 ≡ 2 mod 3
-        let f = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(-1), int(0), int(1)],
-            "x",
-        );
+        let f = crate::polynomial::Polynomial::from_coeffs(vec![int(-1), int(0), int(1)], "x");
         let g0 = ModPoly::from_coeffs(&[1, 1], 3); // x+1
         let h0 = ModPoly::from_coeffs(&[2, 1], 3); // x+2 = x-1 mod 3
 
@@ -1459,10 +1432,8 @@ mod tests {
     fn test_hensel_lift_cubic() {
         // f = x³ + 2x² - x - 2 = (x-1)(x+1)(x+2)
         // mod 5: factors are (x+4)(x+1)(x+2)
-        let f = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(-2), int(-1), int(2), int(1)],
-            "x",
-        );
+        let f =
+            crate::polynomial::Polynomial::from_coeffs(vec![int(-2), int(-1), int(2), int(1)], "x");
         // Two-factor: g₀ = x+4, h₀ = (x+1)(x+2) = x²+3x+2 mod 5
         let g0 = ModPoly::from_coeffs(&[4, 1], 5);
         let h0 = ModPoly::from_coeffs(&[2, 3, 1], 5);
@@ -1488,10 +1459,8 @@ mod tests {
         // f = x³ - 1 = (x-1)(x²+x+1)
         // mod 7: x³-1 ≡ x³+6 mod 7
         // Factors mod 7: (x+6)(x²+x+1) since x=1 is a root
-        let f = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(-1), int(0), int(0), int(1)],
-            "x",
-        );
+        let f =
+            crate::polynomial::Polynomial::from_coeffs(vec![int(-1), int(0), int(0), int(1)], "x");
         let factors_mod7 = vec![
             ModPoly::from_coeffs(&[6, 1], 7),    // x+6 = x-1 mod 7
             ModPoly::from_coeffs(&[1, 1, 1], 7), // x²+x+1
@@ -1506,29 +1475,19 @@ mod tests {
         let m = BigInt::from(2401i64);
         for i in 0..=diff.degree().unwrap_or(0) {
             let c = diff.coeff(i).to_integer();
-            assert!(
-                (&c % &m).is_zero(),
-                "coeff {} not divisible by 2401",
-                i
-            );
+            assert!((&c % &m).is_zero(), "coeff {} not divisible by 2401", i);
         }
     }
 
     #[test]
     fn test_mignotte_bound() {
         // f = x² - 1: ||f||_∞ = 1, n = 2, bound = 4
-        let f = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(-1), int(0), int(1)],
-            "x",
-        );
+        let f = crate::polynomial::Polynomial::from_coeffs(vec![int(-1), int(0), int(1)], "x");
         let b = mignotte_bound(&f);
         assert_eq!(b, BigInt::from(4i64)); // 2^2 * 1
 
         // f = 6x² + 5x + 1: ||f||_∞ = 6, n = 2, bound = 24
-        let f2 = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(1), int(5), int(6)],
-            "x",
-        );
+        let f2 = crate::polynomial::Polynomial::from_coeffs(vec![int(1), int(5), int(6)], "x");
         let b2 = mignotte_bound(&f2);
         assert_eq!(b2, BigInt::from(24i64));
     }
@@ -1537,10 +1496,7 @@ mod tests {
     fn test_lifting_target() {
         // f = x² - 1, p = 3
         // bound = 2 * 4 = 8, need 3^k > 8, so k = 2 (3² = 9 > 8)
-        let f = crate::polynomial::Polynomial::from_coeffs(
-            vec![int(-1), int(0), int(1)],
-            "x",
-        );
+        let f = crate::polynomial::Polynomial::from_coeffs(vec![int(-1), int(0), int(1)], "x");
         let k = lifting_target(&f, 3);
         assert_eq!(k, 2);
     }
@@ -1548,10 +1504,7 @@ mod tests {
     // --- Factor recombination (full pipeline) ---
 
     fn poly(coeffs: &[i64], var: &str) -> crate::polynomial::Polynomial {
-        crate::polynomial::Polynomial::from_coeffs(
-            coeffs.iter().map(|&c| int(c)).collect(),
-            var,
-        )
+        crate::polynomial::Polynomial::from_coeffs(coeffs.iter().map(|&c| int(c)).collect(), var)
     }
 
     fn verify_factorization(f: &crate::polynomial::Polynomial) {

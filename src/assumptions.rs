@@ -38,16 +38,11 @@ impl Assumptions {
     }
 
     pub fn assume(&mut self, var: &str, prop: Assumption) {
-        self.props
-            .entry(var.to_string())
-            .or_default()
-            .insert(prop);
+        self.props.entry(var.to_string()).or_default().insert(prop);
     }
 
     pub fn has(&self, var: &str, prop: &Assumption) -> bool {
-        self.props
-            .get(var)
-            .is_some_and(|set| set.contains(prop))
+        self.props.get(var).is_some_and(|set| set.contains(prop))
     }
 
     pub fn is_positive(&self, var: &str) -> bool {

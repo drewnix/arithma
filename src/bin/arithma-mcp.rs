@@ -521,10 +521,13 @@ fn tool_factor(args: &Value) -> Result<String, String> {
 
     let mut parts: Vec<String> = Vec::new();
 
-    let content_str = format!("{}", arithma::Node::Num(arithma::ExactNum::rational(
-        content.numer().try_into().unwrap_or(1),
-        content.denom().try_into().unwrap_or(1),
-    )));
+    let content_str = format!(
+        "{}",
+        arithma::Node::Num(arithma::ExactNum::rational(
+            content.numer().try_into().unwrap_or(1),
+            content.denom().try_into().unwrap_or(1),
+        ))
+    );
     if content_str != "1" {
         parts.push(content_str);
     }
