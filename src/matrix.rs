@@ -857,10 +857,10 @@ mod tests {
         // [1 2 3] * [7 8]   = [58 64]
         // [4 5 6]   [9 10]    [139 154]
         //           [11 12]
-        let expected = vec![58.0, 64.0, 139.0, 154.0];
-        for i in 0..4 {
+        let expected = [58.0, 64.0, 139.0, 154.0];
+        for (i, &exp) in expected.iter().enumerate() {
             match &result.elements[i] {
-                Node::Num(n) => assert_eq!(n.to_f64(), expected[i]),
+                Node::Num(n) => assert_eq!(n.to_f64(), exp),
                 _ => panic!("Expected Num node at index {}", i),
             }
         }
@@ -883,10 +883,10 @@ mod tests {
         // Inverse should be [0.6 -0.7; -0.2 0.4]
         let inverse = matrix.inverse(&env).unwrap();
 
-        let expected = vec![0.6, -0.7, -0.2, 0.4];
-        for i in 0..4 {
+        let expected = [0.6, -0.7, -0.2, 0.4];
+        for (i, &exp) in expected.iter().enumerate() {
             match &inverse.elements[i] {
-                Node::Num(n) => assert!((n.to_f64() - expected[i]).abs() < 1e-10),
+                Node::Num(n) => assert!((n.to_f64() - exp).abs() < 1e-10),
                 _ => panic!("Expected Num node at index {}", i),
             }
         }

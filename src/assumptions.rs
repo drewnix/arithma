@@ -47,7 +47,7 @@ impl Assumptions {
     pub fn has(&self, var: &str, prop: &Assumption) -> bool {
         self.props
             .get(var)
-            .map_or(false, |set| set.contains(prop))
+            .is_some_and(|set| set.contains(prop))
     }
 
     pub fn is_positive(&self, var: &str) -> bool {
@@ -90,7 +90,7 @@ impl Assumptions {
             for prop_val in arr {
                 let prop_str = prop_val
                     .as_str()
-                    .ok_or(format!("assumption property must be a string"))?;
+                    .ok_or("assumption property must be a string".to_string())?;
                 let prop = Assumption::from_str(prop_str).ok_or(format!(
                     "unknown assumption '{}'. Valid: positive, nonnegative, negative, nonzero, real, integer",
                     prop_str

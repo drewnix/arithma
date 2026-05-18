@@ -6,7 +6,7 @@ mod inverse_trig_tests {
     fn parse_raw(latex: &str) -> arithma::Node {
         let mut tokenizer = Tokenizer::new(latex);
         let tokens = tokenizer.tokenize();
-        build_expression_tree(tokens).expect(&format!("Failed to parse: {}", latex))
+        build_expression_tree(tokens).unwrap_or_else(|_| panic!("Failed to parse: {}", latex))
     }
 
     fn approx_eq(a: f64, b: f64, eps: f64) -> bool {
@@ -16,7 +16,7 @@ mod inverse_trig_tests {
     fn verify_by_numerical_derivative(integrand_latex: &str, var: &str, x_val: f64) {
         let expr = parse_raw(integrand_latex);
         let integral =
-            integrate(&expr, var).expect(&format!("Failed to integrate: {}", integrand_latex));
+            integrate(&expr, var).unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);

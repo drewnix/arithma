@@ -6,7 +6,7 @@ mod idempotency_tests {
     fn parse_raw(latex: &str) -> arithma::Node {
         let mut tokenizer = Tokenizer::new(latex);
         let tokens = tokenizer.tokenize();
-        build_expression_tree(tokens).expect(&format!("Failed to parse raw: {}", latex))
+        build_expression_tree(tokens).unwrap_or_else(|_| panic!("Failed to parse raw: {}", latex))
     }
 
     fn assert_idempotent(latex: &str) {
@@ -14,11 +14,11 @@ mod idempotency_tests {
         let raw = parse_raw(latex);
         let s1 = raw
             .simplify(&env)
-            .expect(&format!("Failed first simplify: {}", latex));
+            .unwrap_or_else(|_| panic!("Failed first simplify: {}", latex));
         let s1_str = format!("{}", s1);
         let s2 = s1
             .simplify(&env)
-            .expect(&format!("Failed second simplify: {}", latex));
+            .unwrap_or_else(|_| panic!("Failed second simplify: {}", latex));
         let s2_str = format!("{}", s2);
         assert_eq!(
             s1_str, s2_str,
@@ -29,9 +29,9 @@ mod idempotency_tests {
 
     fn assert_roundtrip_stable(latex: &str) {
         let env = Environment::new();
-        let expr = parse_latex(latex, &env).expect(&format!("Failed to parse: {}", latex));
+        let expr = parse_latex(latex, &env).unwrap_or_else(|_| panic!("Failed to parse: {}", latex));
         let s1_str = format!("{}", expr);
-        let reparsed = parse_latex(&s1_str, &env).expect(&format!("Failed to reparse: {}", s1_str));
+        let reparsed = parse_latex(&s1_str, &env).unwrap_or_else(|_| panic!("Failed to reparse: {}", s1_str));
         let s2_str = format!("{}", reparsed);
         assert_eq!(
             s1_str, s2_str,

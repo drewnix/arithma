@@ -1675,7 +1675,7 @@ mod tests {
         let y1 = &y + &MultiPoly::one();
         let f = &(&(&x + &MultiPoly::one()) * &y1).scalar_mul(&int(2));
         let g = &(&(&x + &MultiPoly::integer(2)) * &y1).scalar_mul(&int(3));
-        let result = MultiPoly::gcd(&f, &g);
+        let result = MultiPoly::gcd(f, g);
         assert_eq!(
             result.evaluate_at("y", &int(4)),
             MultiPoly::integer(5) // y+1 at y=4 → 5

@@ -418,6 +418,7 @@ impl ModPoly {
 
 // --- Berlekamp's algorithm ---
 
+#[allow(clippy::needless_range_loop)]
 /// Build the Berlekamp Q-matrix for polynomial f over Z_p.
 ///
 /// Q is n×n where n = deg(f).
@@ -455,6 +456,7 @@ fn berlekamp_matrix(f: &ModPoly) -> Vec<Vec<i64>> {
     matrix
 }
 
+#[allow(clippy::needless_range_loop)]
 /// Compute the null space of (Q - I) over Z_p via Gaussian elimination.
 /// Returns basis vectors as coefficient vectors (least-degree first).
 fn null_space(q_matrix: &[Vec<i64>], p: i64) -> Vec<Vec<i64>> {
@@ -1019,6 +1021,7 @@ pub fn hensel_lift_pair(
 
 /// Hensel lift all factors from mod p to mod p^target_k.
 ///
+#[allow(clippy::needless_range_loop)]
 /// Uses sequential pair-lifting: peels off one factor at a time.
 /// For r factors, performs r-1 pair lifts.
 pub fn hensel_lift_factors(

@@ -108,7 +108,7 @@ mod latex_parser_tests {
 
         // Tokenize and parse the input
         let parsed_expr = build_expression_tree(tokens)?;
-        Evaluator::evaluate(&parsed_expr, &env)
+        Evaluator::evaluate(&parsed_expr, env)
     }
 
     // Helper function to evaluate LaTeX expression and return the result

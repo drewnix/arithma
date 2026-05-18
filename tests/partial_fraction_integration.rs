@@ -6,13 +6,13 @@ mod pf_integration_tests {
     fn parse_raw(latex: &str) -> arithma::Node {
         let mut tokenizer = Tokenizer::new(latex);
         let tokens = tokenizer.tokenize();
-        build_expression_tree(tokens).expect(&format!("Failed to parse: {}", latex))
+        build_expression_tree(tokens).unwrap_or_else(|_| panic!("Failed to parse: {}", latex))
     }
 
     fn verify_antiderivative(integrand_latex: &str, var: &str, test_points: &[f64]) {
         let expr = parse_raw(integrand_latex);
         let integral =
-            integrate(&expr, var).expect(&format!("Failed to integrate: {}", integrand_latex));
+            integrate(&expr, var).unwrap_or_else(|_| panic!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);
@@ -46,7 +46,7 @@ mod pf_integration_tests {
         }
     }
 
-    // Avoid points near the poles of the rational functions
+    #[allow(dead_code)]
     static POINTS: &[f64] = &[0.3, 0.7, 1.5, 2.5, -0.5, -1.5];
 
     #[test]

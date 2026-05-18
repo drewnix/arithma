@@ -1,7 +1,7 @@
 # Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Last updated: 2026-05-17, Session 16*
+*Last updated: 2026-05-18, Session 17*
 
 ---
 
@@ -28,11 +28,11 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 16)
+## Current State (Post Session 17)
 
-**568 tests pass. 0 failures. 13 MCP tools. ~15K lines of Rust. Binary under 2 MB.**
+**589 tests pass. 0 failures. 13 MCP tools. ~16K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-4 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints (positive, nonnegative, negative, nonzero, real, integer) across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -48,23 +48,15 @@ The exact arithmetic, polynomial algebra, simplification, differentiation, and b
 - **Phase 4: Simplification engine** ✅ — polynomial normalization, trig/log/power rules, idempotency contract (62 tests)
 - **Phase 5: Core calculus** ✅ — differentiation (full chain rule), integration (8 techniques), series, limits
 - **Phase 7: MCP server** ✅ — 13 tools, LaTeX I/O, hand-rolled JSON-RPC, < 2 MB
+- **Phase 8: Assumption system** ✅ — 6 property types, 9 tools with assumptions, 21 tests
 
-### Tier 2: Agent Confidence (Next)
+### Tier 2: Agent Confidence (In Progress)
 
 Features that help an agent *trust* its mathematical reasoning — knowing the boundaries of what's computable and simplifying under real-world constraints.
 
-#### Phase 8: Assumption System
+#### Phase 8: Assumption System ✅
 
-**Goal:** Let agents declare constraints ("x > 0", "n is an integer") that change what simplifications are valid.
-
-**Why this matters:** Without assumptions, `√(x²)` stays as `√(x²)` because the simplifier can't assume x ≥ 0. An agent reasoning about a physical distance gets conservative results that look wrong. With assumptions, `√(x²)` → `x` when `x > 0`, `ln(e^x)` → `x` when `x ∈ ℝ`, and `(-1)^(2n)` → `1` when `n ∈ ℤ`.
-
-- `Assumptions` struct: set of constraints on variables (positive, real, integer, etc.)
-- Flows through simplification, integration, and solving
-- Conservative default: no assumptions = maximum generality
-- MCP tool: `simplify` gains optional `assumptions` parameter
-
-**Estimated effort:** 2-3 sessions. The struct is simple; the work is threading it through every simplification rule.
+**Completed Session 17.** Variable constraints (positive, nonnegative, negative, nonzero, real, integer) with implication rules. Assumption-aware simplification: `√(x²)` → `x` when x ≥ 0, `|x|` → `x` when x ≥ 0, `(-1)^{2n}` → `1` when n ∈ ℤ. Conservative default preserved. 9 of 12 MCP tools accept optional `assumptions` parameter. 21 new tests.
 
 #### Phase 9: Risch Decision Procedure (Transcendental Case)
 
@@ -177,6 +169,15 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 17 (2026-05-18)
+- Phase 8: Assumption system — Assumptions struct with 6 property types, implication rules
+- Assumption-aware simplification: sqrt(x^2)->x, |x|->x, (-1)^(2n)->1
+- Environment integration: assumptions field, with_assumptions() constructor
+- MCP server: 9 tools gain optional assumptions parameter with JSON schema
+- ExactNum::is_even() for even-integer detection
+- Clippy cleanup: zero warnings across lib and all tests
+- 21 new tests (7 unit + 14 integration)
 
 ### Session 16 (2026-05-17)
 - Both-even mixed trig product integration (Pythagorean expansion + binomial theorem)

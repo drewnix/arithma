@@ -12,7 +12,7 @@ mod algebra_tests {
         // Tokenize and parse the input
         let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
-        Evaluator::evaluate(&parsed_expr, &env)
+        Evaluator::evaluate(&parsed_expr, env)
     }
 
     // Helper function to evaluate LaTeX expression and return the result
@@ -854,6 +854,6 @@ mod algebra_tests {
     fn parse_eq(latex: &str) -> arithma::Node {
         let mut tokenizer = Tokenizer::new(latex);
         let tokens = tokenizer.tokenize();
-        build_expression_tree(tokens).expect(&format!("Failed to parse: {}", latex))
+        build_expression_tree(tokens).unwrap_or_else(|_| panic!("Failed to parse: {}", latex))
     }
 }

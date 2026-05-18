@@ -18,6 +18,10 @@ recombination). Multivariate polynomial GCD. Simplification with a verified
 idempotency contract: `simplify(simplify(e)) = simplify(e)`. Trigonometric
 identities, logarithmic properties, power rules. Partial fraction decomposition.
 Expression equivalence checking with symbolic and numerical verification.
+Assumption system: declare variable constraints (positive, nonnegative, negative,
+nonzero, real, integer) to enable domain-aware simplification ---
+`sqrt(x^2) -> x` when x > 0, `|x| -> x` when x >= 0, `(-1)^(2n) -> 1`
+when n is integer.
 
 **Calculus.** Differentiation with chain rule, product rule, quotient rule, and the
 general f^g formula. Integration via polynomial rules, transcendental table,
@@ -61,6 +65,16 @@ Claude or any MCP-compatible AI agent access to 13 tools:
 | `equivalent` | Check if two expressions are mathematically equal |
 
 Every tool accepts LaTeX and returns LaTeX. No intermediate formats, no ambiguity.
+Nine tools accept an optional `assumptions` parameter for domain-aware simplification:
+
+```json
+{
+  "expr": "\\sqrt{x^2}",
+  "assumptions": {"x": ["positive"]}
+}
+```
+
+Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`, `integer`.
 
 ### Adding to Claude Code
 
@@ -113,7 +127,7 @@ Wolfram, no network calls.
 ```
 cargo build            # debug build
 cargo build --release  # optimized build
-cargo test             # run all 568 tests
+cargo test             # run all 589 tests
 ```
 
 ## Design principles
@@ -139,6 +153,7 @@ them up from a table of special cases.
 src/
   node.rs              -- expression AST
   exact.rs             -- exact rational arithmetic (BigRational)
+  assumptions.rs       -- variable assumptions (positive, integer, etc.)
   parser.rs            -- LaTeX tokenizer and parser
   simplify.rs          -- rule-based simplification with idempotency contract
   polynomial.rs        -- dense univariate polynomials over Q

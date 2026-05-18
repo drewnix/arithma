@@ -1202,7 +1202,7 @@ fn integrate_pf_term(
     if q_deg == 1 {
         // Linear factor: q = x + a (monic)
         // N is a constant A
-        let a = q.coeff(0); // the constant term
+        let _a = q.coeff(0);
         let coeff_a = n.coeff(0); // numerator constant
 
         // ∫ A/(x+a)^k dx
@@ -1282,7 +1282,7 @@ fn integrate_pf_term(
             if disc_f64 > 0.0 {
                 let sqrt_disc = disc_f64.sqrt();
                 // coeff = residual · 2 / sqrt_disc
-                let two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+                let _two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
                 let overall_coeff_f64 = {
                     let res_f64 = residual.numer().to_string().parse::<f64>().unwrap_or(0.0)
                         / residual.denom().to_string().parse::<f64>().unwrap_or(1.0);

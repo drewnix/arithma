@@ -218,10 +218,10 @@ impl Simplifiable for Node {
                 }
 
                 // (-1)^(2n) → 1 when n is integer (even exponent of -1)
-                if is_neg_one(&base_simplified) {
-                    if is_even_integer_expr(&exponent_simplified, env) {
-                        return Ok(Node::Num(ExactNum::one()));
-                    }
+                if is_neg_one(&base_simplified)
+                    && is_even_integer_expr(&exponent_simplified, env)
+                {
+                    return Ok(Node::Num(ExactNum::one()));
                 }
 
                 Ok(Node::Power(

@@ -408,7 +408,7 @@ mod tests {
         // x = A(x+1) + B(x-1); x=1: 1=2A, A=1/2; x=-1: -1=-2B, B=1/2
         let num = poly(&[0, 1], "x"); // x
         let den = poly(&[-1, 0, 1], "x"); // x²-1
-        let decomp = partial_fraction_decomposition(&num, &den).unwrap();
+        let _decomp = partial_fraction_decomposition(&num, &den).unwrap();
         verify_decomposition(&num, &den);
     }
 
@@ -417,7 +417,7 @@ mod tests {
         // 1 / (x³-1) = 1/((x-1)(x²+x+1))
         let num = poly(&[1], "x");
         let den = poly(&[-1, 0, 0, 1], "x"); // x³-1
-        let decomp = partial_fraction_decomposition(&num, &den).unwrap();
+        let _decomp = partial_fraction_decomposition(&num, &den).unwrap();
         verify_decomposition(&num, &den);
     }
 

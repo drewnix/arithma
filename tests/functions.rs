@@ -9,7 +9,7 @@ mod function_tests {
         // Tokenize and parse the input
         let tokens = tokenizer.tokenize(); // Call the instance method on tokenizer
         let parsed_expr = build_expression_tree(tokens)?;
-        Evaluator::evaluate(&parsed_expr, &env)
+        Evaluator::evaluate(&parsed_expr, env)
     }
 
     // Helper function to evaluate LaTeX expression and return the result
