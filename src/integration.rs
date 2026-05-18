@@ -2,8 +2,19 @@ use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
+use crate::risch::{try_risch_exponential, RischResult};
 use crate::tokenizer::Tokenizer;
 use num_traits::{One, ToPrimitive, Zero};
+
+fn try_risch_fallback(expr: &Node, var_name: &str) -> Option<Result<Node, String>> {
+    match try_risch_exponential(expr, var_name) {
+        Some(RischResult::Elementary(node)) => Some(Ok(node)),
+        Some(RischResult::NonElementary(reason)) => {
+            Some(Err(format!("NON_ELEMENTARY: {}", reason)))
+        }
+        None => None,
+    }
+}
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
@@ -145,6 +156,9 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 return result;
             }
 
+            if let Some(result) = try_risch_fallback(expr, var_name) {
+                return result;
+            }
             Err("Integration of this expression is not yet implemented".to_string())
         }
 
@@ -192,6 +206,9 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 return result;
             }
 
+            if let Some(result) = try_risch_fallback(expr, var_name) {
+                return result;
+            }
             Err("Integration of this product is not yet implemented".to_string())
         }
 
@@ -274,6 +291,9 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 return result;
             }
 
+            if let Some(result) = try_risch_fallback(expr, var_name) {
+                return result;
+            }
             Err("Integration of this division is not yet implemented".to_string())
         }
 
@@ -317,13 +337,21 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
             if let Some(result) = try_u_substitution(&full_expr, var_name) {
                 return result;
             }
+            if let Some(result) = try_risch_fallback(&full_expr, var_name) {
+                return result;
+            }
             Err(format!(
                 "Integration of {}(...) with non-linear argument not yet implemented",
                 name
             ))
         }
 
-        _ => Err("Integration of this expression is not yet implemented".to_string()),
+        _ => {
+            if let Some(result) = try_risch_fallback(expr, var_name) {
+                return result;
+            }
+            Err("Integration of this expression is not yet implemented".to_string())
+        }
     }
 }
 
@@ -2019,5 +2047,50 @@ mod tests {
         env.set("x", std::f64::consts::E);
         let result = Evaluator::evaluate(&integral, &env).unwrap();
         assert!(approx_eq(result, 1.0, 1e-10));
+    }
+
+    #[test]
+    fn test_integrate_exp_neg_x_sq_non_elementary() {
+        // ∫e^(-x²) dx should be detected as non-elementary
+        let expr = parse_expression("\\exp(-x^2)").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.starts_with("NON_ELEMENTARY:"),
+            "Expected NON_ELEMENTARY, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_integrate_x_exp_neg_x_sq_elementary() {
+        // ∫x·e^(-x²) dx should succeed (not be reported as non-elementary).
+        // The existing u-substitution heuristic handles this case before
+        // the Risch fallback would fire.
+        let expr = parse_expression("x \\cdot \\exp(-x^2)").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "∫x·exp(-x²)dx should be elementary, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_x_cubed_non_elementary() {
+        // ∫e^(x³) dx — non-elementary
+        let expr = parse_expression("\\exp(x^3)").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
+    }
+
+    #[test]
+    fn test_integrate_exp_x_still_works() {
+        // ∫e^x dx = e^x — should still use the existing heuristic path
+        let expr = parse_expression("\\exp(x)").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(result.is_ok());
     }
 }

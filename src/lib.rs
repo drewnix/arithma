@@ -86,4 +86,6 @@ pub mod ode;
 pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode_latex};
 
 pub mod risch;
-pub use crate::risch::{hermite_reduce, DifferentialExtension, HermiteResult};
+pub use crate::risch::{
+    hermite_reduce, try_risch_exponential, DifferentialExtension, HermiteResult, RischResult,
+};

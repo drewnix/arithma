@@ -241,6 +241,18 @@ mod integration_tests {
     }
 
     #[test]
+    fn test_integrate_latex_non_elementary() {
+        let result = integrate_latex("\\exp(-x^2)", "x");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("NON_ELEMENTARY") || err.contains("no elementary"),
+            "Expected non-elementary message, got: {}",
+            err
+        );
+    }
+
+    #[test]
     fn test_definite_sin() {
         let result = definite_integral_latex("\\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
         let value = result.parse::<f64>().unwrap_or(0.0);
