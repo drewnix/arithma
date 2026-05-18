@@ -64,6 +64,9 @@ pub use crate::polynomial::Polynomial;
 pub mod rational_function;
 pub use crate::rational_function::RationalFunction;
 
+pub mod ext_poly;
+pub use crate::ext_poly::ExtPoly;
+
 pub mod mod_poly;
 pub use crate::mod_poly::{factor_mod_p, factor_over_q, ModPoly};
 
