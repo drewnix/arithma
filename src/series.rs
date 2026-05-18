@@ -26,9 +26,7 @@ pub fn taylor_series(
     let mut eval_env = Environment::new();
     eval_env.set_exact(var, center.clone());
 
-    let mut current = expr
-        .simplify(&empty_env)
-        .unwrap_or_else(|_| expr.clone());
+    let mut current = expr.simplify(&empty_env).unwrap_or_else(|_| expr.clone());
 
     let mut coeffs: Vec<ExactNum> = Vec::with_capacity(order + 1);
 
@@ -176,10 +174,7 @@ fn build_taylor_node(coeffs: &[ExactNum], var: &str, center: &ExactNum) -> Resul
             } else if coeff == &ExactNum::integer(-1) {
                 Node::Negate(Box::new(power_node))
             } else {
-                Node::Multiply(
-                    Box::new(Node::Num(coeff.clone())),
-                    Box::new(power_node),
-                )
+                Node::Multiply(Box::new(Node::Num(coeff.clone())), Box::new(power_node))
             }
         };
 
@@ -225,10 +220,7 @@ mod tests {
     #[test]
     fn test_taylor_exp_maclaurin() {
         // e^x around 0, order 4: 1 + x + x²/2 + x³/6 + x⁴/24
-        let expr = Node::Function(
-            "exp".to_string(),
-            vec![Node::Variable("x".to_string())],
-        );
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
         let result = taylor_series(&expr, "x", &ExactNum::zero(), 4).unwrap();
         // Evaluate at x=0: should be 1
         let mut env = Environment::new();
@@ -244,10 +236,7 @@ mod tests {
     #[test]
     fn test_taylor_sin_maclaurin() {
         // sin(x) around 0, order 5: x - x³/6 + x⁵/120
-        let expr = Node::Function(
-            "sin".to_string(),
-            vec![Node::Variable("x".to_string())],
-        );
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
         let result = taylor_series(&expr, "x", &ExactNum::zero(), 5).unwrap();
         // Evaluate at x=0.5
         let mut env = Environment::new();
@@ -260,10 +249,7 @@ mod tests {
     #[test]
     fn test_taylor_cos_maclaurin() {
         // cos(x) around 0, order 4: 1 - x²/2 + x⁴/24
-        let expr = Node::Function(
-            "cos".to_string(),
-            vec![Node::Variable("x".to_string())],
-        );
+        let expr = Node::Function("cos".to_string(), vec![Node::Variable("x".to_string())]);
         let result = taylor_series(&expr, "x", &ExactNum::zero(), 4).unwrap();
         let mut env = Environment::new();
         env.set("x", 0.3);
@@ -279,10 +265,7 @@ mod tests {
         // f(x) = x^2, f(1)=1, f'(1)=2, f''(1)=2
         // T(x) = 1 + 2(x-1) + (x-1)^2
         let x = Node::Variable("x".to_string());
-        let expr = Node::Power(
-            Box::new(x),
-            Box::new(Node::Num(ExactNum::integer(2))),
-        );
+        let expr = Node::Power(Box::new(x), Box::new(Node::Num(ExactNum::integer(2))));
         let result = taylor_series(&expr, "x", &ExactNum::integer(1), 2).unwrap();
         // Evaluate at x=3: 1 + 2*2 + 4 = 9 = 3^2 ✓
         let mut env = Environment::new();

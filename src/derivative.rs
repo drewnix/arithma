@@ -4,7 +4,8 @@ use crate::polynomial::Polynomial;
 
 pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
-    let expr = &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    let expr =
+        &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
 
     if let Ok(poly) = Polynomial::from_node(expr, var_name) {
         return Ok(poly.derivative().to_node());
@@ -156,10 +157,7 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     let original = Node::Power(base.clone(), exponent.clone());
                     let ln_base = Node::Function("ln".to_string(), vec![*base.clone()]);
                     Ok(Node::Multiply(
-                        Box::new(Node::Multiply(
-                            Box::new(original),
-                            Box::new(ln_base),
-                        )),
+                        Box::new(Node::Multiply(Box::new(original), Box::new(ln_base))),
                         Box::new(exp_deriv),
                     ))
                 } else if base_is_const && exp_is_const {
@@ -622,8 +620,8 @@ pub fn differentiate_latex(latex_expr: &str, var_name: &str) -> Result<String, S
     let expr = crate::parser::build_expression_tree(tokens)?;
     let derivative = differentiate(&expr, var_name)?;
     let env = crate::environment::Environment::new();
-    let simplified = crate::simplify::Simplifiable::simplify(&derivative, &env)
-        .unwrap_or(derivative);
+    let simplified =
+        crate::simplify::Simplifiable::simplify(&derivative, &env).unwrap_or(derivative);
     Ok(format!("{}", simplified))
 }
 

@@ -7,7 +7,8 @@ use num_traits::Zero;
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
-    let expr = &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    let expr =
+        &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
 
     if let Ok(poly) = Polynomial::from_node(expr, var_name) {
         return Ok(poly.integral().to_node());
@@ -128,10 +129,7 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                             Box::new(Node::Num(a.clone())),
                             Box::new(Node::Variable(var_name.to_string())),
                         );
-                        let ln_a = Node::Function(
-                            "ln".to_string(),
-                            vec![Node::Num(a.clone())],
-                        );
+                        let ln_a = Node::Function("ln".to_string(), vec![Node::Num(a.clone())]);
                         return Ok(Node::Divide(Box::new(a_to_x), Box::new(ln_a)));
                     }
                 }
@@ -211,10 +209,8 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
             // ∫k/f(x) dx = k * ∫(1/f(x)) dx — factor out constant numerator
             if let Node::Num(k) = &**left {
                 if !k.is_one() {
-                    let one_over_right = Node::Divide(
-                        Box::new(Node::Num(ExactNum::one())),
-                        right.clone(),
-                    );
+                    let one_over_right =
+                        Node::Divide(Box::new(Node::Num(ExactNum::one())), right.clone());
                     if let Ok(inner) = integrate(&one_over_right, var_name) {
                         return Ok(Node::Multiply(
                             Box::new(Node::Num(k.clone())),
@@ -228,10 +224,7 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 if !k.is_zero() {
                     let inner = integrate(left, var_name)?;
                     let inv = ExactNum::one() / k.clone();
-                    return Ok(Node::Multiply(
-                        Box::new(Node::Num(inv)),
-                        Box::new(inner),
-                    ));
+                    return Ok(Node::Multiply(Box::new(Node::Num(inv)), Box::new(inner)));
                 }
             }
 
@@ -260,21 +253,19 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
             // Try linear substitution: f(ax+b) where a is constant
             if let Some((a, _b)) = extract_linear_arg(arg, var_name) {
                 let base_integral = integrate_standard_function(name, var_name)?;
-                let inv_a = Node::Divide(
-                    Box::new(Node::Num(ExactNum::one())),
-                    Box::new(Node::Num(a)),
-                );
-                return Ok(Node::Multiply(
-                    Box::new(inv_a),
-                    Box::new(base_integral),
-                ));
+                let inv_a =
+                    Node::Divide(Box::new(Node::Num(ExactNum::one())), Box::new(Node::Num(a)));
+                return Ok(Node::Multiply(Box::new(inv_a), Box::new(base_integral)));
             }
             // Try u-substitution on the full expression (may help with composed functions)
             let full_expr = Node::Function(name.clone(), args.clone());
             if let Some(result) = try_u_substitution(&full_expr, var_name) {
                 return result;
             }
-            Err(format!("Integration of {}(...) with non-linear argument not yet implemented", name))
+            Err(format!(
+                "Integration of {}(...) with non-linear argument not yet implemented",
+                name
+            ))
         }
 
         _ => Err("Integration of this expression is not yet implemented".to_string()),
@@ -285,9 +276,10 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
     let x = || Node::Variable(var.to_string());
     match name {
         // ∫sin(x) = -cos(x)
-        "sin" => Ok(Node::Negate(Box::new(
-            Node::Function("cos".to_string(), vec![x()]),
-        ))),
+        "sin" => Ok(Node::Negate(Box::new(Node::Function(
+            "cos".to_string(),
+            vec![x()],
+        )))),
         // ∫cos(x) = sin(x)
         "cos" => Ok(Node::Function("sin".to_string(), vec![x()])),
         // ∫tan(x) = -ln|cos(x)|
@@ -434,10 +426,11 @@ fn is_linear_in_var(expr: &Node, var: &str) -> bool {
 fn contains_var(expr: &Node, var: &str) -> bool {
     match expr {
         Node::Variable(v) => v == var,
-        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r)
-        | Node::Divide(l, r) | Node::Power(l, r) => {
-            contains_var(l, var) || contains_var(r, var)
-        }
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r) => contains_var(l, var) || contains_var(r, var),
         Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
         Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
         _ => false,
@@ -470,8 +463,8 @@ fn try_tabular_integration(
 
     for _ in 0..20 {
         // Simplify v_integral
-        v_integral = crate::simplify::Simplifiable::simplify(&v_integral, &env)
-            .unwrap_or(v_integral);
+        v_integral =
+            crate::simplify::Simplifiable::simplify(&v_integral, &env).unwrap_or(v_integral);
 
         // Term: ±u · V
         let term = Node::Multiply(Box::new(u.clone()), Box::new(v_integral.clone()));
@@ -563,9 +556,7 @@ fn try_log_integration(
         crate::parser::build_expression_tree(toks)
             .ok()
             .and_then(|e| crate::simplify::Simplifiable::simplify(&e, &env).ok())
-            .unwrap_or_else(|| {
-                crate::simplify::Simplifiable::simplify(&v_du, &env).unwrap_or(v_du)
-            })
+            .unwrap_or_else(|| crate::simplify::Simplifiable::simplify(&v_du, &env).unwrap_or(v_du))
     };
 
     let remaining = match integrate(&v_du_reparsed, var) {
@@ -609,7 +600,11 @@ fn try_inverse_trig_integral(denom: &Node, var: &str) -> Option<Node> {
         let a_squared = match const_part.as_ref() {
             Node::Num(n) => {
                 let val = n.to_f64();
-                if val > 0.0 { Some(n.clone()) } else { None }
+                if val > 0.0 {
+                    Some(n.clone())
+                } else {
+                    None
+                }
             }
             _ => None,
         };
@@ -753,8 +748,8 @@ fn try_u_substitution(expr: &Node, var: &str) -> Option<Result<Node, String>> {
         };
 
         let ratio = Node::Divide(Box::new(remaining), Box::new(dg.clone()));
-        let ratio_simplified = crate::simplify::Simplifiable::simplify(&ratio, &env)
-            .unwrap_or(ratio);
+        let ratio_simplified =
+            crate::simplify::Simplifiable::simplify(&ratio, &env).unwrap_or(ratio);
 
         if contains_var(&ratio_simplified, var) {
             continue;
@@ -782,8 +777,8 @@ fn try_u_substitution(expr: &Node, var: &str) -> Option<Result<Node, String>> {
             Node::Multiply(Box::new(ratio_simplified), Box::new(result))
         };
 
-        let final_simplified = crate::simplify::Simplifiable::simplify(&final_result, &env)
-            .unwrap_or(final_result);
+        let final_simplified =
+            crate::simplify::Simplifiable::simplify(&final_result, &env).unwrap_or(final_result);
         return Some(Ok(final_simplified));
     }
     None
@@ -881,7 +876,9 @@ fn replace_subexpr(expr: &Node, target: &Node, replacement: &Node) -> Node {
         Node::Abs(inner) => Node::Abs(Box::new(replace_subexpr(inner, target, replacement))),
         Node::Function(name, args) => Node::Function(
             name.clone(),
-            args.iter().map(|a| replace_subexpr(a, target, replacement)).collect(),
+            args.iter()
+                .map(|a| replace_subexpr(a, target, replacement))
+                .collect(),
         ),
         _ => expr.clone(),
     }
@@ -903,8 +900,7 @@ pub fn integrate_latex(latex_expr: &str, var_name: &str) -> Result<String, Strin
     let expr = build_expression_tree(tokens)?;
     let integral = integrate(&expr, var_name)?;
     let env = crate::environment::Environment::new();
-    let simplified =
-        crate::simplify::Simplifiable::simplify(&integral, &env).unwrap_or(integral);
+    let simplified = crate::simplify::Simplifiable::simplify(&integral, &env).unwrap_or(integral);
     Ok(format!("{} + C", simplified))
 }
 

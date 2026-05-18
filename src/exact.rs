@@ -251,12 +251,7 @@ impl fmt::Display for ExactNum {
                 if r.is_integer() {
                     write!(f, "{}", r.numer())
                 } else if r.numer() < &num_bigint::BigInt::from(0) {
-                    write!(
-                        f,
-                        "-\\frac{{{}}}{{{}}}",
-                        -r.numer(),
-                        r.denom()
-                    )
+                    write!(f, "-\\frac{{{}}}{{{}}}", -r.numer(), r.denom())
                 } else {
                     write!(f, "\\frac{{{}}}{{{}}}", r.numer(), r.denom())
                 }
@@ -424,7 +419,10 @@ mod tests {
     #[test]
     fn test_sqrt_non_perfect_stays_float() {
         let result = ExactNum::integer(2).sqrt();
-        assert!(matches!(result, ExactNum::Float(_)), "sqrt(2) should be float");
+        assert!(
+            matches!(result, ExactNum::Float(_)),
+            "sqrt(2) should be float"
+        );
     }
 
     #[test]

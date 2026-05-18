@@ -31,8 +31,7 @@ mod idempotency_tests {
         let env = Environment::new();
         let expr = parse_latex(latex, &env).expect(&format!("Failed to parse: {}", latex));
         let s1_str = format!("{}", expr);
-        let reparsed =
-            parse_latex(&s1_str, &env).expect(&format!("Failed to reparse: {}", s1_str));
+        let reparsed = parse_latex(&s1_str, &env).expect(&format!("Failed to reparse: {}", s1_str));
         let s2_str = format!("{}", reparsed);
         assert_eq!(
             s1_str, s2_str,

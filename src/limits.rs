@@ -120,10 +120,8 @@ fn limit_zero_over_zero(
 
     // Strategy 2: L'Hôpital's rule
     let env = Environment::new();
-    let n_prime = differentiate(numer, var)
-        .and_then(|d| d.simplify(&env).or(Ok(d)))?;
-    let d_prime = differentiate(denom, var)
-        .and_then(|d| d.simplify(&env).or(Ok(d)))?;
+    let n_prime = differentiate(numer, var).and_then(|d| d.simplify(&env).or(Ok(d)))?;
+    let d_prime = differentiate(denom, var).and_then(|d| d.simplify(&env).or(Ok(d)))?;
 
     let new_expr = Node::Divide(Box::new(n_prime), Box::new(d_prime));
     limit_internal(&new_expr, var, point, depth + 1)
@@ -173,11 +171,7 @@ fn try_polynomial_cancel(
 }
 
 /// Compute limit from LaTeX expression.
-pub fn limit_latex(
-    expr_latex: &str,
-    var: &str,
-    point: f64,
-) -> Result<String, String> {
+pub fn limit_latex(expr_latex: &str, var: &str, point: f64) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr_latex);
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
@@ -224,10 +218,7 @@ mod tests {
             )),
             Box::new(Node::Num(ExactNum::integer(1))),
         );
-        let denom = Node::Subtract(
-            Box::new(x),
-            Box::new(Node::Num(ExactNum::integer(1))),
-        );
+        let denom = Node::Subtract(Box::new(x), Box::new(Node::Num(ExactNum::integer(1))));
         let expr = Node::Divide(Box::new(numer), Box::new(denom));
         let result = compute_limit(&expr, "x", &ExactNum::integer(1)).unwrap();
         assert_eq!(result.to_f64(), 2.0);
@@ -254,10 +245,7 @@ mod tests {
             Box::new(Node::Num(ExactNum::integer(1))),
             Box::new(Node::Function("cos".to_string(), vec![x.clone()])),
         );
-        let denom = Node::Power(
-            Box::new(x),
-            Box::new(Node::Num(ExactNum::integer(2))),
-        );
+        let denom = Node::Power(Box::new(x), Box::new(Node::Num(ExactNum::integer(2))));
         let expr = Node::Divide(Box::new(numer), Box::new(denom));
         let result = compute_limit(&expr, "x", &ExactNum::zero()).unwrap();
         assert!((result.to_f64() - 0.5).abs() < 1e-10);
@@ -305,10 +293,7 @@ mod tests {
             )),
             Box::new(Node::Num(ExactNum::integer(9))),
         );
-        let denom = Node::Subtract(
-            Box::new(x),
-            Box::new(Node::Num(ExactNum::integer(3))),
-        );
+        let denom = Node::Subtract(Box::new(x), Box::new(Node::Num(ExactNum::integer(3))));
         let expr = Node::Divide(Box::new(numer), Box::new(denom));
         let result = compute_limit(&expr, "x", &ExactNum::integer(3)).unwrap();
         assert_eq!(result.to_f64(), 6.0);

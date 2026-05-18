@@ -3,10 +3,10 @@ use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::expression::extract_variable;
 use crate::integration::{definite_integral_latex, integrate_latex};
+use crate::limits::limit_latex;
 use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
-use crate::limits::limit_latex;
 use crate::series::taylor_series_latex;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
@@ -109,17 +109,10 @@ pub fn taylor_series_js(
 
 #[allow(unexpected_cfgs)]
 #[wasm_bindgen]
-pub fn limit_js(
-    latex_expr: &str,
-    var_name: &str,
-    point: f64,
-) -> Result<String, JsValue> {
+pub fn limit_js(latex_expr: &str, var_name: &str, point: f64) -> Result<String, JsValue> {
     match limit_latex(latex_expr, var_name, point) {
         Ok(result) => Ok(result),
-        Err(e) => Err(JsValue::from_str(&format!(
-            "Error computing limit: {}",
-            e
-        ))),
+        Err(e) => Err(JsValue::from_str(&format!("Error computing limit: {}", e))),
     }
 }
 

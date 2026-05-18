@@ -34,8 +34,8 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
     };
 
     let env = crate::environment::Environment::new();
-    let simplified = crate::simplify::Simplifiable::simplify(&equation_expr, &env)
-        .unwrap_or(equation_expr);
+    let simplified =
+        crate::simplify::Simplifiable::simplify(&equation_expr, &env).unwrap_or(equation_expr);
 
     let poly = Polynomial::from_node(&simplified, target_var)
         .map_err(|e| format!("Cannot convert to polynomial: {}", e))?;
@@ -145,8 +145,7 @@ fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
 fn solve_cubic_f64(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
     let shift = a2 / (3.0 * a3);
     let p = (a1 / a3) - (a2 * a2) / (3.0 * a3 * a3);
-    let q = (a0 / a3) + (2.0 * a2 * a2 * a2) / (27.0 * a3 * a3 * a3)
-        - (a2 * a1) / (3.0 * a3 * a3);
+    let q = (a0 / a3) + (2.0 * a2 * a2 * a2) / (27.0 * a3 * a3 * a3) - (a2 * a1) / (3.0 * a3 * a3);
 
     let h = q * q / 4.0 + p * p * p / 27.0;
 
@@ -272,12 +271,8 @@ fn cbrt(x: f64) -> f64 {
 }
 
 fn rational_to_f64(r: &BigRational) -> f64 {
-    r.to_f64().unwrap_or_else(|| {
-        r.numer()
-            .to_f64()
-            .unwrap_or(0.0)
-            / r.denom().to_f64().unwrap_or(1.0)
-    })
+    r.to_f64()
+        .unwrap_or_else(|| r.numer().to_f64().unwrap_or(0.0) / r.denom().to_f64().unwrap_or(1.0))
 }
 
 fn rational_to_exact(r: &BigRational) -> ExactNum {

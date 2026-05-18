@@ -15,15 +15,12 @@ mod inverse_trig_tests {
 
     fn verify_by_numerical_derivative(integrand_latex: &str, var: &str, x_val: f64) {
         let expr = parse_raw(integrand_latex);
-        let integral = integrate(&expr, var)
-            .expect(&format!("Failed to integrate: {}", integrand_latex));
+        let integral =
+            integrate(&expr, var).expect(&format!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);
-        eprintln!(
-            "∫({}) d{} = {}",
-            integrand_latex, var, integral_simplified
-        );
+        eprintln!("∫({}) d{} = {}", integrand_latex, var, integral_simplified);
 
         // Verify: d/dx[F(x)] ≈ f(x) by numerical differentiation
         let h = 1e-6;
@@ -42,7 +39,12 @@ mod inverse_trig_tests {
         assert!(
             approx_eq(numerical_deriv, expected, 1e-4),
             "For ∫({}) d{}: derivative of result at {}={} is {}, expected {}",
-            integrand_latex, var, var, x_val, numerical_deriv, expected
+            integrand_latex,
+            var,
+            var,
+            x_val,
+            numerical_deriv,
+            expected
         );
     }
 

@@ -89,19 +89,15 @@ impl Simplifiable for Node {
                 // k * (-f) → (-k) * f — absorb negation into coefficient
                 if let Node::Num(ref k) = left_simplified {
                     if let Node::Negate(inner) = right_simplified {
-                        return Node::Multiply(
-                            Box::new(Node::Num(-k.clone())),
-                            inner,
-                        ).simplify(env);
+                        return Node::Multiply(Box::new(Node::Num(-k.clone())), inner)
+                            .simplify(env);
                     }
                 }
                 // (-f) * k → (-k) * f
                 if let Node::Negate(inner) = &left_simplified {
                     if let Node::Num(ref k) = right_simplified {
-                        return Node::Multiply(
-                            Box::new(Node::Num(-k.clone())),
-                            inner.clone(),
-                        ).simplify(env);
+                        return Node::Multiply(Box::new(Node::Num(-k.clone())), inner.clone())
+                            .simplify(env);
                     }
                 }
 
@@ -124,19 +120,13 @@ impl Simplifiable for Node {
                 }
 
                 // x^a * x^b → x^(a+b)
-                if let (
-                    Node::Power(ref base1, ref exp1),
-                    Node::Power(ref base2, ref exp2),
-                ) = (&left_simplified, &right_simplified)
+                if let (Node::Power(ref base1, ref exp1), Node::Power(ref base2, ref exp2)) =
+                    (&left_simplified, &right_simplified)
                 {
                     if base1 == base2 {
-                        if let (Node::Num(ref a), Node::Num(ref b)) =
-                            (exp1.as_ref(), exp2.as_ref())
+                        if let (Node::Num(ref a), Node::Num(ref b)) = (exp1.as_ref(), exp2.as_ref())
                         {
-                            return Ok(Node::Power(
-                                base1.clone(),
-                                Box::new(Node::Num(a + b)),
-                            ));
+                            return Ok(Node::Power(base1.clone(), Box::new(Node::Num(a + b))));
                         }
                     }
                 }
@@ -174,10 +164,7 @@ impl Simplifiable for Node {
                     }
                 }
 
-                let result = Node::Multiply(
-                    Box::new(left_simplified),
-                    Box::new(right_simplified),
-                );
+                let result = Node::Multiply(Box::new(left_simplified), Box::new(right_simplified));
                 if let Some(normalized) = try_polynomial_normalize(&result) {
                     Ok(normalized)
                 } else {
@@ -228,10 +215,7 @@ impl Simplifiable for Node {
                     if let (Node::Num(ref a), Node::Num(ref b)) =
                         (&**inner_exp, &exponent_simplified)
                     {
-                        return Ok(Node::Power(
-                            inner_base.clone(),
-                            Box::new(Node::Num(a * b)),
-                        ));
+                        return Ok(Node::Power(inner_base.clone(), Box::new(Node::Num(a * b))));
                     }
                 }
 
@@ -296,8 +280,7 @@ impl Simplifiable for Node {
                     }
                 }
 
-                let result =
-                    Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
+                let result = Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
                     Ok(rebuild_expression(term_map))
@@ -362,24 +345,18 @@ impl Simplifiable for Node {
                                 _ => None,
                             };
                             if let Some(recip_name) = recip {
-                                return Ok(Node::Function(
-                                    recip_name.to_string(),
-                                    args.clone(),
-                                ));
+                                return Ok(Node::Function(recip_name.to_string(), args.clone()));
                             }
                         }
                     }
                 }
 
                 // x^a / x^b → x^(a-b)
-                if let (
-                    Node::Power(ref base1, ref exp1),
-                    Node::Power(ref base2, ref exp2),
-                ) = (&left_simplified, &right_simplified)
+                if let (Node::Power(ref base1, ref exp1), Node::Power(ref base2, ref exp2)) =
+                    (&left_simplified, &right_simplified)
                 {
                     if base1 == base2 {
-                        if let (Node::Num(ref a), Node::Num(ref b)) =
-                            (exp1.as_ref(), exp2.as_ref())
+                        if let (Node::Num(ref a), Node::Num(ref b)) = (exp1.as_ref(), exp2.as_ref())
                         {
                             let diff = a - b;
                             if diff.is_zero() {
@@ -387,10 +364,7 @@ impl Simplifiable for Node {
                             } else if diff.is_one() {
                                 return Ok(*base1.clone());
                             }
-                            return Ok(Node::Power(
-                                base1.clone(),
-                                Box::new(Node::Num(diff)),
-                            ));
+                            return Ok(Node::Power(base1.clone(), Box::new(Node::Num(diff))));
                         }
                     }
                 }
@@ -405,10 +379,7 @@ impl Simplifiable for Node {
                             } else if diff.is_one() {
                                 return Ok(*base.clone());
                             }
-                            return Ok(Node::Power(
-                                base.clone(),
-                                Box::new(Node::Num(diff)),
-                            ));
+                            return Ok(Node::Power(base.clone(), Box::new(Node::Num(diff))));
                         }
                     }
                 }
@@ -423,10 +394,7 @@ impl Simplifiable for Node {
                             } else if diff.is_one() {
                                 return Ok(*base.clone());
                             }
-                            return Ok(Node::Power(
-                                base.clone(),
-                                Box::new(Node::Num(diff)),
-                            ));
+                            return Ok(Node::Power(base.clone(), Box::new(Node::Num(diff))));
                         }
                     }
                 }
@@ -536,14 +504,11 @@ impl Simplifiable for Node {
                                 }
                                 // ln(a^b) → b·ln(a), then re-simplify since ln(a)
                                 // may itself expand (e.g. a = x·y → ln(x)+ln(y))
-                                let inner_ln = Node::Function(
-                                    "ln".to_string(),
-                                    vec![*base.clone()],
-                                ).simplify(env)?;
-                                return Node::Multiply(
-                                    exp.clone(),
-                                    Box::new(inner_ln),
-                                ).simplify(env);
+                                let inner_ln =
+                                    Node::Function("ln".to_string(), vec![*base.clone()])
+                                        .simplify(env)?;
+                                return Node::Multiply(exp.clone(), Box::new(inner_ln))
+                                    .simplify(env);
                             }
                             // ln(a·b) → ln(a) + ln(b), re-simplify each ln
                             if let Node::Multiply(a, b) = arg {
@@ -551,10 +516,7 @@ impl Simplifiable for Node {
                                     .simplify(env)?;
                                 let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
                                     .simplify(env)?;
-                                return Node::Add(
-                                    Box::new(ln_a),
-                                    Box::new(ln_b),
-                                ).simplify(env);
+                                return Node::Add(Box::new(ln_a), Box::new(ln_b)).simplify(env);
                             }
                             // ln(a/b) → ln(a) - ln(b), re-simplify each ln
                             if let Node::Divide(a, b) = arg {
@@ -562,10 +524,8 @@ impl Simplifiable for Node {
                                     .simplify(env)?;
                                 let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
                                     .simplify(env)?;
-                                return Node::Subtract(
-                                    Box::new(ln_a),
-                                    Box::new(ln_b),
-                                ).simplify(env);
+                                return Node::Subtract(Box::new(ln_a), Box::new(ln_b))
+                                    .simplify(env);
                             }
                         }
                         "exp" => {
@@ -699,17 +659,18 @@ fn rebuild_expression(term_map: HashMap<String, ExactNum>) -> Node {
             continue;
         }
         let negative = coef.is_negative();
-        let abs_coef = if negative { -coef.clone() } else { coef.clone() };
+        let abs_coef = if negative {
+            -coef.clone()
+        } else {
+            coef.clone()
+        };
 
         let node = if var.is_empty() {
             Node::Num(abs_coef)
         } else if abs_coef.is_one() {
             Node::Variable(var)
         } else {
-            Node::Multiply(
-                Box::new(Node::Num(abs_coef)),
-                Box::new(Node::Variable(var)),
-            )
+            Node::Multiply(Box::new(Node::Num(abs_coef)), Box::new(Node::Variable(var)))
         };
         signed_terms.push((node, negative));
     }

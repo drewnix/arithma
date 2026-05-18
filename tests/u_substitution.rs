@@ -15,15 +15,12 @@ mod u_sub_tests {
 
     fn verify_integral(integrand_latex: &str, var: &str, test_points: &[(f64, f64)]) {
         let expr = parse_raw(integrand_latex);
-        let integral = integrate(&expr, var)
-            .expect(&format!("Failed to integrate: {}", integrand_latex));
+        let integral =
+            integrate(&expr, var).expect(&format!("Failed to integrate: {}", integrand_latex));
         let env_base = Environment::new();
         let integral_simplified =
             arithma::simplify::Simplifiable::simplify(&integral, &env_base).unwrap_or(integral);
-        eprintln!(
-            "∫({}) d{} = {}",
-            integrand_latex, var, integral_simplified
-        );
+        eprintln!("∫({}) d{} = {}", integrand_latex, var, integral_simplified);
         for &(x_val, expected_f_x) in test_points {
             let mut env = Environment::new();
             env.set(var, x_val);
@@ -112,6 +109,9 @@ mod u_sub_tests {
         assert!(result.is_ok(), "u-sub via LaTeX interface should succeed");
         let result_str = result.unwrap();
         eprintln!("LaTeX result: {}", result_str);
-        assert!(result_str.contains("+ C"), "Should include constant of integration");
+        assert!(
+            result_str.contains("+ C"),
+            "Should include constant of integration"
+        );
     }
 }

@@ -32,7 +32,10 @@ fn main() {
         let request: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                write_response(&mut out, json_rpc_error(None, -32700, &format!("Parse error: {}", e)));
+                write_response(
+                    &mut out,
+                    json_rpc_error(None, -32700, &format!("Parse error: {}", e)),
+                );
                 continue;
             }
         };
@@ -448,8 +451,7 @@ fn tool_factor(args: &Value) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr);
     let tokens = tokenizer.tokenize();
     let node = build_expression_tree(tokens)?;
-    let poly = Polynomial::from_node(&node, var)
-        .map_err(|e| format!("Not a polynomial: {}", e))?;
+    let poly = Polynomial::from_node(&node, var).map_err(|e| format!("Not a polynomial: {}", e))?;
 
     let factors = poly.square_free_decomposition();
     let parts: Vec<String> = factors
@@ -468,24 +470,15 @@ fn tool_factor(args: &Value) -> Result<String, String> {
 fn tool_limit(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_str_or(args, "variable", "x");
-    let point = args
-        .get("point")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
+    let point = args.get("point").and_then(|v| v.as_f64()).unwrap_or(0.0);
     limit_latex(expr, var, point)
 }
 
 fn tool_taylor_series(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_str_or(args, "variable", "x");
-    let center = args
-        .get("center")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let order = args
-        .get("order")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(5) as usize;
+    let center = args.get("center").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
     taylor_series_latex(expr, var, center, order)
 }
 
@@ -516,12 +509,10 @@ fn tool_evaluate(args: &Value) -> Result<String, String> {
 
     match Evaluator::evaluate_exact(&simplified, &env) {
         Ok(val) => Ok(format!("{}", arithma::Node::Num(val))),
-        Err(_) => {
-            match Evaluator::evaluate(&simplified, &env) {
-                Ok(val) => Ok(val.to_string()),
-                Err(_) => Ok(format!("{}", simplified)),
-            }
-        }
+        Err(_) => match Evaluator::evaluate(&simplified, &env) {
+            Ok(val) => Ok(val.to_string()),
+            Err(_) => Ok(format!("{}", simplified)),
+        },
     }
 }
 
@@ -595,10 +586,7 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
     let b_form = format!("{}", b_simplified);
 
     if a_form == b_form {
-        return Ok(format!(
-            "Equivalent: true\nBoth simplify to: {}",
-            a_form
-        ));
+        return Ok(format!("Equivalent: true\nBoth simplify to: {}", a_form));
     }
 
     // Structural comparison failed — try simplifying the difference
@@ -640,7 +628,9 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
                     mismatches.push(format!(
                         "  At {} = {}: A = {:.6}, B = {:.6}",
                         var_list.first().unwrap_or(&"x".to_string()),
-                        point, a, b
+                        point,
+                        a,
+                        b
                     ));
                 }
             }
@@ -656,24 +646,33 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
     } else {
         Ok(format!(
             "Equivalent: false\nA simplifies to: {}\nB simplifies to: {}\nMismatches:\n{}",
-            a_form, b_form, mismatches.join("\n")
+            a_form,
+            b_form,
+            mismatches.join("\n")
         ))
     }
 }
 
 fn collect_vars(node: &arithma::Node, vars: &mut std::collections::HashSet<String>) {
     match node {
-        arithma::Node::Variable(v) => { vars.insert(v.clone()); }
-        arithma::Node::Add(l, r) | arithma::Node::Subtract(l, r)
-        | arithma::Node::Multiply(l, r) | arithma::Node::Divide(l, r)
+        arithma::Node::Variable(v) => {
+            vars.insert(v.clone());
+        }
+        arithma::Node::Add(l, r)
+        | arithma::Node::Subtract(l, r)
+        | arithma::Node::Multiply(l, r)
+        | arithma::Node::Divide(l, r)
         | arithma::Node::Power(l, r) => {
             collect_vars(l, vars);
             collect_vars(r, vars);
         }
-        arithma::Node::Negate(inner) | arithma::Node::Sqrt(inner)
-        | arithma::Node::Abs(inner) => collect_vars(inner, vars),
+        arithma::Node::Negate(inner) | arithma::Node::Sqrt(inner) | arithma::Node::Abs(inner) => {
+            collect_vars(inner, vars)
+        }
         arithma::Node::Function(_, args) => {
-            for a in args { collect_vars(a, vars); }
+            for a in args {
+                collect_vars(a, vars);
+            }
         }
         _ => {}
     }

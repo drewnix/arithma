@@ -23,10 +23,7 @@ use crate::polynomial::{gcd_bigint, lcm_bigint, Polynomial};
 #[derive(Debug, Clone)]
 pub enum MultiPoly {
     Constant(BigRational),
-    Poly {
-        var: String,
-        coeffs: Vec<MultiPoly>,
-    },
+    Poly { var: String, coeffs: Vec<MultiPoly> },
 }
 
 impl MultiPoly {
@@ -145,7 +142,11 @@ impl MultiPoly {
                 if var == target {
                     coeffs.len().saturating_sub(1)
                 } else {
-                    coeffs.iter().map(|c| c.degree_in(target)).max().unwrap_or(0)
+                    coeffs
+                        .iter()
+                        .map(|c| c.degree_in(target))
+                        .max()
+                        .unwrap_or(0)
                 }
             }
         }
@@ -396,7 +397,10 @@ impl MultiPoly {
         }
         let result = self.exact_div(&c);
         // Normalize sign: leading coefficient should be positive
-        if result.leading_constant().map_or(false, |lc| lc.is_negative()) {
+        if result
+            .leading_constant()
+            .map_or(false, |lc| lc.is_negative())
+        {
             result.negate()
         } else {
             result
@@ -407,9 +411,7 @@ impl MultiPoly {
     fn leading_constant(&self) -> Option<BigRational> {
         match self {
             MultiPoly::Constant(c) => Some(c.clone()),
-            MultiPoly::Poly { coeffs, .. } => {
-                coeffs.last().and_then(|c| c.leading_constant())
-            }
+            MultiPoly::Poly { coeffs, .. } => coeffs.last().and_then(|c| c.leading_constant()),
         }
     }
 
@@ -449,10 +451,8 @@ impl MultiPoly {
                     // divisor is in our coefficient ring
                     match self {
                         MultiPoly::Poly { var, coeffs } => {
-                            let new_coeffs: Vec<MultiPoly> = coeffs
-                                .iter()
-                                .map(|c| c.exact_div(divisor))
-                                .collect();
+                            let new_coeffs: Vec<MultiPoly> =
+                                coeffs.iter().map(|c| c.exact_div(divisor)).collect();
                             MultiPoly::from_coeffs(var, new_coeffs)
                         }
                         _ => unreachable!(),
@@ -483,7 +483,10 @@ impl MultiPoly {
             if self.is_zero() {
                 return MultiPoly::zero();
             }
-            panic!("exact_div: dividend degree {} < divisor degree {}", self_deg, divisor_deg);
+            panic!(
+                "exact_div: dividend degree {} < divisor degree {}",
+                self_deg, divisor_deg
+            );
         }
 
         let mut q_coeffs = vec![MultiPoly::zero(); self_deg - divisor_deg + 1];
@@ -496,7 +499,10 @@ impl MultiPoly {
             }
             let rem_deg = rem.main_degree();
             if rem_deg < divisor_deg {
-                panic!("exact_div: nonzero remainder (deg {} < {})", rem_deg, divisor_deg);
+                panic!(
+                    "exact_div: nonzero remainder (deg {} < {})",
+                    rem_deg, divisor_deg
+                );
             }
             let rem_lc = rem.leading_coeff();
             let q_coeff = rem_lc.exact_div(&divisor_lc);
@@ -535,16 +541,9 @@ impl MultiPoly {
             (MultiPoly::Constant(ra), MultiPoly::Constant(rb)) => {
                 MultiPoly::Constant(Self::gcd_rational(ra, rb))
             }
-            (MultiPoly::Constant(_), MultiPoly::Poly { .. }) => {
-                MultiPoly::gcd(a, &b.content())
-            }
-            (MultiPoly::Poly { .. }, MultiPoly::Constant(_)) => {
-                MultiPoly::gcd(&a.content(), b)
-            }
-            (
-                MultiPoly::Poly { var: va, .. },
-                MultiPoly::Poly { var: vb, .. },
-            ) => {
+            (MultiPoly::Constant(_), MultiPoly::Poly { .. }) => MultiPoly::gcd(a, &b.content()),
+            (MultiPoly::Poly { .. }, MultiPoly::Constant(_)) => MultiPoly::gcd(&a.content(), b),
+            (MultiPoly::Poly { var: va, .. }, MultiPoly::Poly { var: vb, .. }) => {
                 if va < vb {
                     MultiPoly::gcd(&a.content(), b)
                 } else if vb < va {
@@ -682,7 +681,11 @@ impl MultiPoly {
                         (if is_neg { negate_node(node) } else { node }, is_neg)
                     } else {
                         let is_neg = coeff.is_negative();
-                        let abs_coeff = if is_neg { coeff.negate() } else { coeff.clone() };
+                        let abs_coeff = if is_neg {
+                            coeff.negate()
+                        } else {
+                            coeff.clone()
+                        };
 
                         let term = if abs_coeff.is_one() {
                             make_var_power(deg)
@@ -721,9 +724,7 @@ impl MultiPoly {
     fn is_negative(&self) -> bool {
         match self {
             MultiPoly::Constant(c) => c.is_negative(),
-            MultiPoly::Poly { coeffs, .. } => {
-                coeffs.last().map_or(false, |lc| lc.is_negative())
-            }
+            MultiPoly::Poly { coeffs, .. } => coeffs.last().map_or(false, |lc| lc.is_negative()),
         }
     }
 
@@ -808,9 +809,7 @@ impl<'a> Add for &'a MultiPoly {
 
     fn add(self, rhs: &'a MultiPoly) -> MultiPoly {
         match (self, rhs) {
-            (MultiPoly::Constant(a), MultiPoly::Constant(b)) => {
-                MultiPoly::Constant(a + b)
-            }
+            (MultiPoly::Constant(a), MultiPoly::Constant(b)) => MultiPoly::Constant(a + b),
             (MultiPoly::Constant(_), MultiPoly::Poly { var, coeffs }) => {
                 let mut new_coeffs = coeffs.clone();
                 if new_coeffs.is_empty() {
@@ -886,9 +885,7 @@ impl<'a> Mul for &'a MultiPoly {
 
     fn mul(self, rhs: &'a MultiPoly) -> MultiPoly {
         match (self, rhs) {
-            (MultiPoly::Constant(a), MultiPoly::Constant(b)) => {
-                MultiPoly::Constant(a * b)
-            }
+            (MultiPoly::Constant(a), MultiPoly::Constant(b)) => MultiPoly::Constant(a * b),
             (MultiPoly::Constant(a), MultiPoly::Poly { var, coeffs }) => {
                 if a.is_zero() {
                     return MultiPoly::zero();
@@ -989,7 +986,11 @@ impl fmt::Display for MultiPoly {
                     }
 
                     let is_neg = coeff.is_negative();
-                    let abs_coeff = if is_neg { coeff.negate() } else { coeff.clone() };
+                    let abs_coeff = if is_neg {
+                        coeff.negate()
+                    } else {
+                        coeff.clone()
+                    };
 
                     if !first {
                         if is_neg {
@@ -1346,10 +1347,7 @@ mod tests {
 
     #[test]
     fn test_from_univariate_conversion() {
-        let p = Polynomial::from_coeffs(
-            vec![int(1), int(-2), int(3)],
-            "x",
-        );
+        let p = Polynomial::from_coeffs(vec![int(1), int(-2), int(3)], "x");
         let mp = MultiPoly::from_univariate(&p);
         assert_eq!(mp.degree_in("x"), 2);
         assert!(mp.variables() == vec!["x"]);
@@ -1465,9 +1463,7 @@ mod tests {
         let g = &xy + &y; // xy + y
         let result = MultiPoly::gcd(&f, &g);
         // gcd = y(x+1) = xy + y
-        let r_val = result
-            .evaluate_at("x", &int(3))
-            .evaluate_at("y", &int(5));
+        let r_val = result.evaluate_at("x", &int(3)).evaluate_at("y", &int(5));
         // y(x+1) at x=3,y=5 → 5*4 = 20
         assert_eq!(r_val, MultiPoly::integer(20));
     }
@@ -1488,8 +1484,7 @@ mod tests {
         // 6x^2 + 4x + 2 → content = 2
         let x = MultiPoly::variable("x");
         let x2 = &x * &x;
-        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4)))
-            + &MultiPoly::integer(2);
+        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4))) + &MultiPoly::integer(2);
         let c = poly.content();
         assert_eq!(c, MultiPoly::integer(2));
     }
@@ -1499,8 +1494,7 @@ mod tests {
         // 6x^2 + 4x + 2 → primitive part = 3x^2 + 2x + 1
         let x = MultiPoly::variable("x");
         let x2 = &x * &x;
-        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4)))
-            + &MultiPoly::integer(2);
+        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4))) + &MultiPoly::integer(2);
         let pp = poly.primitive_part();
         assert_eq!(format!("{}", pp), "3x^2 + 2x + 1");
     }
@@ -1565,9 +1559,7 @@ mod tests {
         let poly = &MultiPoly::monomial(y1.clone(), "x", 1) + &y2m1;
         let result = poly.exact_div(&y1);
         // x + (y - 1)
-        let val = result
-            .evaluate_at("x", &int(5))
-            .evaluate_at("y", &int(3));
+        let val = result.evaluate_at("x", &int(5)).evaluate_at("y", &int(3));
         assert_eq!(val, MultiPoly::integer(7)); // 5 + (3-1) = 7
     }
 
@@ -1602,9 +1594,7 @@ mod tests {
         let g = &x + &y; // x + y
         let result = MultiPoly::gcd(&f, &g);
         // Verify at x=5, y=3: (5+3) = 8
-        let val = result
-            .evaluate_at("x", &int(5))
-            .evaluate_at("y", &int(3));
+        let val = result.evaluate_at("x", &int(5)).evaluate_at("y", &int(3));
         assert_eq!(val, MultiPoly::integer(8));
     }
 
@@ -1624,9 +1614,7 @@ mod tests {
         let g = &xpy * &xp2;
         let result = MultiPoly::gcd(&f, &g);
         // x+y at x=3,y=7 → 10
-        let val = result
-            .evaluate_at("x", &int(3))
-            .evaluate_at("y", &int(7));
+        let val = result.evaluate_at("x", &int(3)).evaluate_at("y", &int(7));
         assert_eq!(val, MultiPoly::integer(10));
     }
 
@@ -1679,9 +1667,7 @@ mod tests {
         let g = &xy - &one;
         let result = MultiPoly::gcd(&f, &g);
         // xy - 1 at x=3, y=4 → 11
-        let val = result
-            .evaluate_at("x", &int(3))
-            .evaluate_at("y", &int(4));
+        let val = result.evaluate_at("x", &int(3)).evaluate_at("y", &int(4));
         assert_eq!(val, MultiPoly::integer(11));
     }
 

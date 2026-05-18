@@ -455,8 +455,7 @@ impl Polynomial {
         for p in &p_divs {
             for q in &q_divs {
                 for sign in &[1i64, -1i64] {
-                    let candidate =
-                        BigRational::new(BigInt::from(sign * p), BigInt::from(*q));
+                    let candidate = BigRational::new(BigInt::from(sign * p), BigInt::from(*q));
                     if seen.contains(&candidate) {
                         continue;
                     }

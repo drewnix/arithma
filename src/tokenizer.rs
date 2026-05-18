@@ -126,11 +126,26 @@ impl<'a> Tokenizer<'a> {
                 || (last.len() == 1 && last.chars().next().map_or(false, |c| c.is_alphabetic()));
             let is_value_producing = matches!(
                 stripped_token.as_str(),
-                "sin" | "cos" | "tan" | "sec" | "csc" | "cot"
-                    | "sinh" | "cosh" | "tanh" | "coth"
-                    | "arcsin" | "arccos" | "arctan"
-                    | "log" | "ln" | "lg" | "exp" | "sqrt"
-                    | "frac" | "pi"
+                "sin"
+                    | "cos"
+                    | "tan"
+                    | "sec"
+                    | "csc"
+                    | "cot"
+                    | "sinh"
+                    | "cosh"
+                    | "tanh"
+                    | "coth"
+                    | "arcsin"
+                    | "arccos"
+                    | "arctan"
+                    | "log"
+                    | "ln"
+                    | "lg"
+                    | "exp"
+                    | "sqrt"
+                    | "frac"
+                    | "pi"
             );
             if needs_mul && is_value_producing {
                 tokens.push("*".to_string());
@@ -443,10 +458,7 @@ mod tests {
         // \frac{1}{3}x → (1)/(3) * x
         let mut tokenizer = Tokenizer::new("\\frac{1}{3}x");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec!["(", "1", ")", "/", "(", "3", ")", "*", "x"]
-        );
+        assert_eq!(tokens, vec!["(", "1", ")", "/", "(", "3", ")", "*", "x"]);
     }
 
     #[test]
@@ -465,10 +477,7 @@ mod tests {
         // 2(x+1) → 2*(x+1)
         let mut tokenizer = Tokenizer::new("2(x+1)");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec!["2", "*", "(", "x", "+", "1", ")"]
-        );
+        assert_eq!(tokens, vec!["2", "*", "(", "x", "+", "1", ")"]);
     }
 
     #[test]
@@ -476,10 +485,7 @@ mod tests {
         // (x+1)3 → (x+1)*3
         let mut tokenizer = Tokenizer::new("(x+1)3");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec!["(", "x", "+", "1", ")", "*", "3"]
-        );
+        assert_eq!(tokens, vec!["(", "x", "+", "1", ")", "*", "3"]);
     }
 
     #[test]

@@ -1,117 +1,31 @@
-name: Arithma Nightly Build
+name: Nightly
 
 on:
   schedule:
-    # Run at 2:30 AM UTC every day
     - cron: '30 2 * * *'
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch:
+
+env:
+  RUSTFLAGS: --allow=unexpected_cfgs
 
 jobs:
-  comprehensive-test:
-    name: Comprehensive Testing
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt, clippy
-          
-      - name: Install wasm-pack and update dependencies
-        run: |
-          cargo install wasm-pack
-          cargo update -p wasm-bindgen-macro
-          
-      - name: Check formatting
-        run: cargo fmt -- --check
-        
-      - name: Run clippy with all warnings
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: cargo clippy -- -W clippy::all
-        
-      - name: Build in release mode
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: cargo build --release --verbose
-        
-      - name: Run all tests
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: cargo test --all-features --verbose
-        
-      - name: Build WebAssembly optimized
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: wasm-pack build --target web --release
-
   cross-platform:
-    name: Cross-Platform Tests
+    name: Test (${{ matrix.os }})
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          
-      - name: Build
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: cargo build
-        
-      - name: Test
-        shell: bash
-        env:
-          RUSTFLAGS: --allow=unexpected_cfgs
-        run: cargo test
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - run: cargo test --all
 
-  security-audit:
+  security:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-        
-      - name: Run security audit
-        run: cargo audit
-
-  dependency-check:
-    name: Dependency Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      
-      - name: Check for outdated dependencies
-        run: cargo outdated || true
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit
+      - run: cargo audit

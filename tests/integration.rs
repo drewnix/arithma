@@ -181,7 +181,11 @@ mod integration_tests {
     #[test]
     fn test_trig_integration() {
         let result = integrate_latex("\\sin(x)", "x").unwrap();
-        assert!(result.contains("cos"), "∫sin(x) should contain cos: {}", result);
+        assert!(
+            result.contains("cos"),
+            "∫sin(x) should contain cos: {}",
+            result
+        );
     }
 
     #[test]
@@ -198,7 +202,8 @@ mod integration_tests {
         let value = result.parse::<f64>().unwrap_or(0.0);
         assert!(
             approx_eq(value, std::f64::consts::PI, 0.01),
-            "∫₀^π x·sin(x)dx should be π ≈ 3.14, got {}", value
+            "∫₀^π x·sin(x)dx should be π ≈ 3.14, got {}",
+            value
         );
     }
 
@@ -212,7 +217,8 @@ mod integration_tests {
         let expected = std::f64::consts::E * 1.0 - 2.0; // e(1-2+2) - 1(0-0+2) = e - 2
         assert!(
             approx_eq(value, expected, 0.01),
-            "∫₀¹ x²·eˣdx should be e-2 ≈ 0.718, got {}", value
+            "∫₀¹ x²·eˣdx should be e-2 ≈ 0.718, got {}",
+            value
         );
     }
 
@@ -240,7 +246,8 @@ mod integration_tests {
         let value = result.parse::<f64>().unwrap_or(0.0);
         assert!(
             approx_eq(value, 2.0, 0.01),
-            "∫₀^π sin(x)dx should be 2, got {}", value
+            "∫₀^π sin(x)dx should be 2, got {}",
+            value
         );
     }
 }
