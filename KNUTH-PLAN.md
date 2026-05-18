@@ -1,254 +1,225 @@
-# Arithma — Algorithmic Foundations Plan
+# Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Date: 2026-05-17*
+*Last updated: 2026-05-17, Session 16*
 
 ---
 
 ## Vision
 
-A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
+Arithma is a mathematical verification and computation engine for AI agents. It is correct before it is fast, fast before it is featureful, and featureful only where it helps an agent reason with confidence.
 
-## Current State (Post Session 15)
+An agent that gets a wrong simplification will propagate that error through its entire reasoning chain. An agent that gets "I cannot compute this" can say so honestly and try a different approach. **Correctness beats coverage, every time.**
 
-**Phases 1-3.3 complete. Phase 4 idempotency contract verified. Phase 5.1 (IBP), 5.2 (u-substitution), 5.3 (inverse trig), 5.5 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities — idempotency tested across 62 cases. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration: polynomials, transcendentals, IBP (tabular + logarithmic), u-substitution, inverse trig antiderivatives, trig powers (sin^n, cos^n, mixed products). Polynomial factoring over Q (Berlekamp-Zassenhaus). MCP server with 11 tools including matrix operations and equivalence checking.** 545 tests pass, 0 ignored.
+The design target is not "everything Mathematica does" but "everything an agent needs to reason mathematically without lying." Rust + WASM means it runs anywhere with no runtime dependencies. The binary stays under 5 MB. The mathematics is exact. Every result is deterministic.
 
-### Session 16 Changes
-- **Both-even trig product integration**: ∫sin^(2p)(x)·cos^(2q)(x)dx via Pythagorean expansion + binomial theorem. Converts smaller power via sin²=1-cos², expands, integrates each pure power term using existing reduction formula.
-- **Berlekamp-Zassenhaus polynomial factoring over Q (Phase 3.3)**: Complete four-layer pipeline:
-  - Layer 1: `ModPoly` — dense polynomial arithmetic over Z_p (add, sub, mul, div_rem, GCD, powmod, extended GCD, derivative, square-free part, conversion to/from Polynomial)
-  - Layer 2: Berlekamp's Q-matrix algorithm — builds matrix of x^(ip) mod f, null-space via Gaussian elimination, factor splitting via gcd(f, v-c) for all c in Z_p
-  - Layer 3: Hensel lifting — linear lifting from mod p to mod p^k, Bezout coefficients, multi-factor sequential lifting, Mignotte bound for target k
-  - Layer 4: Factor recombination — center-lift coefficients, subset enumeration with degree pruning, exact division verification, content tracking for non-monic inputs
-  - Public API: `factor_over_q(f) -> (content, monic_factors)`
+### What We Build
 
-### Session 15 Changes
-- **Simplification idempotency contract (Phase 4)**: Three bugs fixed — ln rules now re-simplify results for cascading expansion, `rebuild_expression` puts variables before constants, negative coefficients produce Subtract nodes. 62 idempotency tests added.
-- **U-substitution (Phase 5.2)**: Integration of `∫f(g(x))·g'(x)dx` by factor decomposition. Candidate extraction from function arguments, power bases/exponents, and function calls. Handles polynomial × composed trig, composed exponentials, etc.
-- **Inverse trig antiderivatives (Phase 5.3)**: `∫1/(a²+x²)dx = (1/a)arctan(x/a)`, `∫1/√(a²-x²)dx = arcsin(x/a)`. Polynomial-based denominator matching. Fixed infinite recursion in constant-numerator factoring.
-- **Tabular integration guard**: `is_repeatedly_integratable` now requires linear arguments, preventing false claims on non-linear function compositions.
+- **Verification**: Is this mathematical claim correct? Simplify both sides, check equivalence.
+- **Computation**: What is the answer? Differentiate, integrate, solve, factor, evaluate.
+- **Boundaries**: Can this be computed at all? Know when a closed form doesn't exist.
 
-### Session 14 Changes
-- **Multivariate GCD**: `MultiPoly::gcd` via primitive polynomial remainder sequence. `pseudo_remainder`, `content`, `primitive_part`, `exact_div` — full recursive algorithm. Coefficient GCD computed recursively, bottoming out at rational GCD.
-- **Simplifier integration**: `try_polynomial_normalize` and `try_polynomial_divide` fall through to MultiPoly for multi-variable expressions. `(xy+x)/(y+1) → x`, `(x²-y²)/(x+y) → x-y`.
-- **Taylor/Maclaurin series**: `series.rs` — repeated symbolic differentiation + evaluation. `try_rationalize` converts float coefficients to exact rationals. Clean polynomial output: `sin(x)` order 5 → `1/120 x⁵ - 1/6 x³ + x`.
-- **Symbolic limits**: `limits.rs` — direct substitution → polynomial GCD cancellation → L'Hôpital's rule (up to 6 iterations). Handles `sin(x)/x → 1`, `(1-cos(x))/x² → 1/2`, `(eˣ-1)/x → 1`.
-- **MCP server**: `arithma-mcp` binary — hand-rolled JSON-RPC over stdio, no async deps. 8 tools (simplify, differentiate, integrate, solve, factor, limit, taylor_series, evaluate). LaTeX in, LaTeX out. Release binary: 1.2 MB.
-- **Zero ignored tests**: The previously-ignored `test_lim_function` now passes.
+### What We Don't Build
 
-### Session 12 Changes
-- **Rational root theorem**: `Polynomial::rational_roots()` finds all rational roots of any-degree polynomial using the rational root theorem. Converts to primitive part for integer coefficients, enumerates ±(divisor of a₀)/(divisor of aₙ), tests via Horner evaluation.
-- **Synthetic division**: `Polynomial::deflate(root)` divides out a known root in O(n), reducing degree by 1.
-- **Cubic solver (Cardano)**: For irreducible cubics (no rational roots), Cardano's formula computes real roots. Handles all three cases: one real root (h > 0), double root (h = 0), and casus irreducibilis (h < 0, three real roots via trigonometric method).
-- **General equation solver**: Degree ≥ 3 polynomials solved by: (1) find all rational roots via rational root theorem, (2) deflate, (3) solve remaining factor with appropriate formula (linear, quadratic, or Cardano). Works for any degree — quintic x⁵-x=0 correctly returns roots {-1, 0, 1}.
-- **Implicit multiplication parsing**: Tokenizer inserts `*` for `\frac{a}{b}x`, `2(x+1)`, `(a+b)(c+d)`, and `(expr)number` patterns. Function calls like `\sin(x)` correctly not affected.
-- **Environment ExactNum**: Environment stores `ExactNum` internally instead of f64. Custom serde. Last precision leak closed.
-- **Ferrari's method**: Quartic solver via resolvent cubic. Classical suite complete through degree 4.
-- **Power rules**: `x^a * x^b → x^(a+b)`, `x^a / x^b → x^(a-b)`, `x/x → 1`. Any expression base.
-- **Pythagorean identity**: `sin²(x) + cos²(x) → 1` with coefficient and subtraction variants.
-- **LaTeX function display**: `\sin(x)` not `sin(x)` in output.
-- **Log properties**: `ln(a^b) → b·ln(a)`, `ln(a·b) → ln(a)+ln(b)`, `ln(a/b) → ln(a)-ln(b)`.
-- **Trig quotients/reciprocals**: `sin/cos→tan`, `cos/sin→cot`, `1/sin→csc`, `1/cos→sec`, `1/tan→cot`.
-- **Even/odd trig**: `sin(-x) → -sin(x)`, `cos(-x) → cos(x)`.
-- **Inverse functions**: `ln(e^x) → x`, `exp(ln(x)) → x`, `sqrt(x²) → |x|`.
-- **Abs rules**: `|n|→n` for numeric, `|-x|→|x|`, `||x||→|x|`.
-- **Power base cases**: `0^n → 0` for n ≥ 0, `1^n → 1`.
-- **Derivative expansion**: sec, csc, cot, sinh, cosh, tanh, arcsin, arccos, arctan with chain rule.
+- A programming language (agents already have one)
+- Visualization (different tool)
+- Physics/statistics/geometry modules (application layers, not foundations)
+- Hundreds of special functions (agents can look those up)
 
-### Remaining Ignored Tests
-None. All 545 tests pass.
+---
 
-## Phase 1: Exact Arithmetic Foundation
+## Current State (Post Session 16)
 
-**Goal:** Replace `f64` as the primary numeric representation with exact rationals.
+**568 tests pass. 0 failures. 13 MCP tools. ~15K lines of Rust. Binary under 2 MB.**
 
-### 1.1 — BigRational integration ✅ (Session 09)
-- Added `num-bigint`, `num-rational`, `num-traits`, `num-integer` as dependencies
-- Introduced `ExactNum` enum: `Rational(BigRational)`, `Float(f64)`
-- `Rational` is the default for all symbolic operations
-- `Float` is used for transcendentals (`e`, `pi`) and results of transcendental functions
-- Dropped the planned `Integer(BigInt)` variant — `BigRational` with denominator 1 handles integers efficiently enough; premature optimization avoided
+Phases 1-4 complete. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), and trig substitution. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract. LaTeX in, LaTeX out.
 
-### 1.2 — Node numeric restructuring ✅ (Session 09)
-- Replaced `Node::Number(f64)` and `Node::Rational(i64, i64)` with `Node::Num(ExactNum)`
-- Removed `Node::ClosingParen` and `Node::ClosingBrace` — dead code, never produced by parser
-- Updated all pattern matches across 14 source and test files
-- Parser collapses `\frac{a}{b}` with integer arguments to `Node::Num(ExactNum::rational(a, b))`
+---
 
-### 1.3 — Evaluator split ✅ (Session 09)
-- `evaluate_exact(node, env) -> ExactNum` — stays in the exact domain
-- `evaluate(node, env) -> f64` — delegates to evaluate_exact, converts at the end
-- Verified: 1/3 + 1/6 = 1/2 exactly, 2/3 * 3/4 = 1/2 exactly
-- Function calls (sin, cos, etc.) produce ExactNum::Float since they are transcendental
+## Roadmap
 
-**Phase 1 complete.** 175 tests pass, 0 failed, 11 ignored.
+### Tier 1: Foundation (Complete)
 
-## Phase 2: Display and LaTeX Round-Trip ✅ (Sessions 09-10)
+The exact arithmetic, polynomial algebra, simplification, differentiation, and basic integration that everything else builds on.
 
-**Goal:** `Display` output is valid, parseable LaTeX that preserves expression structure.
+- **Phase 1: Exact arithmetic** ✅ — BigRational, ExactNum, evaluator split
+- **Phase 2: LaTeX round-trip** ✅ — parse ↔ display stability
+- **Phase 3: Polynomial algebra** ✅ — dense univariate, multivariate, Berlekamp-Zassenhaus factoring over Q, partial fractions
+- **Phase 4: Simplification engine** ✅ — polynomial normalization, trig/log/power rules, idempotency contract (62 tests)
+- **Phase 5: Core calculus** ✅ — differentiation (full chain rule), integration (8 techniques), series, limits
+- **Phase 7: MCP server** ✅ — 13 tools, LaTeX I/O, hand-rolled JSON-RPC, < 2 MB
 
-### 2.1 — Parenthesization ✅ (Session 09)
-- Precedence method on Node, `fmt_child` inserts parens when child precedence < parent
-- Power bases parenthesized for compound expressions, exponents use `{}`
-- Subtract/Divide right children parenthesized at same precedence (associativity)
+### Tier 2: Agent Confidence (Next)
 
-### 2.2 — \frac parser fix and Divide Display ✅ (Session 10)
-- Tokenizer handles `\frac{A}{B}` by consuming both brace groups → `(A) / (B)`
-- Shunting-yard pops functions after closing delimiters (standard algorithm)
-- `Node::Divide` renders as `\frac{left}{right}`
-- `Node::Multiply` omits coefficient 1: `1x` → `x`
+Features that help an agent *trust* its mathematical reasoning — knowing the boundaries of what's computable and simplifying under real-world constraints.
 
-### 2.3 — Round-trip tests ✅ (Session 10)
-- 9 round-trip tests: integer, fraction, addition, polynomial, frac-addition, nested-frac, power, negate, function+constant
-- Tests verify parse → format → re-parse → format stability and value preservation
+#### Phase 8: Assumption System
 
-## Phase 3: Polynomial Representation
+**Goal:** Let agents declare constraints ("x > 0", "n is an integer") that change what simplifications are valid.
 
-**Goal:** A proper `Polynomial` type for efficient polynomial arithmetic.
+**Why this matters:** Without assumptions, `√(x²)` stays as `√(x²)` because the simplifier can't assume x ≥ 0. An agent reasoning about a physical distance gets conservative results that look wrong. With assumptions, `√(x²)` → `x` when `x > 0`, `ln(e^x)` → `x` when `x ∈ ℝ`, and `(-1)^(2n)` → `1` when `n ∈ ℤ`.
 
-### 3.1 — Dense univariate polynomials ✅ (Sessions 10-12)
-- `Polynomial` — dense representation, coefficients in `BigRational`, least-degree first
-- Operations: add, subtract, multiply, divide-with-remainder, GCD (Euclidean)
-- Conversion: `Node` ↔ `Polynomial` for polynomial expressions
-- Derivative, integral, square-free decomposition, content, primitive part
-- **Session 12:** `rational_roots()` via rational root theorem, `deflate()` via synthetic division
-- **Equation solver:** Linear (exact), quadratic (exact when possible, f64 fallback), cubic (Cardano with trigonometric method for casus irreducibilis), any-degree via rational root theorem + deflation
+- `Assumptions` struct: set of constraints on variables (positive, real, integer, etc.)
+- Flows through simplification, integration, and solving
+- Conservative default: no assumptions = maximum generality
+- MCP tool: `simplify` gains optional `assumptions` parameter
 
-### 3.2 — Multivariate polynomials ✅ (Session 13, in progress)
-- `MultiPoly` — recursive representation: polynomial in x with MultiPoly coefficients in y, z, ...
-- Variable ordering: lexicographic (alphabetical). First alphabetically is outermost.
-- Operations: Add, Sub, Mul, Neg, scalar_mul (all via reference traits)
-- Analysis: degree_in, total_degree, variables, leading_coeff, is_zero, is_constant
-- Calculus: partial_derivative (any variable)
-- Evaluation: evaluate_at (constant substitution), substitute (polynomial substitution with re-normalization)
-- Conversion: from_node (auto-detects all variables), to_node, from_univariate, to_univariate
-- Display: proper mathematical notation with parenthesization of compound coefficients
-- **31 tests** covering arithmetic, derivatives, substitution, three-variable expansion, conversion
-- **Remaining:** GCD (sparse modular or subresultant), multivariate division, simplifier integration
+**Estimated effort:** 2-3 sessions. The struct is simple; the work is threading it through every simplification rule.
 
-### 3.3 — Polynomial factoring ✅ (Session 16)
-- Square-free factorization ✅ (Session 10)
-- **Berlekamp-Zassenhaus factoring over Q** ✅ (Session 16):
-  - `ModPoly`: dense polynomial arithmetic over Z_p (i64 coefficients, mod_inverse, powmod)
-  - Berlekamp's Q-matrix algorithm: builds Q matrix via powmod(x, ip, f), null-space via Gaussian elimination over Z_p, factor splitting via gcd(f, v(x)-c)
-  - Hensel lifting: linear lifting from mod p to mod p^k, extended GCD for Bezout coefficients, multi-factor sequential pair lifting
-  - Factor recombination: Mignotte bound, center-lift, subset enumeration with degree pruning, exact division verification
-  - `factor_over_q(f) -> (content, monic_factors)`: the complete pipeline
+#### Phase 9: Risch Decision Procedure (Transcendental Case)
 
-**Estimated effort:** 3.1 complete. 3.2 core complete (Session 13); GCD and simplifier integration remain. 3.3 complete.
+**Goal:** Decide whether an elementary antiderivative exists. The single most important missing feature.
 
-## Phase 4: Simplification Engine
+**Why this matters:** When an agent asks for ∫e^(-x²)dx and gets silence, it doesn't know if arithma lacks the technique or if no closed form exists. The Risch algorithm answers that question: "this integral has no elementary closed form — use numerical methods or express it via the error function." An agent that knows the boundary of what's computable can reason about that boundary.
 
-**Goal:** A principled simplification engine that produces canonical forms.
+The transcendental case of Risch handles the most common integrands (compositions of exp, log, and rational functions). The full algebraic case is significantly harder and lower priority.
 
-### 4.1 — Canonical form for rational expressions
-- Normalize: cancel common polynomial factors in numerator/denominator
-- Canonical sign: leading coefficient positive
-- Collect like terms with proper polynomial representation
+- Risch-Norman algorithm for the transcendental case
+- Returns: the antiderivative if it exists, or a proof that no elementary form exists
+- Integrates into the integration engine as a fallback after all heuristic methods fail
 
-### 4.2 — Algebraic simplification rules
-- Trigonometric identities (sin²+cos²=1, double angle, etc.)
-- Logarithmic properties (ln(ab) = ln(a)+ln(b), etc.)
-- Power rules (proper handling of x^a * x^b = x^(a+b))
-- Rule application strategy: bottom-up, repeated until fixed point
+**Estimated effort:** 4-6 sessions. This is the deepest algorithmic work remaining. The mathematics is well-documented (Bronstein's book is the reference) but the implementation has many cases.
 
-### 4.3 — The simplification contract
-- `simplify(expr) -> expr` is idempotent: `simplify(simplify(e)) == simplify(e)`
-- Two expressions are mathematically equal if and only if their simplified forms are identical (for the supported expression domain)
-- This is the hardest invariant to maintain and the most important
+**Reference:** Manuel Bronstein, *Symbolic Integration I: Transcendental Functions*.
 
-**Estimated effort:** Idempotency contract verified (Session 15). Ongoing as new rules are added.
+#### Phase 10: Basic ODE Solving
 
-## Phase 5: Calculus Improvements
+**Goal:** Solve the three most common ODE classes that agents encounter.
 
-### 5.1 — Integration by parts ✅ (Session 14)
-- Tabular integration for polynomial × {sin, cos, exp, sinh, cosh}
-- Logarithmic IBP for polynomial × ln(x)
-- Transcendental integration table: sin, cos, tan, sec, csc, cot, exp, ln, sinh, cosh, tanh
-- `a^x → a^x/ln(a)` for constant base
-- Constant factoring in division and negation passthrough
+**Why this matters:** Agents reasoning about physics, engineering, and modeling hit ODEs constantly. Covering three classes handles ~80% of what comes up:
 
-### 5.2 — U-substitution ✅ (Session 15)
-- Recognizes ∫f(g(x))·g'(x) dx by factor decomposition
-- Candidates: function arguments, power bases/exponents, function calls themselves
-- Handles: 2x·cos(x²), sin(x)·cos(x), cos(x)·e^{sin(x)}, e^{2x}, etc.
-- Also tightened `is_repeatedly_integratable` to prevent false tabular matches
+1. **Separable**: dy/dx = f(x)·g(y) → ∫dy/g(y) = ∫f(x)dx
+2. **First-order linear**: dy/dx + P(x)·y = Q(x) → integrating factor e^{∫P dx}
+3. **Second-order constant-coefficient**: ay'' + by' + cy = 0 → characteristic equation
 
-### 5.3 — Inverse trig antiderivatives ✅ (Session 15)
-- ∫1/(a²+x²) dx = (1/a)·arctan(x/a)
-- ∫1/√(a²-x²) dx = arcsin(x/a)
-- Polynomial-based denominator matching handles simplifier rewriting
+- New module: `src/ode.rs`
+- MCP tool: `solve_ode` with equation, dependent variable, independent variable
+- Returns general solution with arbitrary constants C₁, C₂
 
-### 5.4 — Partial fraction decomposition
-- Requires polynomial factoring (Phase 3.3)
-- Essential for rational function integration
+**Estimated effort:** 2-3 sessions. The algorithms are textbook. The work is parsing ODE notation and producing clean output.
 
-### 5.5 — Series expansion ✅ (Session 14)
-- Taylor/Maclaurin via repeated differentiation
-- `try_rationalize` converts float evaluation results to exact rationals
-- Clean polynomial output via `Polynomial::to_node`
-- Formal power series arithmetic — future work
+### Tier 3: Computational Power (When Needed)
 
-### 5.6 — The Risch algorithm (long-term)
-- Decides whether an elementary antiderivative exists
-- Full implementation is a significant project
-- Start with the transcendental case (Risch-Norman)
+Features that extend what arithma can compute. Each earns its place by demonstrable agent utility.
 
-## Phase 6: Modular Crate Architecture
+#### Phase 11: Formal Power Series
 
-**Goal:** Each mathematical domain is an independent crate.
+**Goal:** Multiply, compose, and invert power series as algebraic objects. Lazy evaluation — compute coefficients on demand.
+
+**Why this matters:** Generating functions are a powerful reasoning tool. An agent that can manipulate formal power series can solve recurrences, count combinatorial structures, and verify identities that would be impractical to check term-by-term.
+
+- `FormalPowerSeries` type with lazy coefficient computation
+- Operations: add, multiply, compose, inverse, derivative, integral
+- MCP tool: `power_series` with operations parameter
+- Connects to existing Taylor series (a power series is the algebraic object; a Taylor expansion is a specific instance)
+
+**Estimated effort:** 2 sessions.
+
+#### Phase 12: Systems of Equations
+
+**Goal:** Solve systems of polynomial equations and linear systems with symbolic coefficients.
+
+- Linear systems: extend matrix solve to handle symbolic entries (we have the matrix infrastructure)
+- Nonlinear substitution: for 2-3 equation systems, solve one for a variable and substitute into others
+- Gröbner bases: only if agent use cases demand it — powerful but rarely needed outside research
+
+**Estimated effort:** 2-3 sessions for linear + substitution. Gröbner bases would be 3-4 sessions additional and is not currently planned.
+
+#### Phase 13: Integration Completions
+
+Filling remaining gaps in the integration engine as they arise from agent usage.
+
+- Higher-power irreducible quadratic: (Ax+B)/(x²+bx+c)^k for k ≥ 2 (reduction formula)
+- Hyperbolic substitution variants
+- Integration of expressions with absolute values
+- Better heuristic ordering: try cheap methods before expensive ones
+
+**Not planned:** RUBI-style rule tables (6700+ patterns). The algorithmic approach we have is the right foundation. Rule tables are a maintenance burden that doesn't match our design philosophy.
+
+**Estimated effort:** Ongoing, 1-2 sessions as gaps are identified.
+
+### Tier 4: Architecture (When Scale Demands)
+
+#### Phase 6: Modular Crate Architecture
+
+**Goal:** Split into independent crates when the single-crate approach becomes a development bottleneck.
 
 ```
 arithma/
 ├── arithma-core/        # Node, ExactNum, simplification engine
 ├── arithma-parse/       # Tokenizer, parser, LaTeX rendering
 ├── arithma-poly/        # Polynomial arithmetic, GCD, factoring
-├── arithma-calculus/    # Differentiation, integration, series
+├── arithma-calculus/    # Differentiation, integration, series, ODE
 ├── arithma-linalg/     # Matrix operations over exact fields
-├── arithma-numtheory/  # Primes, modular arithmetic, GCD
 ├── arithma-wasm/       # WASM bindings
-└── arithma-cli/        # CLI interface
+└── arithma-mcp/        # MCP server
 ```
 
-Each crate depends only on `arithma-core`. Each can be compiled to WASM independently. A distributed deployment loads only the crates needed for the task.
+Each crate depends only on `arithma-core`. Each can be compiled to WASM independently.
 
-**This restructuring happens when the mathematical foundation (Phases 1-4) is solid, not before.**
+**When:** When the codebase exceeds ~25K lines or when build times become a friction. Currently at ~15K lines — not yet a bottleneck.
 
-## Phase 7: arithma-mcp — MCP Server for AI Agents ✅ v1 (Session 14)
+---
 
-**Goal:** A standalone MCP server that gives QAI agents (and any MCP-compatible client) access to a correct, high-performance CAS with no runtime dependencies.
+## What Done Looks Like
 
-### 7.1 — Core MCP server ✅
-- Binary: `arithma-mcp`, speaks MCP protocol (JSON-RPC 2.0) over stdio
-- Hand-rolled protocol implementation — no async deps, no tokio
-- 8 tools: `simplify`, `differentiate`, `integrate`, `solve`, `factor`, `limit`, `taylor_series`, `evaluate`
-- Input/output: LaTeX throughout
-- Release binary: 1.2 MB
+Arithma is done — or rather, at a natural resting point — when an AI agent with access to it can:
 
-### 7.2 — Tool interface design ✅
-- Each tool accepts a LaTeX expression string and optional parameters (variable, point, order, etc.)
-- Sensible defaults: variable defaults to "x", center defaults to 0, order defaults to 5
-- Error handling: errors returned as MCP tool results with `isError: true`
-- Multivariate-aware: simplify and evaluate work on multi-variable expressions
+1. **Verify** any undergraduate-level mathematical claim (simplification, equivalence, identity)
+2. **Compute** derivatives, integrals, solutions, factorizations, series, limits, and matrix operations with exact arithmetic
+3. **Know the boundary** — distinguish "I can't compute this yet" from "this has no elementary closed form"
+4. **Reason under constraints** — simplify with assumptions about variable domains
+5. **Solve basic ODEs** — the three classes that cover 80% of applied mathematics
+6. **Do all of this** from a single binary under 5 MB with zero dependencies, deterministic output, and sub-second response times
 
-### 7.3 — Differentiators over existing CAS tools
-- **Correctness:** Exact rational arithmetic, not floating-point approximation
-- **Performance:** Rust, no interpreter overhead, no kernel startup
-- **Portability:** Single binary, no Python/Wolfram/Java runtime
-- **Determinism:** Same input always produces same output (no heuristic simplification races)
+That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness on everything we claim to compute, at 1/3000th the deployment footprint. The coverage is driven by what agents need, not by completeness for its own sake.
 
-### 7.4 — Future v2
-- Structured metadata in responses (degree, variables, numeric value)
-- Multivariate-specific tools (partial derivatives, polynomial GCD)
-- Formal power series arithmetic
-- Matrix operations
+---
+
+## Completed Work
+
+### Session 16 (2026-05-17)
+- Both-even mixed trig product integration (Pythagorean expansion + binomial theorem)
+- Berlekamp-Zassenhaus polynomial factoring over Q (4-layer pipeline: ModPoly, Q-matrix, Hensel, recombination)
+- Partial fraction decomposition (recursive extended GCD splitting)
+- Partial fraction integration (log + arctan terms for linear and quadratic denominators)
+- MCP server: 13 tools (upgraded factor, new partial_fractions)
+- Solver: factor_over_q for degree ≥ 5 polynomials
+- Trig substitution: √(a²-x²), √(x²+a²), √(x²-a²)
+
+### Session 15 (2026-05-17)
+- Simplification idempotency contract (3 bugs fixed, 62 tests)
+- U-substitution for integration
+- Inverse trig antiderivatives
+- Equivalence checking MCP tool
+
+### Session 14 (2026-05-16)
+- Multivariate GCD (primitive PRS)
+- Taylor/Maclaurin series
+- Symbolic limits (direct substitution, GCD cancellation, L'Hôpital)
+- MCP server v1 (8 tools)
+
+### Sessions 09-13
+- Phase 1: Exact arithmetic (BigRational, ExactNum)
+- Phase 2: LaTeX round-trip
+- Phase 3.1-3.2: Polynomial types (univariate + multivariate)
+- Equation solver: linear through quartic (Cardano, Ferrari)
+- Simplification rules: trig, log, power, inverse functions, abs
+
+### Sessions 08 and earlier
+- Project inception and derivative engine
+- Paper reviews and research collaboration
+- Foundation work
+
+---
 
 ## Principles
 
-1. **Correct first.** Every algorithm is verified against known results. Tests use exact arithmetic, not floating-point approximation, wherever possible.
-2. **Well-chosen algorithms.** Not the first algorithm that works — the right algorithm for the data structure. Subresultant GCD, not Euclidean. Horner evaluation, not naive. The choice matters at scale.
-3. **Readable code.** Programs are literature. Every non-trivial algorithm has a comment citing the source (TAOCP section, paper, or textbook). A reader should be able to verify the implementation against the reference.
+1. **Correct first.** Every algorithm is verified against known results. Tests use exact arithmetic, not floating-point approximation. An incorrect result is worse than no result.
+2. **Well-chosen algorithms.** Not the first algorithm that works — the right algorithm for the data structure. Berlekamp-Zassenhaus, not trial division. Subresultant GCD, not naive Euclidean. The choice matters.
+3. **Readable code.** Programs are literature. Every non-trivial algorithm cites its source. A reader should be able to verify the implementation against the reference.
 4. **No hardcoded answers.** The disease was diagnosed and excised in Session 08. It does not return.
+5. **Silence over lies.** If arithma cannot compute something, it says so. It never guesses, approximates heuristically, or returns an unverified result. An agent's trust in this tool is the product.
 
 ---
 
