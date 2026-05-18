@@ -283,6 +283,50 @@ impl ModPoly {
         a.make_monic()
     }
 
+    /// Extended GCD: returns (gcd, s, t) such that s*a + t*b = gcd.
+    /// The gcd is made monic; s, t are adjusted accordingly.
+    pub fn extended_gcd(a: &ModPoly, b: &ModPoly) -> (ModPoly, ModPoly, ModPoly) {
+        let p = a.p;
+        if b.is_zero() {
+            if a.is_zero() {
+                return (Self::zero(p), Self::one(p), Self::zero(p));
+            }
+            let lc_inv = mod_inverse(a.leading_coeff().unwrap(), p);
+            return (
+                a.scalar_mul(lc_inv),
+                ModPoly::constant(lc_inv, p),
+                Self::zero(p),
+            );
+        }
+
+        let mut old_r = a.clone();
+        let mut r = b.clone();
+        let mut old_s = Self::one(p);
+        let mut s = Self::zero(p);
+        let mut old_t = Self::zero(p);
+        let mut t = Self::one(p);
+
+        while !r.is_zero() {
+            let (q, rem) = old_r.div_rem(&r).unwrap();
+            old_r = r;
+            r = rem;
+            let new_s = old_s.sub(&q.mul(&s));
+            old_s = s;
+            s = new_s;
+            let new_t = old_t.sub(&q.mul(&t));
+            old_t = t;
+            t = new_t;
+        }
+
+        // Make gcd monic
+        let lc_inv = mod_inverse(old_r.leading_coeff().unwrap(), p);
+        (
+            old_r.scalar_mul(lc_inv),
+            old_s.scalar_mul(lc_inv),
+            old_t.scalar_mul(lc_inv),
+        )
+    }
+
     /// Compute base^exp mod modulus, all in Z_p[x]. Repeated squaring.
     pub fn powmod(base: &ModPoly, exp: u64, modulus: &ModPoly) -> ModPoly {
         let p = base.p;
@@ -595,6 +639,240 @@ pub fn factor_mod_p(f: &ModPoly) -> Vec<ModPoly> {
     factors
 }
 
+// --- Hensel Lifting ---
+//
+// Given f ≡ g·h (mod p) with gcd(g,h) = 1 mod p,
+// lift to f ≡ g*·h* (mod p^k) for any target k.
+//
+// Uses linear Hensel lifting: each step raises the modulus from p^j to p^(j+1).
+// All "big" arithmetic uses Polynomial (BigRational with integer values);
+// the correction step uses ModPoly (mod p) via the Bezout coefficients.
+
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::{One, Signed, ToPrimitive, Zero};
+
+/// Reduce a Polynomial's coefficients into [0, m) where m is a BigInt modulus.
+fn poly_mod(poly: &crate::polynomial::Polynomial, m: &BigInt) -> crate::polynomial::Polynomial {
+    let deg = match poly.degree() {
+        Some(d) => d,
+        None => return crate::polynomial::Polynomial::zero("x"),
+    };
+    let var = poly.variable().to_string();
+    let mut coeffs = Vec::with_capacity(deg + 1);
+    for i in 0..=deg {
+        let c = poly.coeff(i);
+        let n = c.to_integer();
+        let r = ((n % m) + m) % m;
+        coeffs.push(BigRational::from_integer(r));
+    }
+    crate::polynomial::Polynomial::from_coeffs(coeffs, &var)
+}
+
+/// Convert a ModPoly to a Polynomial (BigRational coefficients).
+fn modpoly_to_poly(mp: &ModPoly, var: &str) -> crate::polynomial::Polynomial {
+    let coeffs: Vec<BigRational> = mp
+        .coeffs
+        .iter()
+        .map(|&c| BigRational::from_integer(BigInt::from(c)))
+        .collect();
+    crate::polynomial::Polynomial::from_coeffs(coeffs, var)
+}
+
+/// Convert a Polynomial to a ModPoly by reducing coefficients mod p.
+fn poly_to_modpoly(poly: &crate::polynomial::Polynomial, p: i64) -> ModPoly {
+    use num_traits::ToPrimitive;
+    let deg = match poly.degree() {
+        Some(d) => d,
+        None => return ModPoly::zero(p),
+    };
+    let mut coeffs = Vec::with_capacity(deg + 1);
+    for i in 0..=deg {
+        let c = poly.coeff(i);
+        let val = c.to_integer().to_i64().unwrap_or_else(|| {
+            let big_p = BigInt::from(p);
+            let r = ((c.to_integer() % &big_p) + &big_p) % &big_p;
+            r.to_i64().unwrap_or(0)
+        });
+        coeffs.push(mod_reduce(val, p));
+    }
+    ModPoly::from_coeffs(&coeffs, p)
+}
+
+/// Single Hensel lifting step: given f ≡ g·h (mod p^k), lift to mod p^(k+1).
+///
+/// Parameters:
+/// - f: the original polynomial over Z (Polynomial with integer coefficients)
+/// - g, h: current lifted factors (Polynomial with integer coefficients, mod p^k)
+/// - s, t: Bezout coefficients mod p (s·g₀ + t·h₀ ≡ 1 mod p, where g₀,h₀ are original mod-p factors)
+/// - p: the prime
+/// - pk: p^k (current modulus, as BigInt)
+///
+/// Returns (g', h') such that f ≡ g'·h' (mod p^(k+1)).
+fn hensel_step(
+    f: &crate::polynomial::Polynomial,
+    g: &crate::polynomial::Polynomial,
+    h: &crate::polynomial::Polynomial,
+    s: &ModPoly,
+    t: &ModPoly,
+    p: i64,
+    pk: &BigInt,
+) -> (crate::polynomial::Polynomial, crate::polynomial::Polynomial) {
+    let var = f.variable().to_string();
+    let pk1 = pk * BigInt::from(p); // p^(k+1)
+
+    // Step 1: e = f - g*h (over Z[x])
+    let gh = g * h;
+    let e = f - &gh;
+
+    // Step 2: e_bar = (e / p^k) mod p — each coefficient of e is divisible by p^k
+    let e_deg = match e.degree() {
+        Some(d) => d,
+        None => return (poly_mod(g, &pk1), poly_mod(h, &pk1)),
+    };
+    let big_p = BigInt::from(p);
+    let mut e_bar_coeffs = Vec::with_capacity(e_deg + 1);
+    for i in 0..=e_deg {
+        let c = e.coeff(i).to_integer();
+        let divided = &c / pk;
+        let r = ((&divided % &big_p) + &big_p) % &big_p;
+        e_bar_coeffs.push(r.to_i64().unwrap_or(0));
+    }
+    let e_bar = ModPoly::from_coeffs(&e_bar_coeffs, p);
+
+    // Step 3: solve e_bar ≡ σ·h₀ + τ·g₀ (mod p)
+    // (q, σ) = divmod(s · e_bar, h₀), then τ = t · e_bar + q · g₀
+    let h0 = poly_to_modpoly(h, p);
+    let se = s.mul(&e_bar);
+    let (q_bar, sigma) = se.div_rem(&h0).unwrap();
+
+    let g0 = poly_to_modpoly(g, p);
+    let tau = t.mul(&e_bar).add(&q_bar.mul(&g0));
+
+    // Step 4: g' = g + tau * p^k (mod p^(k+1))
+    let tau_poly = modpoly_to_poly(&tau, &var);
+    let tau_scaled = tau_poly.scalar_mul(&BigRational::from_integer(pk.clone()));
+    let g_new = poly_mod(&(g + &tau_scaled), &pk1);
+
+    // Step 5: h' = h + sigma * p^k (mod p^(k+1))
+    let sigma_poly = modpoly_to_poly(&sigma, &var);
+    let sigma_scaled = sigma_poly.scalar_mul(&BigRational::from_integer(pk.clone()));
+    let h_new = poly_mod(&(h + &sigma_scaled), &pk1);
+
+    (g_new, h_new)
+}
+
+/// Hensel lift a two-factor decomposition from mod p to mod p^target_k.
+///
+/// Given f ≡ g₀·h₀ (mod p) with gcd(g₀, h₀) = 1, returns (g, h)
+/// such that f ≡ g·h (mod p^target_k), with g monic and deg(g) = deg(g₀).
+pub fn hensel_lift_pair(
+    f: &crate::polynomial::Polynomial,
+    g0: &ModPoly,
+    h0: &ModPoly,
+    p: i64,
+    target_k: u32,
+) -> (crate::polynomial::Polynomial, crate::polynomial::Polynomial) {
+    let var = f.variable().to_string();
+
+    // Compute Bezout coefficients: s·g₀ + t·h₀ ≡ 1 (mod p)
+    let (_, s, t) = ModPoly::extended_gcd(g0, h0);
+
+    // Start with mod-p factors lifted to Polynomial
+    let mut g = modpoly_to_poly(g0, &var);
+    let mut h = modpoly_to_poly(h0, &var);
+    let mut pk = BigInt::from(p);
+
+    for _ in 1..target_k {
+        let (g_new, h_new) = hensel_step(f, &g, &h, &s, &t, p, &pk);
+        g = g_new;
+        h = h_new;
+        pk *= BigInt::from(p);
+    }
+
+    (g, h)
+}
+
+/// Hensel lift all factors from mod p to mod p^target_k.
+///
+/// Uses sequential pair-lifting: peels off one factor at a time.
+/// For r factors, performs r-1 pair lifts.
+pub fn hensel_lift_factors(
+    f: &crate::polynomial::Polynomial,
+    factors: &[ModPoly],
+    p: i64,
+    target_k: u32,
+) -> Vec<crate::polynomial::Polynomial> {
+    if factors.len() <= 1 {
+        return factors
+            .iter()
+            .map(|mp| modpoly_to_poly(mp, f.variable()))
+            .collect();
+    }
+
+    let mut result = Vec::with_capacity(factors.len());
+
+    // Remaining polynomial to factor (starts as f)
+    let mut remaining = f.clone();
+
+    for i in 0..factors.len() - 1 {
+        // g₀ = factors[i], h₀ = product of remaining factors mod p
+        let g0 = &factors[i];
+        let mut h0 = ModPoly::one(p);
+        for j in (i + 1)..factors.len() {
+            h0 = h0.mul(&factors[j]);
+        }
+
+        // Lift the pair
+        let (g_lifted, h_lifted) = hensel_lift_pair(&remaining, g0, &h0, p, target_k);
+        result.push(g_lifted);
+        remaining = h_lifted;
+    }
+
+    // The last factor is whatever remains
+    result.push(remaining);
+    result
+}
+
+/// Compute the Mignotte bound: the maximum absolute value of any coefficient
+/// of any factor of f.
+///
+/// For f of degree n with ||f||₂ = B, any factor g of degree d has
+/// |g_i| ≤ C(d, d/2) · B where C is the binomial coefficient.
+/// We use the simpler bound: |g_i| < 2^n · ||f||_∞.
+pub fn mignotte_bound(f: &crate::polynomial::Polynomial) -> BigInt {
+    let n = match f.degree() {
+        Some(d) => d,
+        None => return BigInt::one(),
+    };
+
+    // ||f||_∞ = max absolute coefficient
+    let mut max_coeff = BigInt::zero();
+    for i in 0..=n {
+        let c = f.coeff(i).to_integer().abs();
+        if c > max_coeff {
+            max_coeff = c;
+        }
+    }
+
+    // Bound: 2^n * ||f||_∞
+    let two_n = BigInt::from(1i64) << n;
+    two_n * max_coeff
+}
+
+/// Determine the lifting target k such that p^k > 2 * mignotte_bound(f).
+/// The factor of 2 accounts for centered representation (coefficients may be negative).
+pub fn lifting_target(f: &crate::polynomial::Polynomial, p: i64) -> u32 {
+    let bound = mignotte_bound(f) * BigInt::from(2i64);
+    let mut pk = BigInt::from(p);
+    let mut k = 1u32;
+    while pk <= bound {
+        pk *= BigInt::from(p);
+        k += 1;
+    }
+    k
+}
+
 impl PartialEq for ModPoly {
     fn eq(&self, other: &Self) -> bool {
         self.p == other.p && self.coeffs == other.coeffs
@@ -634,6 +912,10 @@ impl fmt::Display for ModPoly {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn int(n: i64) -> BigRational {
+        BigRational::from_integer(BigInt::from(n))
+    }
 
     // --- ModPoly basics ---
 
@@ -888,5 +1170,151 @@ mod tests {
         assert_eq!(format!("{}", z), "0");
         let c = ModPoly::constant(4, 5);
         assert_eq!(format!("{}", c), "4");
+    }
+
+    // --- Extended GCD ---
+
+    #[test]
+    fn test_extended_gcd() {
+        // gcd(x²-1, x+1) mod 5 = x+1
+        // s*(x²-1) + t*(x+1) = x+1
+        let a = ModPoly::from_coeffs(&[4, 0, 1], 5); // x²-1 = x²+4
+        let b = ModPoly::from_coeffs(&[1, 1], 5); // x+1
+        let (g, s, t) = ModPoly::extended_gcd(&a, &b);
+        assert_eq!(g, ModPoly::from_coeffs(&[1, 1], 5)); // x+1
+        // Verify: s*a + t*b = g
+        let check = s.mul(&a).add(&t.mul(&b));
+        assert_eq!(check, g);
+    }
+
+    #[test]
+    fn test_extended_gcd_coprime() {
+        // gcd(x+1, x+2) mod 5 = 1
+        let a = ModPoly::from_coeffs(&[1, 1], 5);
+        let b = ModPoly::from_coeffs(&[2, 1], 5);
+        let (g, s, t) = ModPoly::extended_gcd(&a, &b);
+        assert!(g.is_one());
+        let check = s.mul(&a).add(&t.mul(&b));
+        assert_eq!(check, g);
+    }
+
+    // --- Hensel Lifting ---
+
+    #[test]
+    fn test_hensel_lift_x2_minus_1() {
+        // f = x²-1, factors mod 3: (x+1)(x+2) since -1 ≡ 2 mod 3
+        let f = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(-1), int(0), int(1)],
+            "x",
+        );
+        let g0 = ModPoly::from_coeffs(&[1, 1], 3); // x+1
+        let h0 = ModPoly::from_coeffs(&[2, 1], 3); // x+2 = x-1 mod 3
+
+        // Lift to mod 3^4 = 81
+        let (g, h) = hensel_lift_pair(&f, &g0, &h0, 3, 4);
+
+        // Verify: g*h ≡ f (mod 81)
+        let gh = &g * &h;
+        let diff = &f - &gh;
+        let m = BigInt::from(81i64);
+        for i in 0..=diff.degree().unwrap_or(0) {
+            let c = diff.coeff(i).to_integer();
+            assert!(
+                (&c % &m).is_zero(),
+                "coeff {} of (f - g*h) = {} not divisible by 81",
+                i,
+                c
+            );
+        }
+    }
+
+    #[test]
+    fn test_hensel_lift_cubic() {
+        // f = x³ + 2x² - x - 2 = (x-1)(x+1)(x+2)
+        // mod 5: factors are (x+4)(x+1)(x+2)
+        let f = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(-2), int(-1), int(2), int(1)],
+            "x",
+        );
+        // Two-factor: g₀ = x+4, h₀ = (x+1)(x+2) = x²+3x+2 mod 5
+        let g0 = ModPoly::from_coeffs(&[4, 1], 5);
+        let h0 = ModPoly::from_coeffs(&[2, 3, 1], 5);
+
+        let (g, h) = hensel_lift_pair(&f, &g0, &h0, 5, 5); // mod 5^5 = 3125
+
+        let gh = &g * &h;
+        let diff = &f - &gh;
+        let m = BigInt::from(3125i64);
+        for i in 0..=diff.degree().unwrap_or(0) {
+            let c = diff.coeff(i).to_integer();
+            assert!(
+                (&c % &m).is_zero(),
+                "coeff {} of (f - g*h) = {} not divisible by 3125",
+                i,
+                c
+            );
+        }
+    }
+
+    #[test]
+    fn test_hensel_lift_factors_multi() {
+        // f = x³ - 1 = (x-1)(x²+x+1)
+        // mod 7: x³-1 ≡ x³+6 mod 7
+        // Factors mod 7: (x+6)(x²+x+1) since x=1 is a root
+        let f = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(-1), int(0), int(0), int(1)],
+            "x",
+        );
+        let factors_mod7 = vec![
+            ModPoly::from_coeffs(&[6, 1], 7),    // x+6 = x-1 mod 7
+            ModPoly::from_coeffs(&[1, 1, 1], 7), // x²+x+1
+        ];
+
+        let lifted = hensel_lift_factors(&f, &factors_mod7, 7, 4); // mod 7^4 = 2401
+        assert_eq!(lifted.len(), 2);
+
+        // Product should equal f mod 7^4
+        let product = &lifted[0] * &lifted[1];
+        let diff = &f - &product;
+        let m = BigInt::from(2401i64);
+        for i in 0..=diff.degree().unwrap_or(0) {
+            let c = diff.coeff(i).to_integer();
+            assert!(
+                (&c % &m).is_zero(),
+                "coeff {} not divisible by 2401",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_mignotte_bound() {
+        // f = x² - 1: ||f||_∞ = 1, n = 2, bound = 4
+        let f = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(-1), int(0), int(1)],
+            "x",
+        );
+        let b = mignotte_bound(&f);
+        assert_eq!(b, BigInt::from(4i64)); // 2^2 * 1
+
+        // f = 6x² + 5x + 1: ||f||_∞ = 6, n = 2, bound = 24
+        let f2 = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(1), int(5), int(6)],
+            "x",
+        );
+        let b2 = mignotte_bound(&f2);
+        assert_eq!(b2, BigInt::from(24i64));
+    }
+
+    #[test]
+    fn test_lifting_target() {
+        // f = x² - 1, p = 3
+        // bound = 2 * 4 = 8, need 3^k > 8, so k = 2 (3² = 9 > 8)
+        let f = crate::polynomial::Polynomial::from_coeffs(
+            vec![int(-1), int(0), int(1)],
+            "x",
+        );
+        let k = lifting_target(&f, 3);
+        assert_eq!(k, 2);
     }
 }
