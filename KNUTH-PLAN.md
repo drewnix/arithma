@@ -9,9 +9,15 @@
 
 A CAS that is correct before it is fast, fast before it is featureful, and featureful only in ways that the architecture supports cleanly. Rust + WASM means it runs anywhere with no runtime dependencies — that is the differentiator. The mathematics must be exact, the algorithms must be well-chosen, and the code must be readable.
 
-## Current State (Post Session 14)
+## Current State (Post Session 15)
 
-**Phases 1-3.2 complete. Phase 5.1 (IBP) complete. Phase 5.3 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration by parts (tabular + logarithmic). Transcendental integration table. MCP server with 10 tools including matrix operations.** 407 tests pass, 0 ignored.
+**Phases 1-3.2 complete. Phase 4 idempotency contract verified. Phase 5.1 (IBP), 5.2 (u-substitution), 5.3 (inverse trig), 5.5 (series) complete. Phase 7 v2 complete. Limits implemented. Equation solver classically complete (degree 1-4). Simplifier handles algebraic, trigonometric, logarithmic, inverse function, and multivariate polynomial identities — idempotency tested across 62 cases. Full derivative coverage including general f^g. Multivariate GCD. Taylor/Maclaurin series. Symbolic limits. Integration: polynomials, transcendentals, IBP (tabular + logarithmic), u-substitution, inverse trig antiderivatives. MCP server with 10 tools including matrix operations.** 487 tests pass, 0 ignored.
+
+### Session 15 Changes
+- **Simplification idempotency contract (Phase 4)**: Three bugs fixed — ln rules now re-simplify results for cascading expansion, `rebuild_expression` puts variables before constants, negative coefficients produce Subtract nodes. 62 idempotency tests added.
+- **U-substitution (Phase 5.2)**: Integration of `∫f(g(x))·g'(x)dx` by factor decomposition. Candidate extraction from function arguments, power bases/exponents, and function calls. Handles polynomial × composed trig, composed exponentials, etc.
+- **Inverse trig antiderivatives (Phase 5.3)**: `∫1/(a²+x²)dx = (1/a)arctan(x/a)`, `∫1/√(a²-x²)dx = arcsin(x/a)`. Polynomial-based denominator matching. Fixed infinite recursion in constant-numerator factoring.
+- **Tabular integration guard**: `is_repeatedly_integratable` now requires linear arguments, preventing false claims on non-linear function compositions.
 
 ### Session 14 Changes
 - **Multivariate GCD**: `MultiPoly::gcd` via primitive polynomial remainder sequence. `pseudo_remainder`, `content`, `primitive_part`, `exact_div` — full recursive algorithm. Coefficient GCD computed recursively, bottoming out at rational GCD.
@@ -41,7 +47,7 @@ A CAS that is correct before it is fast, fast before it is featureful, and featu
 - **Derivative expansion**: sec, csc, cot, sinh, cosh, tanh, arcsin, arccos, arctan with chain rule.
 
 ### Remaining Ignored Tests
-None. All 407 tests pass.
+None. All 487 tests pass.
 
 ## Phase 1: Exact Arithmetic Foundation
 
@@ -137,7 +143,7 @@ None. All 407 tests pass.
 - Two expressions are mathematically equal if and only if their simplified forms are identical (for the supported expression domain)
 - This is the hardest invariant to maintain and the most important
 
-**Estimated effort:** 2-3 sessions. This is the intellectually hardest part.
+**Estimated effort:** Idempotency contract verified (Session 15). Ongoing as new rules are added.
 
 ## Phase 5: Calculus Improvements
 
@@ -148,17 +154,28 @@ None. All 407 tests pass.
 - `a^x → a^x/ln(a)` for constant base
 - Constant factoring in division and negation passthrough
 
-### 5.2 — Partial fraction decomposition
+### 5.2 — U-substitution ✅ (Session 15)
+- Recognizes ∫f(g(x))·g'(x) dx by factor decomposition
+- Candidates: function arguments, power bases/exponents, function calls themselves
+- Handles: 2x·cos(x²), sin(x)·cos(x), cos(x)·e^{sin(x)}, e^{2x}, etc.
+- Also tightened `is_repeatedly_integratable` to prevent false tabular matches
+
+### 5.3 — Inverse trig antiderivatives ✅ (Session 15)
+- ∫1/(a²+x²) dx = (1/a)·arctan(x/a)
+- ∫1/√(a²-x²) dx = arcsin(x/a)
+- Polynomial-based denominator matching handles simplifier rewriting
+
+### 5.4 — Partial fraction decomposition
 - Requires polynomial factoring (Phase 3.3)
 - Essential for rational function integration
 
-### 5.3 — Series expansion ✅ (Session 14)
+### 5.5 — Series expansion ✅ (Session 14)
 - Taylor/Maclaurin via repeated differentiation
 - `try_rationalize` converts float evaluation results to exact rationals
 - Clean polynomial output via `Polynomial::to_node`
 - Formal power series arithmetic — future work
 
-### 5.4 — The Risch algorithm (long-term)
+### 5.6 — The Risch algorithm (long-term)
 - Decides whether an elementary antiderivative exists
 - Full implementation is a significant project
 - Start with the transcendental case (Risch-Norman)
