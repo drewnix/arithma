@@ -84,3 +84,6 @@ pub use crate::limits::{compute_limit, limit_latex};
 
 pub mod ode;
 pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode_latex};
+
+pub mod risch;
+pub use crate::risch::DifferentialExtension;
