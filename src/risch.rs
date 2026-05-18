@@ -2,6 +2,7 @@ use crate::ext_poly::ExtPoly;
 use crate::rational_function::RationalFunction;
 use num_bigint::BigInt;
 use num_rational::BigRational;
+use num_traits::One;
 
 /// Type of transcendental extension.
 #[derive(Debug, Clone)]
@@ -129,6 +130,304 @@ impl DifferentialExtension {
             }
         }
     }
+}
+
+/// Result of Hermite reduction.
+///
+/// Given ∫ A/D, Hermite reduction produces:
+///   ∫ A/D = g_num/g_den + ∫ h_num/h_den
+///
+/// where h_den is squarefree (no repeated factors in θ).
+#[derive(Debug)]
+pub struct HermiteResult {
+    /// Numerator of the rational (non-integral) part.
+    pub g_num: ExtPoly,
+    /// Denominator of the rational (non-integral) part.
+    pub g_den: ExtPoly,
+    /// Numerator of the remaining integrand (squarefree denominator).
+    pub h_num: ExtPoly,
+    /// Denominator of the remaining integrand (squarefree).
+    pub h_den: ExtPoly,
+}
+
+/// Hermite reduction: decompose ∫ A/D into a rational part plus an integral
+/// with squarefree denominator.
+///
+/// Given A, D ∈ k[θ] with D ≠ 0, computes g and h such that:
+///   ∫ A/D = g_num/g_den + ∫ h_num/h_den
+///
+/// where h_den is squarefree. If deg(A) >= deg(D), polynomial division is
+/// performed first so that the remainder has deg < deg(D).
+///
+/// Uses the iterative method from Bronstein's "Symbolic Integration I",
+/// Algorithm 2.2 (Hermite reduction, quadratic version): for each squarefree
+/// factor V with multiplicity n >= 2, reduce ∫ A_j/V^j using the extended
+/// GCD of V and V' (formal derivative w.r.t. θ).
+pub fn hermite_reduce(a: &ExtPoly, d: &ExtPoly, var: &str) -> Result<HermiteResult, String> {
+    if d.is_zero() {
+        return Err("Hermite reduction: denominator is zero".to_string());
+    }
+
+    // Polynomial division: separate any polynomial part so deg(A) < deg(D).
+    // The polynomial part must be integrated separately; we prepend it to h.
+    let (poly_part, a_rem) = a.div_rem(d)?;
+
+    // Square-free decomposition of D.
+    let sfd = d.square_free_decomposition();
+
+    // If D is already squarefree (all multiplicities <= 1), nothing to reduce.
+    if sfd.iter().all(|(_, m)| *m <= 1) {
+        // h = poly_part + a_rem/d, but we combine poly_part into h_num:
+        // poly_part + a_rem/d = (poly_part * d + a_rem) / d
+        let h_num = &(&poly_part * d) + &a_rem;
+        return Ok(HermiteResult {
+            g_num: ExtPoly::zero(var),
+            g_den: ExtPoly::one(var),
+            h_num,
+            h_den: d.clone(),
+        });
+    }
+
+    // Single factor case: D = V^n (up to constant).
+    // This is the common case and avoids partial fraction splitting.
+    if sfd.len() == 1 {
+        let (v, n) = &sfd[0];
+        let result = hermite_reduce_power(&a_rem, v, *n, var)?;
+        // Fold poly_part into the integrand: h = poly_part + result.h_num / result.h_den
+        let h_num = &(&poly_part * &result.h_den) + &result.h_num;
+        return Ok(HermiteResult {
+            g_num: result.g_num,
+            g_den: result.g_den,
+            h_num,
+            h_den: result.h_den,
+        });
+    }
+
+    // Multiple factors: split A/(V1^n1 * V2^n2 * ...) via iterative partial fractions.
+    // Use extended GCD to peel off one factor at a time.
+    hermite_reduce_multi_factor(&a_rem, &poly_part, &sfd, d, var)
+}
+
+/// Hermite reduction for D = V^n where V is squarefree and n >= 1.
+///
+/// For each power j from n down to 2, applies:
+///   extended_gcd(V, V') = 1  (since V is squarefree)
+///   Find B, C with B*V + C*V' = A_j
+///   Rational contribution: -C / ((j-1) * V^(j-1))
+///   New numerator: B + C'_formal / (j-1)
+fn hermite_reduce_power(
+    a: &ExtPoly,
+    v: &ExtPoly,
+    n: usize,
+    var: &str,
+) -> Result<HermiteResult, String> {
+    if n <= 1 {
+        return Ok(HermiteResult {
+            g_num: ExtPoly::zero(var),
+            g_den: ExtPoly::one(var),
+            h_num: a.clone(),
+            h_den: v.clone(),
+        });
+    }
+
+    let v_deriv = v.formal_derivative();
+
+    let mut g_num = ExtPoly::zero(var);
+    let mut g_den = ExtPoly::one(var);
+    let mut a_curr = a.clone();
+
+    for j in (2..=n).rev() {
+        // Since V is squarefree, gcd(V, V') should be constant (degree 0).
+        let (gcd_vvp, s_raw, t_raw) = ExtPoly::extended_gcd(v, &v_deriv);
+        // s_raw * V + t_raw * V' = gcd_vvp (a nonzero constant)
+
+        // Scale to get B*V + C*V' = a_curr:
+        //   B = s_raw * (a_curr / gcd_vvp), C = t_raw * (a_curr / gcd_vvp)
+        let (a_scaled, rem) = a_curr.div_rem(&gcd_vvp)?;
+        if !rem.is_zero() {
+            return Err(
+                "Hermite reduction: GCD does not divide numerator (invalid input)".to_string(),
+            );
+        }
+
+        let c_full = &t_raw * &a_scaled;
+
+        // Reduce C modulo V to keep degrees bounded.
+        let (c_extra, c) = c_full.div_rem(v)?;
+
+        // Recompute B from the identity: B*V + C*V' = a_curr
+        // => B = (a_curr - C*V') / V
+        // But we also have c_extra such that c_full = c_extra*V + c,
+        // so B_full = s_raw * a_scaled, and
+        // B_adjusted = B_full + c_extra*V' (from redistributing c_extra*V from C to B side).
+        // Actually: B_full*V + c_full*V' = a_curr
+        //   = B_full*V + (c_extra*V + c)*V'
+        //   = (B_full + c_extra*V')*V + c*V'
+        // So the effective B with the reduced C is: B_full + c_extra*V'
+        let b_full = &s_raw * &a_scaled;
+        let b = &b_full + &(&c_extra * &v_deriv);
+
+        // Rational part contribution: -C / ((j-1) * V^(j-1))
+        let j_minus_1 = BigRational::from_integer(BigInt::from(j as i64 - 1));
+        let j_scalar = ExtPoly::from_rf(RationalFunction::from_constant(j_minus_1.clone(), var));
+
+        let mut v_pow = ExtPoly::one(var);
+        for _ in 0..(j - 1) {
+            v_pow = &v_pow * v;
+        }
+        let contrib_den = &v_pow * &j_scalar;
+        let neg_c = -&c;
+
+        // Accumulate: g += neg_c / contrib_den
+        // g_num/g_den + neg_c/contrib_den
+        //   = (g_num * contrib_den + neg_c * g_den) / (g_den * contrib_den)
+        g_num = &(&g_num * &contrib_den) + &(&neg_c * &g_den);
+        g_den = &g_den * &contrib_den;
+
+        // Simplify g_num/g_den by dividing out GCD.
+        let g_gcd = g_num.gcd(&g_den);
+        if !g_gcd.is_constant() || !g_gcd.is_zero() {
+            let (gn, _) = g_num.div_rem(&g_gcd).unwrap();
+            let (gd, _) = g_den.div_rem(&g_gcd).unwrap();
+            g_num = gn;
+            g_den = gd;
+        }
+
+        // New numerator for next iteration:
+        // a_next = B + C'_formal / (j-1)
+        let c_prime = c.formal_derivative();
+        let inv_j = BigRational::new(BigInt::one(), BigInt::from(j as i64 - 1));
+        let inv_j_rf = RationalFunction::from_constant(inv_j, var);
+        a_curr = &b + &c_prime.scalar_mul(&inv_j_rf);
+    }
+
+    // Remaining: ∫ a_curr / V (squarefree denominator).
+    Ok(HermiteResult {
+        g_num,
+        g_den,
+        h_num: a_curr,
+        h_den: v.clone(),
+    })
+}
+
+/// Hermite reduction for multiple distinct squarefree factors.
+///
+/// Given D = V1^n1 * V2^n2 * ..., splits A/D into partial fractions
+/// using extended GCD, then reduces each piece via `hermite_reduce_power`.
+fn hermite_reduce_multi_factor(
+    a: &ExtPoly,
+    poly_part: &ExtPoly,
+    sfd: &[(ExtPoly, usize)],
+    _d: &ExtPoly,
+    var: &str,
+) -> Result<HermiteResult, String> {
+    // Split A/D into sum of A_i / V_i^n_i using iterative partial fractions.
+    //
+    // Strategy: for factors (V1^n1, V2^n2, ..., Vk^nk),
+    // let P1 = V1^n1 and P2 = V2^n2 * ... * Vk^nk.
+    // Since V_i are pairwise coprime and squarefree, P1 and P2 are coprime.
+    // Extended GCD gives s*P1 + t*P2 = 1, so:
+    //   A/D = A / (P1*P2) = (A*t)/P1 + (A*s)/P2
+    // Recurse on the P2 side for the remaining factors.
+
+    // Build powers: V_i^n_i for each factor.
+    let mut powers: Vec<ExtPoly> = Vec::with_capacity(sfd.len());
+    for (v, n) in sfd {
+        let mut vn = ExtPoly::one(var);
+        for _ in 0..*n {
+            vn = &vn * v;
+        }
+        powers.push(vn);
+    }
+
+    // Iteratively split: peel off one factor at a time.
+    // pieces[i] = (numerator, factor V_i, multiplicity n_i)
+    let mut pieces: Vec<(ExtPoly, ExtPoly, usize)> = Vec::with_capacity(sfd.len());
+    let mut remaining_num = a.clone();
+
+    for i in 0..sfd.len() {
+        if i == sfd.len() - 1 {
+            // Last factor gets the remaining numerator.
+            pieces.push((remaining_num.clone(), sfd[i].0.clone(), sfd[i].1));
+            break;
+        }
+
+        let p1 = &powers[i];
+        // P2 = product of powers[i+1..].
+        let mut p2 = ExtPoly::one(var);
+        for pj in &powers[i + 1..] {
+            p2 = &p2 * pj;
+        }
+
+        // Extended GCD: s*P1 + t*P2 = gcd (should be 1 since coprime).
+        let (gcd_pp, s_coeff, t_coeff) = ExtPoly::extended_gcd(p1, &p2);
+
+        // Scale: we need s2*P1 + t2*P2 = remaining_num
+        let (scale, rem) = remaining_num.div_rem(&gcd_pp)?;
+        if !rem.is_zero() {
+            return Err(
+                "Hermite reduction: partial fraction split failed (gcd doesn't divide numerator)"
+                    .to_string(),
+            );
+        }
+
+        // A_i for factor i: (remaining_num * t) / P1 -> numerator is t*scale, reduce mod P1
+        let num_for_p1 = &t_coeff * &scale;
+        let (_, a_i) = num_for_p1.div_rem(p1)?;
+        pieces.push((a_i, sfd[i].0.clone(), sfd[i].1));
+
+        // Remaining for factors i+1..: (remaining_num * s) / P2 -> s*scale, reduce mod P2
+        let num_for_p2 = &s_coeff * &scale;
+        let (_, new_remaining) = num_for_p2.div_rem(&p2)?;
+        remaining_num = new_remaining;
+    }
+
+    // Reduce each piece via hermite_reduce_power.
+    let mut total_g_num = ExtPoly::zero(var);
+    let mut total_g_den = ExtPoly::one(var);
+    let mut total_h_num = ExtPoly::zero(var);
+    let mut total_h_den = ExtPoly::one(var);
+
+    for (a_i, v_i, n_i) in &pieces {
+        let result = hermite_reduce_power(a_i, v_i, *n_i, var)?;
+
+        // Accumulate rational part: total_g += result.g
+        // total_g_num/total_g_den + result.g_num/result.g_den
+        total_g_num = &(&total_g_num * &result.g_den) + &(&result.g_num * &total_g_den);
+        total_g_den = &total_g_den * &result.g_den;
+
+        // Simplify g by GCD.
+        let g_gcd = total_g_num.gcd(&total_g_den);
+        if !g_gcd.is_zero() && !g_gcd.is_constant() {
+            let (gn, _) = total_g_num.div_rem(&g_gcd).unwrap();
+            let (gd, _) = total_g_den.div_rem(&g_gcd).unwrap();
+            total_g_num = gn;
+            total_g_den = gd;
+        }
+
+        // Accumulate integrand: total_h += result.h_num / result.h_den
+        total_h_num = &(&total_h_num * &result.h_den) + &(&result.h_num * &total_h_den);
+        total_h_den = &total_h_den * &result.h_den;
+
+        // Simplify h by GCD.
+        let h_gcd = total_h_num.gcd(&total_h_den);
+        if !h_gcd.is_zero() && !h_gcd.is_constant() {
+            let (hn, _) = total_h_num.div_rem(&h_gcd).unwrap();
+            let (hd, _) = total_h_den.div_rem(&h_gcd).unwrap();
+            total_h_num = hn;
+            total_h_den = hd;
+        }
+    }
+
+    // Fold poly_part into the integrand.
+    let h_num = &(poly_part * &total_h_den) + &total_h_num;
+
+    Ok(HermiteResult {
+        g_num: total_g_num,
+        g_den: total_g_den,
+        h_num,
+        h_den: total_h_den,
+    })
 }
 
 #[cfg(test)]
@@ -279,5 +578,235 @@ mod tests {
         let c = ExtPoly::from_rf(rf_const(5));
         let d = ext.differentiate(&c);
         assert!(d.is_zero());
+    }
+
+    // ======== Hermite reduction tests ========
+
+    /// Helper: verify the Hermite reduction identity by formal differentiation.
+    ///
+    /// If ∫ A/D = g_num/g_den + ∫ h_num/h_den, then differentiating both sides
+    /// w.r.t. θ gives:
+    ///   A/D = d/dθ[g_num/g_den] + h_num/h_den
+    ///
+    /// Using the quotient rule: d/dθ[g_num/g_den] = (g_num'·g_den - g_num·g_den') / g_den²
+    ///
+    /// Cross-multiplying: A · g_den² · h_den = (g_num'·g_den - g_num·g_den') · D · h_den
+    ///                                        + h_num · D · g_den²
+    fn verify_hermite_identity(a: &ExtPoly, d: &ExtPoly, result: &HermiteResult) {
+        // LHS: A * g_den^2 * h_den
+        let g_den_sq = &result.g_den * &result.g_den;
+        let lhs = &(&(a * &g_den_sq) * &result.h_den);
+
+        // d/dθ[g_num/g_den] numerator = g_num' * g_den - g_num * g_den'
+        let gn_prime = result.g_num.formal_derivative();
+        let gd_prime = result.g_den.formal_derivative();
+        let deriv_num = &(&gn_prime * &result.g_den) - &(&result.g_num * &gd_prime);
+
+        // RHS term 1: deriv_num * D * h_den  (but over g_den^2, which we've cross-multiplied)
+        // Actually after cross-multiplying by g_den^2:
+        // deriv_num * D * h_den  (this already has g_den^2 cleared from denominator)
+        // Wait, let me redo this carefully.
+        //
+        // A/D = (g_num'*g_den - g_num*g_den')/g_den^2 + h_num/h_den
+        //
+        // Multiply through by D * g_den^2 * h_den:
+        // A * g_den^2 * h_den = (g_num'*g_den - g_num*g_den') * D * h_den + h_num * D * g_den^2
+        let rhs_term1 = &(&deriv_num * d) * &result.h_den;
+        let rhs_term2 = &(&result.h_num * d) * &g_den_sq;
+        let rhs = &rhs_term1 + &rhs_term2;
+
+        assert_eq!(
+            *lhs, rhs,
+            "Hermite identity check failed:\n  LHS = {lhs}\n  RHS = {rhs}"
+        );
+    }
+
+    #[test]
+    fn test_hermite_squarefree_noop() {
+        // D = θ + 1 (already squarefree) -> no reduction needed.
+        let a = ExtPoly::from_rf(rf_const(1));
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // θ + 1
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // No rational part.
+        assert!(result.g_num.is_zero(), "Expected zero rational part");
+
+        // Integrand should be unchanged.
+        assert_eq!(result.h_num, a);
+        assert_eq!(result.h_den, d);
+    }
+
+    #[test]
+    fn test_hermite_square_1_over_t_plus_1_sq() {
+        // ∫ 1/(θ+1)^2
+        // D = (θ+1)^2 = θ^2 + 2θ + 1
+        // Expected: g = -1/(θ+1), h = 0
+        //
+        // Working: V = θ+1, V' = 1, n = 2
+        // ext_gcd(V, V') = ext_gcd(θ+1, 1): gcd=1, s=0, t=1
+        // So s*(θ+1) + t*1 = 0*(θ+1) + 1*1 = 1
+        // Scale by A=1: B=0, C=1
+        // Reduce C mod V: C = 1 (already < deg V)
+        // B_adjusted: B_full + c_extra*V' = 0 + 0 = 0
+        // Rational part: -C / ((2-1) * V^(2-1)) = -1 / (1 * (θ+1)) = -1/(θ+1)
+        // New numerator: B + C'_formal / (j-1) = 0 + 0/1 = 0
+        let a = ExtPoly::from_rf(rf_const(1));
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let d = &t_plus_1 * &t_plus_1; // (θ+1)^2
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Remaining integrand should be zero.
+        assert!(
+            result.h_num.is_zero(),
+            "Expected zero remaining integrand for 1/(θ+1)^2, got h = {}/{}",
+            result.h_num,
+            result.h_den
+        );
+
+        // Rational part should be nonzero.
+        assert!(
+            !result.g_num.is_zero(),
+            "Expected nonzero rational part for 1/(θ+1)^2"
+        );
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_cube_1_over_t_plus_1_cubed() {
+        // ∫ 1/(θ+1)^3
+        // After reduction, denominator should be squarefree.
+        let a = ExtPoly::from_rf(rf_const(1));
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let d = &(&t_plus_1 * &t_plus_1) * &t_plus_1; // (θ+1)^3
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Rational part should be nonzero.
+        assert!(
+            !result.g_num.is_zero(),
+            "Expected nonzero rational part for 1/(θ+1)^3"
+        );
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(
+            h_den_sfd.iter().all(|(_, m)| *m <= 1),
+            "Remaining denominator should be squarefree, got SFD: {:?}",
+            h_den_sfd
+        );
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_higher_power() {
+        // ∫ 1/(θ+1)^4
+        let a = ExtPoly::from_rf(rf_const(1));
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let t_plus_1_sq = &t_plus_1 * &t_plus_1;
+        let d = &t_plus_1_sq * &t_plus_1_sq; // (θ+1)^4
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Rational part should be nonzero.
+        assert!(!result.g_num.is_zero());
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(h_den_sfd.iter().all(|(_, m)| *m <= 1));
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_with_nontrivial_numerator() {
+        // ∫ (2θ + 3) / (θ+1)^2
+        let a = ExtPoly::from_coeffs(vec![rf_const(3), rf_const(2)], "x"); // 2θ + 3
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let d = &t_plus_1 * &t_plus_1; // (θ+1)^2
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(h_den_sfd.iter().all(|(_, m)| *m <= 1));
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_multi_factor() {
+        // ∫ 1 / ((θ+1)^2 * (θ-1))
+        // D = (θ+1)^2 * (θ-1) has SFD [(θ-1, 1), (θ+1, 2)]
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let t_minus_1 = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(1)], "x");
+        let d = &(&t_plus_1 * &t_plus_1) * &t_minus_1;
+        let a = ExtPoly::from_rf(rf_const(1));
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(
+            h_den_sfd.iter().all(|(_, m)| *m <= 1),
+            "Multi-factor: remaining denominator should be squarefree, got SFD: {:?}",
+            h_den_sfd
+        );
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_constant_denominator() {
+        // D = 1 (constant, squarefree). This is a degenerate case.
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2)], "x"); // 2θ + 1
+        let d = ExtPoly::one("x");
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // No rational part.
+        assert!(result.g_num.is_zero());
+
+        // The integrand should be a/1.
+        assert_eq!(result.h_num, a);
+    }
+
+    #[test]
+    fn test_hermite_deg_a_ge_deg_d() {
+        // deg(A) >= deg(D): polynomial division should happen first.
+        // A = θ^3, D = (θ+1)^2 = θ^2 + 2θ + 1
+        // θ^3 / (θ+1)^2 = (θ - 2) + (3θ + 2)/(θ+1)^2 (by long division)
+        let a = ExtPoly::from_coeffs(
+            vec![rf_const(0), rf_const(0), rf_const(0), rf_const(1)],
+            "x",
+        ); // θ^3
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let d = &t_plus_1 * &t_plus_1;
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(h_den_sfd.iter().all(|(_, m)| *m <= 1));
+
+        // Verify the identity (the polynomial part is folded into h).
+        verify_hermite_identity(&a, &d, &result);
+    }
+
+    #[test]
+    fn test_hermite_with_rf_coefficients() {
+        // ∫ x / (θ + x)^2 — coefficients are rational functions of x.
+        let x_rf = rf_poly(&[0, 1]); // x as RF
+        let a = ExtPoly::from_rf(x_rf.clone()); // numerator = x
+        let t_plus_x = ExtPoly::from_coeffs(vec![x_rf, rf_const(1)], "x"); // θ + x
+        let d = &t_plus_x * &t_plus_x; // (θ + x)^2
+        let result = hermite_reduce(&a, &d, "x").unwrap();
+
+        // Remaining denominator should be squarefree.
+        let h_den_sfd = result.h_den.square_free_decomposition();
+        assert!(h_den_sfd.iter().all(|(_, m)| *m <= 1));
+
+        // Verify the identity.
+        verify_hermite_identity(&a, &d, &result);
     }
 }
