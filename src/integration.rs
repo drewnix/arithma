@@ -3,6 +3,7 @@ use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
 use crate::tokenizer::Tokenizer;
+use num_traits::Zero;
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
@@ -198,17 +199,28 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // ∫1/(1+x²) dx = arctan(x), ∫1/√(1-x²) dx = arcsin(x)
+            if let Node::Num(ref n) = **left {
+                if n.is_one() {
+                    if let Some(result) = try_inverse_trig_integral(right, var_name) {
+                        return Ok(result);
+                    }
+                }
+            }
+
             // ∫k/f(x) dx = k * ∫(1/f(x)) dx — factor out constant numerator
             if let Node::Num(k) = &**left {
-                let one_over_right = Node::Divide(
-                    Box::new(Node::Num(ExactNum::one())),
-                    right.clone(),
-                );
-                if let Ok(inner) = integrate(&one_over_right, var_name) {
-                    return Ok(Node::Multiply(
-                        Box::new(Node::Num(k.clone())),
-                        Box::new(inner),
-                    ));
+                if !k.is_one() {
+                    let one_over_right = Node::Divide(
+                        Box::new(Node::Num(ExactNum::one())),
+                        right.clone(),
+                    );
+                    if let Ok(inner) = integrate(&one_over_right, var_name) {
+                        return Ok(Node::Multiply(
+                            Box::new(Node::Num(k.clone())),
+                            Box::new(inner),
+                        ));
+                    }
                 }
             }
             // ∫f(x)/k dx = (1/k) * ∫f(x) dx — factor out constant denominator
@@ -221,6 +233,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                         Box::new(inner),
                     ));
                 }
+            }
+
+            // U-substitution on division expressions
+            if let Some(result) = try_u_substitution(expr, var_name) {
+                return result;
             }
 
             Err("Integration of this division is not yet implemented".to_string())
@@ -557,6 +574,119 @@ fn try_log_integration(
     };
 
     Some(Ok(Node::Subtract(Box::new(uv), Box::new(remaining))))
+}
+
+/// Recognize inverse trig patterns in the denominator of 1/(...).
+/// ∫1/(a² + x²) dx = (1/a)·arctan(x/a)
+/// ∫1/√(a² - x²) dx = arcsin(x/a)
+/// ∫1/√(x² - a²) dx = ln|x + √(x²-a²)| (arccosh form, but we use log form)
+fn try_inverse_trig_integral(denom: &Node, var: &str) -> Option<Node> {
+    let env = crate::environment::Environment::new();
+
+    // Pattern: a² + x² or x² + a²
+    if let Node::Add(l, r) = denom {
+        let (const_part, var_part) = if !contains_var(l, var) && contains_var(r, var) {
+            (l, r)
+        } else if contains_var(l, var) && !contains_var(r, var) {
+            (r, l)
+        } else {
+            return None;
+        };
+
+        // var_part should be x² (or simplified form of x^2)
+        let is_var_squared = match var_part.as_ref() {
+            Node::Power(base, exp) => {
+                matches!(&**base, Node::Variable(v) if v == var)
+                    && matches!(&**exp, Node::Num(n) if n == &ExactNum::two())
+            }
+            _ => false,
+        };
+        if !is_var_squared {
+            return None;
+        }
+
+        // const_part should be a positive number (a²)
+        let a_squared = match const_part.as_ref() {
+            Node::Num(n) => {
+                let val = n.to_f64();
+                if val > 0.0 { Some(n.clone()) } else { None }
+            }
+            _ => None,
+        };
+        let a_squared = a_squared?;
+
+        let a_sq_f64 = a_squared.to_f64();
+        let a_f64 = a_sq_f64.sqrt();
+
+        if a_squared.is_one() {
+            // ∫1/(1+x²) dx = arctan(x)
+            return Some(Node::Function(
+                "arctan".to_string(),
+                vec![Node::Variable(var.to_string())],
+            ));
+        }
+
+        // ∫1/(a²+x²) dx = (1/a)·arctan(x/a)
+        let a_node = Node::Num(ExactNum::from_f64(a_f64));
+        let result = Node::Multiply(
+            Box::new(Node::Divide(
+                Box::new(Node::Num(ExactNum::one())),
+                Box::new(a_node.clone()),
+            )),
+            Box::new(Node::Function(
+                "arctan".to_string(),
+                vec![Node::Divide(
+                    Box::new(Node::Variable(var.to_string())),
+                    Box::new(a_node),
+                )],
+            )),
+        );
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        return Some(result);
+    }
+
+    // Pattern: √(a² - x²) — try polynomial approach to handle both
+    // Subtract(a², x²) and Add(Negate(x²), a²) forms from the simplifier.
+    // Parser produces Function("sqrt", [inner]), not Node::Sqrt.
+    let sqrt_inner = match denom {
+        Node::Sqrt(inner) => Some(inner.as_ref()),
+        Node::Function(name, args) if name == "sqrt" && args.len() == 1 => Some(&args[0]),
+        _ => None,
+    };
+    if let Some(inner) = sqrt_inner {
+        if let Ok(poly) = Polynomial::from_node(inner, var) {
+            // Should be -x² + a², i.e., degree 2 with negative leading coeff
+            if poly.degree().unwrap_or(0) == 2 {
+                let c2 = poly.coeff(2);
+                let c1 = poly.coeff(1);
+                let c0 = poly.coeff(0);
+                if c2 == num_rational::BigRational::from_integer((-1).into())
+                    && c1.is_zero()
+                    && c0 > num_rational::BigRational::from_integer(0.into())
+                {
+                    let a_sq_f64: f64 = c0.numer().to_string().parse::<f64>().unwrap_or(0.0)
+                        / c0.denom().to_string().parse::<f64>().unwrap_or(1.0);
+                    if (a_sq_f64 - 1.0).abs() < 1e-14 {
+                        return Some(Node::Function(
+                            "arcsin".to_string(),
+                            vec![Node::Variable(var.to_string())],
+                        ));
+                    }
+                    let a_f64 = a_sq_f64.sqrt();
+                    let a_node = Node::Num(ExactNum::from_f64(a_f64));
+                    return Some(Node::Function(
+                        "arcsin".to_string(),
+                        vec![Node::Divide(
+                            Box::new(Node::Variable(var.to_string())),
+                            Box::new(a_node),
+                        )],
+                    ));
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// U-substitution: Given ∫h(x)dx, find g(x) such that h(x) = f(g(x))·g'(x)·c,
