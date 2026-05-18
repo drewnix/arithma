@@ -1,5 +1,6 @@
 use crate::rational_function::RationalFunction;
 use std::fmt;
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// Polynomial in a tower variable θ, with coefficients in Q(x).
 /// coeffs[i] is the coefficient of θ^i. Trailing zeros are stripped.
@@ -88,6 +89,75 @@ impl ExtPoly {
     /// The base variable name used by the rational function coefficients.
     pub fn variable(&self) -> &str {
         &self.var
+    }
+
+    /// Multiply every coefficient by a rational function scalar.
+    pub fn scalar_mul(&self, s: &RationalFunction) -> Self {
+        if s.is_zero() {
+            return Self::zero(&self.var);
+        }
+        let coeffs = self.coeffs.iter().map(|c| c * s).collect();
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+}
+
+// --- Operator implementations ---
+
+impl<'a> Add for &'a ExtPoly {
+    type Output = ExtPoly;
+    fn add(self, rhs: &'a ExtPoly) -> ExtPoly {
+        let len = self.coeffs.len().max(rhs.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = rhs.coeff(i);
+            coeffs.push(&a + &b);
+        }
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+}
+
+impl<'a> Sub for &'a ExtPoly {
+    type Output = ExtPoly;
+    fn sub(self, rhs: &'a ExtPoly) -> ExtPoly {
+        let len = self.coeffs.len().max(rhs.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = rhs.coeff(i);
+            coeffs.push(&a - &b);
+        }
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+}
+
+impl<'a> Mul for &'a ExtPoly {
+    type Output = ExtPoly;
+    fn mul(self, rhs: &'a ExtPoly) -> ExtPoly {
+        if self.is_zero() || rhs.is_zero() {
+            return ExtPoly::zero(&self.var);
+        }
+        let len = self.coeffs.len() + rhs.coeffs.len() - 1;
+        let mut coeffs: Vec<RationalFunction> = (0..len)
+            .map(|_| RationalFunction::zero(&self.var))
+            .collect();
+        for (i, a) in self.coeffs.iter().enumerate() {
+            if a.is_zero() {
+                continue;
+            }
+            for (j, b) in rhs.coeffs.iter().enumerate() {
+                coeffs[i + j] = &coeffs[i + j] + &(a * b);
+            }
+        }
+        ExtPoly::from_coeffs(coeffs, &self.var)
+    }
+}
+
+impl Neg for &ExtPoly {
+    type Output = ExtPoly;
+    fn neg(self) -> ExtPoly {
+        let coeffs = self.coeffs.iter().map(|c| -c).collect();
+        ExtPoly::from_coeffs(coeffs, &self.var)
     }
 }
 
@@ -293,5 +363,77 @@ mod tests {
         let z = ExtPoly::from_rf(RationalFunction::zero("x"));
         assert!(z.is_zero());
         assert_eq!(z.degree(), None);
+    }
+
+    #[test]
+    fn test_ext_poly_add() {
+        // (2θ + 1) + (3θ + 4) = 5θ + 5
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(4), rf_const(3)], "x");
+        let sum = &a + &b;
+        assert_eq!(sum.coeff(0), rf_const(5));
+        assert_eq!(sum.coeff(1), rf_const(5));
+    }
+
+    #[test]
+    fn test_ext_poly_add_cancels() {
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(2), rf_const(-1)], "x");
+        let sum = &a + &b;
+        assert_eq!(sum.degree(), Some(0));
+    }
+
+    #[test]
+    fn test_ext_poly_sub() {
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let diff = &a - &b;
+        assert!(diff.coeff(0).is_zero());
+        assert_eq!(diff.coeff(1), rf_const(1));
+    }
+
+    #[test]
+    fn test_ext_poly_mul() {
+        // (θ + 1)(θ - 1) = θ^2 - 1
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(1)], "x");
+        let prod = &a * &b;
+        assert_eq!(prod.degree(), Some(2));
+        assert_eq!(prod.coeff(0), rf_const(-1));
+        assert!(prod.coeff(1).is_zero());
+        assert_eq!(prod.coeff(2), rf_const(1));
+    }
+
+    #[test]
+    fn test_ext_poly_mul_with_rf_coeffs() {
+        // (xθ)(θ + 1) = xθ^2 + xθ
+        let x_rf = rf_poly(&[0, 1]); // x as a rational function
+        let a = ExtPoly::from_coeffs(vec![RationalFunction::zero("x"), x_rf.clone()], "x");
+        let b = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let prod = &a * &b;
+        assert_eq!(prod.degree(), Some(2));
+        assert!(prod.coeff(0).is_zero());
+        assert_eq!(prod.coeff(1), x_rf);
+        assert_eq!(prod.coeff(2), x_rf);
+    }
+
+    #[test]
+    fn test_ext_poly_neg() {
+        let a = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(2)], "x");
+        let neg_a = -&a;
+        assert_eq!(neg_a.coeff(0), rf_const(-1));
+        assert_eq!(neg_a.coeff(1), rf_const(-2));
+    }
+
+    #[test]
+    fn test_ext_poly_scalar_mul() {
+        let inv_x = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        let p = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let scaled = p.scalar_mul(&inv_x);
+        assert_eq!(scaled.coeff(0), inv_x);
+        assert_eq!(scaled.coeff(1), inv_x);
     }
 }
