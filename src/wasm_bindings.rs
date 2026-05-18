@@ -6,6 +6,7 @@ use crate::integration::{definite_integral_latex, integrate_latex};
 use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
+use crate::series::taylor_series_latex;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
 use wasm_bindgen::prelude::*;
@@ -83,6 +84,23 @@ pub fn definite_integral_js(
         Ok(result) => Ok(result),
         Err(e) => Err(JsValue::from_str(&format!(
             "Error in definite integration: {}",
+            e
+        ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn taylor_series_js(
+    latex_expr: &str,
+    var_name: &str,
+    center: f64,
+    order: usize,
+) -> Result<String, JsValue> {
+    match taylor_series_latex(latex_expr, var_name, center, order) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error computing Taylor series: {}",
             e
         ))),
     }

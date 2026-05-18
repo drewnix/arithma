@@ -60,3 +60,6 @@ pub use crate::polynomial::Polynomial;
 
 pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
+
+pub mod series;
+pub use crate::series::{taylor_series, taylor_series_latex};

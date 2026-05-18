@@ -1001,4 +1001,81 @@ mod test_simplify {
         let simplified = expr.simplify(&env).unwrap();
         assert_eq!(format!("{}", simplified), "x^{-2}");
     }
+
+    // --- Multivariate simplification tests ---
+
+    #[test]
+    fn test_multivariate_polynomial_normalize() {
+        let env = Environment::new();
+        // (x + y) + (x + y) → 2x + 2y
+        let x = Node::Variable("x".to_string());
+        let y = Node::Variable("y".to_string());
+        let xy = Node::Add(Box::new(x.clone()), Box::new(y.clone()));
+        let expr = Node::Add(Box::new(xy.clone()), Box::new(xy.clone()));
+        let simplified = expr.simplify(&env).unwrap();
+        let val = Evaluator::evaluate_exact(
+            &simplified,
+            &{
+                let mut e = Environment::new();
+                e.set_exact("x", ExactNum::integer(3));
+                e.set_exact("y", ExactNum::integer(7));
+                e
+            },
+        );
+        // 2*3 + 2*7 = 20
+        assert_eq!(val.unwrap(), ExactNum::integer(20));
+    }
+
+    #[test]
+    fn test_multivariate_gcd_cancellation() {
+        let env = Environment::new();
+        // (x*y + x) / (y + 1) → x since x*y + x = x(y+1)
+        let x = Node::Variable("x".to_string());
+        let y = Node::Variable("y".to_string());
+        let numer = Node::Add(
+            Box::new(Node::Multiply(Box::new(x.clone()), Box::new(y.clone()))),
+            Box::new(x.clone()),
+        ); // xy + x
+        let denom = Node::Add(
+            Box::new(y.clone()),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        ); // y + 1
+        let expr = Node::Divide(Box::new(numer), Box::new(denom));
+        let simplified = expr.simplify(&env).unwrap();
+        assert_eq!(simplified, Node::Variable("x".to_string()));
+    }
+
+    #[test]
+    fn test_multivariate_partial_cancellation() {
+        let env = Environment::new();
+        // (x^2 - y^2) / (x + y) → x - y since x^2-y^2 = (x+y)(x-y)
+        let x = Node::Variable("x".to_string());
+        let y = Node::Variable("y".to_string());
+        let x2 = Node::Power(
+            Box::new(x.clone()),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let y2 = Node::Power(
+            Box::new(y.clone()),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let numer = Node::Subtract(Box::new(x2), Box::new(y2));
+        let denom = Node::Add(
+            Box::new(x.clone()),
+            Box::new(y.clone()),
+        );
+        let expr = Node::Divide(Box::new(numer), Box::new(denom));
+        let simplified = expr.simplify(&env).unwrap();
+        // Should be x - y. Verify by evaluation.
+        let val = Evaluator::evaluate_exact(
+            &simplified,
+            &{
+                let mut e = Environment::new();
+                e.set_exact("x", ExactNum::integer(7));
+                e.set_exact("y", ExactNum::integer(3));
+                e
+            },
+        );
+        assert_eq!(val.unwrap(), ExactNum::integer(4)); // 7 - 3 = 4
+    }
 }

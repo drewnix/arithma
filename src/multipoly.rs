@@ -7,7 +7,7 @@ use std::ops::{Add, Mul, Neg, Sub};
 
 use crate::exact::ExactNum;
 use crate::node::Node;
-use crate::polynomial::Polynomial;
+use crate::polynomial::{gcd_bigint, lcm_bigint, Polynomial};
 
 /// Multivariate polynomial over Q with recursive representation.
 ///
@@ -299,6 +299,288 @@ impl MultiPoly {
         }
     }
 
+    /// Degree in the main variable.
+    fn main_degree(&self) -> usize {
+        match self {
+            MultiPoly::Constant(_) => 0,
+            MultiPoly::Poly { coeffs, .. } => coeffs.len().saturating_sub(1),
+        }
+    }
+
+    /// GCD of two rationals: gcd(numer) / lcm(denom).
+    fn gcd_rational(a: &BigRational, b: &BigRational) -> BigRational {
+        if a.is_zero() {
+            return b.abs();
+        }
+        if b.is_zero() {
+            return a.abs();
+        }
+        let n = gcd_bigint(a.numer(), b.numer());
+        let d = lcm_bigint(a.denom(), b.denom());
+        BigRational::new(n.abs(), d)
+    }
+
+    /// Pseudo-remainder of self divided by other in the main variable.
+    /// Both must share the same main variable.
+    /// Returns r such that lc(other)^(δ+1) · self ≡ q·other + r with deg(r) < deg(other),
+    /// where δ = deg(self) - deg(other).
+    pub fn pseudo_remainder(&self, other: &MultiPoly) -> MultiPoly {
+        let var = match self.main_var() {
+            Some(v) => v.clone(),
+            None => return self.clone(),
+        };
+
+        let other_deg = match other.main_var() {
+            Some(v) if *v == var => other.main_degree(),
+            _ => return MultiPoly::zero(),
+        };
+
+        let lc_other = other.leading_coeff();
+        let mut rem = self.clone();
+
+        // At each step: rem ← lc(other)·rem - lc(rem)·x^(deg_diff)·other
+        // Leading terms cancel, degree drops by ≥1. After δ+1 steps we have
+        // lc(other)^(δ+1)·self ≡ q·other + rem.
+        while !rem.is_zero() {
+            let still_in_var = rem.main_var().map_or(false, |v| *v == var);
+            if !still_in_var || rem.main_degree() < other_deg {
+                break;
+            }
+            let rem_lc = rem.leading_coeff();
+            let deg_diff = rem.main_degree() - other_deg;
+
+            let scaled_rem = &rem * &lc_other;
+            let term = MultiPoly::monomial(rem_lc, &var, deg_diff);
+            let sub = &term * other;
+            rem = &scaled_rem - &sub;
+        }
+
+        rem
+    }
+
+    /// Content: GCD of all coefficients in the main variable.
+    pub fn content(&self) -> MultiPoly {
+        match self {
+            MultiPoly::Constant(_) => self.abs_rational(),
+            MultiPoly::Poly { coeffs, .. } => {
+                let mut g = MultiPoly::zero();
+                for c in coeffs {
+                    if c.is_zero() {
+                        continue;
+                    }
+                    g = MultiPoly::gcd(&g, c);
+                    if g.is_one() {
+                        return g;
+                    }
+                }
+                g
+            }
+        }
+    }
+
+    fn abs_rational(&self) -> MultiPoly {
+        match self {
+            MultiPoly::Constant(c) => MultiPoly::Constant(c.abs()),
+            _ => self.clone(),
+        }
+    }
+
+    /// Primitive part: self with the content divided out.
+    pub fn primitive_part(&self) -> MultiPoly {
+        let c = self.content();
+        if c.is_zero() {
+            return MultiPoly::zero();
+        }
+        if c.is_one() {
+            return self.clone();
+        }
+        let result = self.exact_div(&c);
+        // Normalize sign: leading coefficient should be positive
+        if result.leading_constant().map_or(false, |lc| lc.is_negative()) {
+            result.negate()
+        } else {
+            result
+        }
+    }
+
+    /// The leading constant: recursively follow leading coefficients to a rational.
+    fn leading_constant(&self) -> Option<BigRational> {
+        match self {
+            MultiPoly::Constant(c) => Some(c.clone()),
+            MultiPoly::Poly { coeffs, .. } => {
+                coeffs.last().and_then(|c| c.leading_constant())
+            }
+        }
+    }
+
+    /// Exact division: self / divisor where the division is known to be exact.
+    pub fn exact_div(&self, divisor: &MultiPoly) -> MultiPoly {
+        if divisor.is_one() {
+            return self.clone();
+        }
+        match (self, divisor) {
+            (_, MultiPoly::Constant(d)) => {
+                if d.is_zero() {
+                    panic!("exact_div: division by zero");
+                }
+                let inv = BigRational::one() / d;
+                self.scalar_mul(&inv)
+            }
+            (MultiPoly::Constant(n), MultiPoly::Poly { .. }) => {
+                if n.is_zero() {
+                    MultiPoly::zero()
+                } else {
+                    panic!("exact_div: non-zero constant not divisible by polynomial");
+                }
+            }
+            (
+                MultiPoly::Poly {
+                    var: var_a,
+                    coeffs: _,
+                },
+                MultiPoly::Poly {
+                    var: var_b,
+                    coeffs: _,
+                },
+            ) => {
+                if var_a == var_b {
+                    self.poly_exact_div(divisor)
+                } else if var_a < var_b {
+                    // divisor is in our coefficient ring
+                    match self {
+                        MultiPoly::Poly { var, coeffs } => {
+                            let new_coeffs: Vec<MultiPoly> = coeffs
+                                .iter()
+                                .map(|c| c.exact_div(divisor))
+                                .collect();
+                            MultiPoly::from_coeffs(var, new_coeffs)
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    panic!(
+                        "exact_div: divisor variable {} precedes dividend variable {}",
+                        var_b, var_a
+                    );
+                }
+            }
+        }
+    }
+
+    /// Polynomial exact division in the main variable.
+    /// Standard long division — works because Q is the ultimate base field.
+    fn poly_exact_div(&self, divisor: &MultiPoly) -> MultiPoly {
+        let var = match self {
+            MultiPoly::Poly { var, .. } => var.clone(),
+            _ => unreachable!(),
+        };
+
+        let divisor_deg = divisor.main_degree();
+        let divisor_lc = divisor.leading_coeff();
+        let self_deg = self.main_degree();
+
+        if self_deg < divisor_deg {
+            if self.is_zero() {
+                return MultiPoly::zero();
+            }
+            panic!("exact_div: dividend degree {} < divisor degree {}", self_deg, divisor_deg);
+        }
+
+        let mut q_coeffs = vec![MultiPoly::zero(); self_deg - divisor_deg + 1];
+        let mut rem = self.clone();
+
+        while !rem.is_zero() {
+            let in_var = rem.main_var().map_or(false, |v| *v == var);
+            if !in_var {
+                panic!("exact_div: nonzero remainder in wrong variable");
+            }
+            let rem_deg = rem.main_degree();
+            if rem_deg < divisor_deg {
+                panic!("exact_div: nonzero remainder (deg {} < {})", rem_deg, divisor_deg);
+            }
+            let rem_lc = rem.leading_coeff();
+            let q_coeff = rem_lc.exact_div(&divisor_lc);
+            let deg_diff = rem_deg - divisor_deg;
+            q_coeffs[deg_diff] = q_coeff.clone();
+
+            let q_term = MultiPoly::monomial(q_coeff, &var, deg_diff);
+            let sub = &q_term * divisor;
+            rem = &rem - &sub;
+        }
+
+        MultiPoly::from_coeffs(&var, q_coeffs)
+    }
+
+    /// Negate if leading constant is negative, so the result has positive
+    /// leading coefficient. Used for GCD normalization.
+    fn make_positive(&self) -> MultiPoly {
+        if self.leading_constant().map_or(false, |lc| lc.is_negative()) {
+            self.negate()
+        } else {
+            self.clone()
+        }
+    }
+
+    /// GCD of two multivariate polynomials via the primitive polynomial
+    /// remainder sequence (PRS). Result has positive leading constant.
+    pub fn gcd(a: &MultiPoly, b: &MultiPoly) -> MultiPoly {
+        if a.is_zero() {
+            return b.make_positive();
+        }
+        if b.is_zero() {
+            return a.make_positive();
+        }
+
+        match (a, b) {
+            (MultiPoly::Constant(ra), MultiPoly::Constant(rb)) => {
+                MultiPoly::Constant(Self::gcd_rational(ra, rb))
+            }
+            (MultiPoly::Constant(_), MultiPoly::Poly { .. }) => {
+                MultiPoly::gcd(a, &b.content())
+            }
+            (MultiPoly::Poly { .. }, MultiPoly::Constant(_)) => {
+                MultiPoly::gcd(&a.content(), b)
+            }
+            (
+                MultiPoly::Poly { var: va, .. },
+                MultiPoly::Poly { var: vb, .. },
+            ) => {
+                if va < vb {
+                    MultiPoly::gcd(&a.content(), b)
+                } else if vb < va {
+                    MultiPoly::gcd(a, &b.content())
+                } else {
+                    // Same main variable — primitive PRS
+                    let var = va.clone();
+                    let ca = a.content();
+                    let cb = b.content();
+                    let d = MultiPoly::gcd(&ca, &cb);
+
+                    let mut f = a.exact_div(&ca);
+                    let mut g = b.exact_div(&cb);
+
+                    if f.main_degree() < g.main_degree() {
+                        std::mem::swap(&mut f, &mut g);
+                    }
+
+                    loop {
+                        // If g dropped below the main variable, primitives are coprime
+                        if g.is_zero() || g.main_var().map_or(true, |v| *v != var) {
+                            return d.make_positive();
+                        }
+                        let r = f.pseudo_remainder(&g);
+                        if r.is_zero() {
+                            let g = g.primitive_part();
+                            return (&d * &g).make_positive();
+                        }
+                        f = g;
+                        g = r.primitive_part();
+                    }
+                }
+            }
+        }
+    }
+
     /// Convert from a Node AST. Detects all variables automatically.
     pub fn from_node(node: &Node) -> Result<Self, String> {
         match node {
@@ -445,7 +727,7 @@ impl MultiPoly {
         }
     }
 
-    fn is_one(&self) -> bool {
+    pub fn is_one(&self) -> bool {
         match self {
             MultiPoly::Constant(c) => c.is_one(),
             _ => false,
@@ -1118,5 +1400,306 @@ mod tests {
         let y_plus_1 = &y + &MultiPoly::one();
         let poly = &x * &y_plus_1;
         assert_eq!(format!("{}", poly), "(y + 1)x");
+    }
+
+    // --- GCD tests ---
+
+    #[test]
+    fn test_gcd_constants() {
+        let a = MultiPoly::integer(6);
+        let b = MultiPoly::integer(4);
+        let g = MultiPoly::gcd(&a, &b);
+        assert_eq!(g, MultiPoly::integer(2));
+    }
+
+    #[test]
+    fn test_gcd_constant_zero() {
+        let a = MultiPoly::zero();
+        let b = MultiPoly::integer(5);
+        let g = MultiPoly::gcd(&a, &b);
+        assert_eq!(g, MultiPoly::integer(5));
+    }
+
+    #[test]
+    fn test_gcd_univariate_coprime() {
+        // gcd(x + 1, x + 2) = 1
+        let x = MultiPoly::variable("x");
+        let f = &x + &MultiPoly::one();
+        let g = &x + &MultiPoly::integer(2);
+        let result = MultiPoly::gcd(&f, &g);
+        assert_eq!(result, MultiPoly::one());
+    }
+
+    #[test]
+    fn test_gcd_univariate_common_factor() {
+        // gcd(x^2 - 1, x^2 - 2x + 1) = gcd((x-1)(x+1), (x-1)^2) = x - 1
+        let x = MultiPoly::variable("x");
+        let one = MultiPoly::one();
+        let f = &(&x * &x) - &one; // x^2 - 1
+        let x_minus_1 = &x - &one;
+        let g = &x_minus_1 * &x_minus_1; // (x-1)^2
+        let result = MultiPoly::gcd(&f, &g);
+        assert_eq!(format!("{}", result), "x - 1");
+    }
+
+    #[test]
+    fn test_gcd_bivariate_common_factor() {
+        // f = x(y+1), g = (y+1) → gcd = y+1
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let y1 = &y + &MultiPoly::one();
+        let f = &x * &y1; // x(y+1)
+        let g = y1.clone(); // y+1
+        let result = MultiPoly::gcd(&f, &g);
+        assert_eq!(format!("{}", result), "y + 1");
+    }
+
+    #[test]
+    fn test_gcd_bivariate_xy() {
+        // f = x^2*y + x*y = xy(x+1), g = x*y + y = y(x+1) → gcd = y(x+1) = xy + y
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let x2y = &(&x * &x) * &y;
+        let xy = &x * &y;
+        let f = &x2y + &xy; // x²y + xy
+        let g = &xy + &y; // xy + y
+        let result = MultiPoly::gcd(&f, &g);
+        // gcd = y(x+1) = xy + y
+        let r_val = result
+            .evaluate_at("x", &int(3))
+            .evaluate_at("y", &int(5));
+        // y(x+1) at x=3,y=5 → 5*4 = 20
+        assert_eq!(r_val, MultiPoly::integer(20));
+    }
+
+    #[test]
+    fn test_gcd_bivariate_coprime() {
+        // gcd(x + 1, y + 1) = 1 (no shared variable in a common factor)
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let f = &x + &MultiPoly::one();
+        let g = &y + &MultiPoly::one();
+        let result = MultiPoly::gcd(&f, &g);
+        assert_eq!(result, MultiPoly::one());
+    }
+
+    #[test]
+    fn test_content_constant_coefficients() {
+        // 6x^2 + 4x + 2 → content = 2
+        let x = MultiPoly::variable("x");
+        let x2 = &x * &x;
+        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4)))
+            + &MultiPoly::integer(2);
+        let c = poly.content();
+        assert_eq!(c, MultiPoly::integer(2));
+    }
+
+    #[test]
+    fn test_primitive_part() {
+        // 6x^2 + 4x + 2 → primitive part = 3x^2 + 2x + 1
+        let x = MultiPoly::variable("x");
+        let x2 = &x * &x;
+        let poly = &(&x2.scalar_mul(&int(6)) + &x.scalar_mul(&int(4)))
+            + &MultiPoly::integer(2);
+        let pp = poly.primitive_part();
+        assert_eq!(format!("{}", pp), "3x^2 + 2x + 1");
+    }
+
+    #[test]
+    fn test_content_polynomial_coefficients() {
+        // (2y+2)x + (4y+4) → content = 2(y+1) = 2y+2
+        let _x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let two_y2 = &y.scalar_mul(&int(2)) + &MultiPoly::integer(2); // 2y+2
+        let four_y4 = &y.scalar_mul(&int(4)) + &MultiPoly::integer(4); // 4y+4
+        let poly = &MultiPoly::monomial(two_y2, "x", 1) + &four_y4;
+        let c = poly.content();
+        // content should be 2y+2 = 2(y+1)
+        assert_eq!(
+            c.evaluate_at("y", &int(3)),
+            MultiPoly::integer(8) // 2*3+2 = 8
+        );
+    }
+
+    #[test]
+    fn test_pseudo_remainder() {
+        // f = x^2 + x + 1, g = yx + 1 (in Q[y][x])
+        // prem(f, g) = y^2 - y + 1 (worked by hand above)
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let one = MultiPoly::one();
+        let f = &(&(&x * &x) + &x) + &one; // x^2 + x + 1
+        let g = &(&y * &x) + &one; // yx + 1
+        let r = f.pseudo_remainder(&g);
+        // r should be y^2 - y + 1
+        let r_at_3 = r.evaluate_at("y", &int(3));
+        assert_eq!(r_at_3, MultiPoly::integer(7)); // 9 - 3 + 1 = 7
+    }
+
+    #[test]
+    fn test_exact_div_scalar() {
+        // (6x + 4) / 2 = 3x + 2
+        let x = MultiPoly::variable("x");
+        let poly = &x.scalar_mul(&int(6)) + &MultiPoly::integer(4);
+        let result = poly.exact_div(&MultiPoly::integer(2));
+        assert_eq!(format!("{}", result), "3x + 2");
+    }
+
+    #[test]
+    fn test_exact_div_polynomial() {
+        // (x^2 - 1) / (x + 1) = x - 1
+        let x = MultiPoly::variable("x");
+        let f = &(&x * &x) - &MultiPoly::one(); // x^2 - 1
+        let d = &x + &MultiPoly::one(); // x + 1
+        let result = f.exact_div(&d);
+        assert_eq!(format!("{}", result), "x - 1");
+    }
+
+    #[test]
+    fn test_exact_div_by_content() {
+        // (y+1)x + (y^2-1) divided by (y+1)
+        // = x + (y-1)
+        let y = MultiPoly::variable("y");
+        let y1 = &y + &MultiPoly::one();
+        let y2m1 = &(&y * &y) - &MultiPoly::one(); // y^2 - 1 = (y+1)(y-1)
+        let poly = &MultiPoly::monomial(y1.clone(), "x", 1) + &y2m1;
+        let result = poly.exact_div(&y1);
+        // x + (y - 1)
+        let val = result
+            .evaluate_at("x", &int(5))
+            .evaluate_at("y", &int(3));
+        assert_eq!(val, MultiPoly::integer(7)); // 5 + (3-1) = 7
+    }
+
+    #[test]
+    fn test_gcd_with_rational_content() {
+        // gcd(6x + 6, 4x + 4) = 2(x + 1) = 2x + 2
+        let x = MultiPoly::variable("x");
+        let f = &x.scalar_mul(&int(6)) + &MultiPoly::integer(6); // 6(x+1)
+        let g = &x.scalar_mul(&int(4)) + &MultiPoly::integer(4); // 4(x+1)
+        let result = MultiPoly::gcd(&f, &g);
+        // gcd = 2(x+1) = 2x+2
+        let val = result.evaluate_at("x", &int(3));
+        assert_eq!(val, MultiPoly::integer(8)); // 2*4 = 8
+    }
+
+    #[test]
+    fn test_gcd_self() {
+        // gcd(f, f) = f (normalized)
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let f = &(&x * &y) + &MultiPoly::one(); // xy + 1
+        let result = MultiPoly::gcd(&f, &f);
+        assert_eq!(result, f);
+    }
+
+    #[test]
+    fn test_gcd_difference_of_squares() {
+        // gcd(x^2 - y^2, x + y) = x + y since x^2-y^2 = (x+y)(x-y)
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let f = &(&x * &x) - &(&y * &y); // x^2 - y^2
+        let g = &x + &y; // x + y
+        let result = MultiPoly::gcd(&f, &g);
+        // Verify at x=5, y=3: (5+3) = 8
+        let val = result
+            .evaluate_at("x", &int(5))
+            .evaluate_at("y", &int(3));
+        assert_eq!(val, MultiPoly::integer(8));
+    }
+
+    #[test]
+    fn test_gcd_quadratic_common_factor() {
+        // f = (x+y)^2 * (x-1) = (x^2+2xy+y^2)(x-1)
+        // g = (x+y) * (x+2)
+        // gcd = x + y
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let one = MultiPoly::one();
+        let xpy = &x + &y;
+        let xpy_sq = &xpy * &xpy;
+        let xm1 = &x - &one;
+        let xp2 = &x + &MultiPoly::integer(2);
+        let f = &xpy_sq * &xm1;
+        let g = &xpy * &xp2;
+        let result = MultiPoly::gcd(&f, &g);
+        // x+y at x=3,y=7 → 10
+        let val = result
+            .evaluate_at("x", &int(3))
+            .evaluate_at("y", &int(7));
+        assert_eq!(val, MultiPoly::integer(10));
+    }
+
+    #[test]
+    fn test_gcd_three_variables() {
+        // f = xz + yz = z(x+y)
+        // g = xz + z = z(x+1)
+        // gcd = z
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let z = MultiPoly::variable("z");
+        let f = &(&x * &z) + &(&y * &z); // z(x+y)
+        let g = &(&x * &z) + &z; // z(x+1)
+        let result = MultiPoly::gcd(&f, &g);
+        // gcd should be z
+        assert_eq!(result.variables(), vec!["z"]);
+        assert_eq!(result.degree_in("z"), 1);
+        let val = result.evaluate_at("z", &int(7));
+        assert_eq!(val, MultiPoly::integer(7));
+    }
+
+    #[test]
+    fn test_gcd_higher_degree() {
+        // f = x^3 - x = x(x-1)(x+1)
+        // g = x^2 - 1 = (x-1)(x+1)
+        // gcd = x^2 - 1
+        let x = MultiPoly::variable("x");
+        let one = MultiPoly::one();
+        let x3 = &(&x * &x) * &x;
+        let f = &x3 - &x; // x^3 - x
+        let g = &(&x * &x) - &one; // x^2 - 1
+        let result = MultiPoly::gcd(&f, &g);
+        // x^2 - 1 at x=3 → 8
+        let val = result.evaluate_at("x", &int(3));
+        assert_eq!(val, MultiPoly::integer(8));
+        assert_eq!(result.main_degree(), 2);
+    }
+
+    #[test]
+    fn test_gcd_bivariate_quadratic() {
+        // f = x^2*y^2 - 1 = (xy-1)(xy+1)
+        // g = x*y - 1
+        // gcd = xy - 1
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let one = MultiPoly::one();
+        let xy = &x * &y;
+        let xy_sq = &xy * &xy; // x^2*y^2
+        let f = &xy_sq - &one;
+        let g = &xy - &one;
+        let result = MultiPoly::gcd(&f, &g);
+        // xy - 1 at x=3, y=4 → 11
+        let val = result
+            .evaluate_at("x", &int(3))
+            .evaluate_at("y", &int(4));
+        assert_eq!(val, MultiPoly::integer(11));
+    }
+
+    #[test]
+    fn test_gcd_content_with_polynomial_gcd() {
+        // f = 2(y+1)x + 2(y+1) = 2(y+1)(x+1)
+        // g = 3(y+1)x + 6(y+1) = 3(y+1)(x+2)
+        // gcd = (y+1)(x+1) ... wait, gcd of (x+1) and (x+2) = 1
+        // so gcd = (y+1)
+        let x = MultiPoly::variable("x");
+        let y = MultiPoly::variable("y");
+        let y1 = &y + &MultiPoly::one();
+        let f = &(&(&x + &MultiPoly::one()) * &y1).scalar_mul(&int(2));
+        let g = &(&(&x + &MultiPoly::integer(2)) * &y1).scalar_mul(&int(3));
+        let result = MultiPoly::gcd(&f, &g);
+        assert_eq!(
+            result.evaluate_at("y", &int(4)),
+            MultiPoly::integer(5) // y+1 at y=4 → 5
+        );
     }
 }

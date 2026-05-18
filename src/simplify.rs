@@ -1,5 +1,6 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
+use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
 use std::collections::HashMap;
@@ -720,22 +721,35 @@ fn collect_variables(node: &Node, vars: &mut std::collections::HashSet<String>) 
 }
 
 fn try_polynomial_normalize(node: &Node) -> Option<Node> {
-    let var = find_single_variable(node)?;
-    let poly = Polynomial::from_node(node, &var).ok()?;
-    Some(poly.to_node())
+    if let Some(var) = find_single_variable(node) {
+        let poly = Polynomial::from_node(node, &var).ok()?;
+        return Some(poly.to_node());
+    }
+    // Multivariate fallback
+    let mp = MultiPoly::from_node(node).ok()?;
+    Some(mp.to_node())
 }
 
 fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
     let mut vars = std::collections::HashSet::new();
     collect_variables(numer, &mut vars);
     collect_variables(denom, &mut vars);
-    if vars.len() != 1 {
-        return None;
-    }
-    let var = vars.into_iter().next()?;
 
-    let n = Polynomial::from_node(numer, &var).ok()?;
-    let d = Polynomial::from_node(denom, &var).ok()?;
+    if vars.len() == 1 {
+        let var = vars.into_iter().next()?;
+        return try_univariate_divide(numer, denom, &var);
+    }
+
+    if vars.len() >= 2 {
+        return try_multivariate_divide(numer, denom);
+    }
+
+    None
+}
+
+fn try_univariate_divide(numer: &Node, denom: &Node, var: &str) -> Option<Node> {
+    let n = Polynomial::from_node(numer, var).ok()?;
+    let d = Polynomial::from_node(denom, var).ok()?;
 
     if d.is_zero() {
         return None;
@@ -765,6 +779,38 @@ fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
                 )
                 .to_node(),
         );
+    }
+
+    Some(Node::Divide(
+        Box::new(n_reduced.to_node()),
+        Box::new(d_reduced.to_node()),
+    ))
+}
+
+fn try_multivariate_divide(numer: &Node, denom: &Node) -> Option<Node> {
+    let n = MultiPoly::from_node(numer).ok()?;
+    let d = MultiPoly::from_node(denom).ok()?;
+
+    if d.is_zero() {
+        return None;
+    }
+
+    let g = MultiPoly::gcd(&n, &d);
+    if g.is_constant() {
+        return None;
+    }
+
+    let n_reduced = n.exact_div(&g);
+    let d_reduced = d.exact_div(&g);
+
+    if d_reduced.is_one() {
+        return Some(n_reduced.to_node());
+    }
+    if let Some(d_val) = d_reduced.as_constant() {
+        if !num_traits::Zero::is_zero(d_val) {
+            let inv = num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) / d_val;
+            return Some(n_reduced.scalar_mul(&inv).to_node());
+        }
     }
 
     Some(Node::Divide(

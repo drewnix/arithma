@@ -572,7 +572,7 @@ fn divisors_i64(n: i64) -> Vec<i64> {
     result
 }
 
-fn gcd_bigint(a: &BigInt, b: &BigInt) -> BigInt {
+pub(crate) fn gcd_bigint(a: &BigInt, b: &BigInt) -> BigInt {
     let mut a = a.abs();
     let mut b = b.abs();
     while !b.is_zero() {
@@ -583,7 +583,7 @@ fn gcd_bigint(a: &BigInt, b: &BigInt) -> BigInt {
     a
 }
 
-fn lcm_bigint(a: &BigInt, b: &BigInt) -> BigInt {
+pub(crate) fn lcm_bigint(a: &BigInt, b: &BigInt) -> BigInt {
     if a.is_zero() || b.is_zero() {
         return BigInt::zero();
     }
