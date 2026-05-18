@@ -1,10 +1,11 @@
 # Arithma
 
-A computer algebra system for AI agents. Written in Rust. Exact arithmetic,
-not floating-point approximation. LaTeX in, LaTeX out.
+A computer algebra system written in Rust. Exact arithmetic, not
+floating-point approximation. LaTeX in, LaTeX out. Works as a CLI tool
+for humans and as an MCP server for AI agents.
 
-Arithma exists because AI agents deserve a mathematics tool that is *correct*.
-Not approximately correct, not usually correct, but correct in the way that
+Arithma exists because mathematics tools should be *correct*. Not
+approximately correct, not usually correct, but correct in the way that
 exact rational arithmetic and well-chosen algorithms make possible.
 
 ## Why Arithma
