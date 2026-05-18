@@ -2,18 +2,26 @@ use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
-use crate::risch::{try_risch_exponential, RischResult};
+use crate::risch::{try_risch_exponential, try_risch_logarithmic, RischResult};
 use crate::tokenizer::Tokenizer;
 use num_traits::{One, ToPrimitive, Zero};
 
 fn try_risch_fallback(expr: &Node, var_name: &str) -> Option<Result<Node, String>> {
-    match try_risch_exponential(expr, var_name) {
-        Some(RischResult::Elementary(node)) => Some(Ok(node)),
-        Some(RischResult::NonElementary(reason)) => {
-            Some(Err(format!("NON_ELEMENTARY: {}", reason)))
-        }
-        None => None,
+    // Try exponential first
+    if let Some(result) = try_risch_exponential(expr, var_name) {
+        return Some(match result {
+            RischResult::Elementary(node) => Ok(node),
+            RischResult::NonElementary(reason) => Err(format!("NON_ELEMENTARY: {}", reason)),
+        });
     }
+    // Try logarithmic
+    if let Some(result) = try_risch_logarithmic(expr, var_name) {
+        return Some(match result {
+            RischResult::Elementary(node) => Ok(node),
+            RischResult::NonElementary(reason) => Err(format!("NON_ELEMENTARY: {}", reason)),
+        });
+    }
+    None
 }
 
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
