@@ -1,3 +1,4 @@
+use crate::exact::ExactNum;
 use crate::ext_poly::ExtPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
@@ -607,6 +608,68 @@ fn extract_exp_pattern_inner(expr: &Node, var: &str) -> Option<(Polynomial, Poly
     }
 }
 
+/// Result of a Risch integration attempt.
+#[derive(Debug)]
+pub enum RischResult {
+    /// Found an elementary antiderivative.
+    Elementary(Node),
+    /// Proved that no elementary antiderivative exists.
+    NonElementary(String),
+}
+
+/// Try to integrate an expression using the Risch algorithm for exponential extensions.
+///
+/// Handles integrands of the form r(x)·exp(g(x)) where r, g are polynomials in var.
+///
+/// For ∫r(x)·exp(g(x))dx, by Liouville's theorem for exponential extensions,
+/// the antiderivative (if elementary) has the form q(x)·exp(g(x)).
+/// This reduces to the Risch DE: q' + g'·q = r.
+///
+/// Returns:
+/// - Some(Elementary(node)) if the integral is q(x)·exp(g(x))
+/// - Some(NonElementary(reason)) if provably non-elementary
+/// - None if this method doesn't apply (not an exp pattern)
+pub fn try_risch_exponential(expr: &Node, var: &str) -> Option<RischResult> {
+    // 1. Try to extract the pattern r(x) · exp(g(x))
+    let (r, g) = extract_exp_pattern(expr, var)?;
+
+    // 2. Compute g'(x)
+    let g_prime = g.derivative();
+
+    // 3. Solve the Risch DE: q' + g'·q = r
+    match solve_risch_de_poly(&g_prime, &r, var) {
+        Some(q) => {
+            // Build the result: q(x) · exp(g(x))
+            let g_node = g.to_node();
+            let exp_g = Node::Function("exp".to_string(), vec![g_node]);
+
+            if q.is_zero() {
+                // ∫0·exp(g) = 0... shouldn't happen since r would be 0
+                Some(RischResult::Elementary(Node::Num(ExactNum::zero())))
+            } else if q == Polynomial::one(var) {
+                Some(RischResult::Elementary(exp_g))
+            } else {
+                let q_node = q.to_node();
+                Some(RischResult::Elementary(Node::Multiply(
+                    Box::new(q_node),
+                    Box::new(exp_g),
+                )))
+            }
+        }
+        None => {
+            // Non-elementary: the Risch DE has no polynomial solution
+            let reason = format!(
+                "No elementary antiderivative exists. \
+                 The Risch algorithm proves that the differential equation \
+                 q' + ({})·q = {} has no polynomial solution, \
+                 so ∫{}·exp({}) dx cannot be expressed in terms of elementary functions.",
+                g_prime, r, r, g
+            );
+            Some(RischResult::NonElementary(reason))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1211,5 +1274,113 @@ mod tests {
         let (r, g) = extract_exp_pattern(&expr, "x").unwrap();
         assert!(r.leading_coeff().unwrap().is_negative());
         assert_eq!(g, Polynomial::x("x"));
+    }
+
+    // ======== try_risch_exponential tests ========
+
+    #[test]
+    fn test_try_risch_exp_x() {
+        // ∫e^x dx = e^x
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = try_risch_exponential(&expr, "x");
+        assert!(matches!(result, Some(RischResult::Elementary(_))));
+    }
+
+    #[test]
+    fn test_try_risch_exp_neg_x_sq_non_elementary() {
+        // ∫e^(-x²) dx — non-elementary (the Gaussian integral)
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Negate(Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )))],
+        );
+        let result = try_risch_exponential(&expr, "x");
+        match result {
+            Some(RischResult::NonElementary(reason)) => {
+                assert!(reason.contains("No elementary antiderivative"));
+            }
+            other => panic!("Expected NonElementary, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_try_risch_x_exp_neg_x_sq_elementary() {
+        // ∫x·e^(-x²) dx = -1/2 · e^(-x²) — elementary!
+        let exp_part = Node::Function(
+            "exp".to_string(),
+            vec![Node::Negate(Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )))],
+        );
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(exp_part),
+        );
+        let result = try_risch_exponential(&expr, "x");
+        match result {
+            Some(RischResult::Elementary(node)) => {
+                // Verify by evaluating: at x=1, should be -1/2 * e^(-1)
+                let mut env = crate::environment::Environment::new();
+                env.set("x", 1.0);
+                let val = crate::evaluator::Evaluator::evaluate(&node, &env).unwrap();
+                let expected = -0.5 * (-1.0_f64).exp();
+                assert!(
+                    (val - expected).abs() < 1e-10,
+                    "Expected {}, got {}",
+                    expected,
+                    val
+                );
+            }
+            other => panic!("Expected Elementary, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_try_risch_exp_x_cubed_non_elementary() {
+        // ∫e^(x³) dx — non-elementary
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )],
+        );
+        let result = try_risch_exponential(&expr, "x");
+        assert!(matches!(result, Some(RischResult::NonElementary(_))));
+    }
+
+    #[test]
+    fn test_try_risch_not_exp_pattern() {
+        // sin(x) — not an exp pattern, should return None
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(try_risch_exponential(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_try_risch_2x_exp_x_sq() {
+        // ∫2x·e^(x²) dx = e^(x²) — elementary
+        let exp_part = Node::Function(
+            "exp".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )],
+        );
+        let expr = Node::Multiply(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(Node::Variable("x".to_string())),
+            )),
+            Box::new(exp_part),
+        );
+        let result = try_risch_exponential(&expr, "x");
+        assert!(
+            matches!(result, Some(RischResult::Elementary(_))),
+            "∫2x·e^(x²)dx should be elementary, got {:?}",
+            result
+        );
     }
 }
