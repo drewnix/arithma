@@ -1045,14 +1045,9 @@ pub(crate) fn extpoly_matrix_det(m: &[Vec<ExtPoly>], var: &str) -> ExtPoly {
 /// dd = D(d) is the full derivative of d in the extension.
 /// Returns R(z) as an ExtPoly where the "variable" represents z, with RF(x) coefficients.
 #[allow(dead_code)] // Used by Rothstein-Trager integration (upcoming)
-fn rothstein_trager_resultant(
-    d: &ExtPoly,
-    a: &ExtPoly,
-    dd: &ExtPoly,
-    var: &str,
-) -> ExtPoly {
+fn rothstein_trager_resultant(d: &ExtPoly, a: &ExtPoly, dd: &ExtPoly, var: &str) -> ExtPoly {
     let m = d.degree().unwrap_or(0); // degree of d in θ
-    // degree of g = a - z·dd in θ
+                                     // degree of g = a - z·dd in θ
     let n = {
         let da = a.degree().unwrap_or(0);
         let ddd = dd.degree().unwrap_or(0);
@@ -1167,8 +1162,7 @@ fn find_constant_roots(rz: &ExtPoly, var: &str) -> Vec<BigRational> {
         let mut sum = RationalFunction::zero(var);
         let mut c_power = BigRational::one();
         for i in 0..=deg {
-            let term = &rz.coeff(i)
-                * &RationalFunction::from_constant(c_power.clone(), var);
+            let term = &rz.coeff(i) * &RationalFunction::from_constant(c_power.clone(), var);
             sum = &sum + &term;
             c_power = &c_power * &c;
         }
@@ -1293,8 +1287,7 @@ fn node_to_extpoly(expr: &Node, var: &str) -> Option<ExtPoly> {
                     if let Node::Num(n) = exp.as_ref() {
                         if let Some(e) = n.to_i64() {
                             if e >= 1 {
-                                let p =
-                                    Polynomial::monomial(BigRational::one(), e as usize, var);
+                                let p = Polynomial::monomial(BigRational::one(), e as usize, var);
                                 return Some(ExtPoly::from_rf(RationalFunction::from_poly(p)));
                             }
                         }
@@ -1335,10 +1328,8 @@ pub fn extract_log_rational_pattern(
     expr: &Node,
     var: &str,
 ) -> Option<(ExtPoly, ExtPoly, DifferentialExtension)> {
-    let ext = DifferentialExtension::logarithmic(
-        RationalFunction::from_poly(Polynomial::x(var)),
-        var,
-    );
+    let ext =
+        DifferentialExtension::logarithmic(RationalFunction::from_poly(Polynomial::x(var)), var);
     if let Some((num, den)) = extract_log_rational_inner(expr, var) {
         return Some((num, den, ext));
     }
@@ -1488,6 +1479,158 @@ pub fn try_risch_log_rational(expr: &Node, var: &str) -> Option<RischResult> {
         result = Node::Add(Box::new(result), Box::new(term));
     }
     Some(RischResult::Elementary(result))
+}
+
+// ---------------------------------------------------------------------------
+// Tower builder: scanning and generalized ExtPoly conversion
+// ---------------------------------------------------------------------------
+
+/// Classification of a transcendental extension for the tower builder.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // wired in by subsequent tower-builder tasks
+enum ExtensionKind {
+    Logarithmic,
+    Exponential(Polynomial),
+}
+
+/// Returns `true` if `expr` contains `ln(var)` anywhere in the tree.
+#[allow(dead_code)] // wired in by subsequent tower-builder tasks
+fn contains_ln(expr: &Node, var: &str) -> bool {
+    match expr {
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            matches!(&args[0], Node::Variable(v) if v == var)
+        }
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
+            contains_ln(l, var) || contains_ln(r, var)
+        }
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_ln(inner, var),
+        Node::Power(base, exp) => contains_ln(base, var) || contains_ln(exp, var),
+        Node::Function(_, args) => args.iter().any(|a| contains_ln(a, var)),
+        _ => false,
+    }
+}
+
+/// If the expression contains `exp(g(x))`, return the polynomial `g` when it
+/// is consistent across the whole tree.  Returns `None` when no `exp` is found
+/// or when two incompatible exponent polynomials appear.
+#[allow(dead_code)] // wired in by subsequent tower-builder tasks
+fn find_exp_argument(expr: &Node, var: &str) -> Option<Polynomial> {
+    match expr {
+        Node::Function(name, args) if name == "exp" && args.len() == 1 => {
+            let fixed = fixup_negated_power(&args[0]);
+            Polynomial::from_node(&fixed, var).ok()
+        }
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
+            match (find_exp_argument(l, var), find_exp_argument(r, var)) {
+                (Some(a), Some(b)) if a == b => Some(a),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                _ => None,
+            }
+        }
+        Node::Negate(inner) => find_exp_argument(inner, var),
+        Node::Power(base, _) => find_exp_argument(base, var),
+        _ => None,
+    }
+}
+
+/// Generalized conversion from AST node to `ExtPoly` that handles both
+/// logarithmic (θ = ln(x)) and exponential (θ = exp(g(x))) extensions.
+#[allow(dead_code)] // wired in by subsequent tower-builder tasks
+fn node_to_extpoly_general(expr: &Node, var: &str, kind: &ExtensionKind) -> Option<ExtPoly> {
+    match expr {
+        Node::Num(n) => {
+            if let ExactNum::Rational(val) = n {
+                Some(ExtPoly::from_rf(RationalFunction::from_constant(
+                    val.clone(),
+                    var,
+                )))
+            } else {
+                None
+            }
+        }
+        Node::Variable(v) if v == var => Some(ExtPoly::from_rf(RationalFunction::from_poly(
+            Polynomial::x(var),
+        ))),
+        Node::Variable(_) => None,
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            if matches!(kind, ExtensionKind::Logarithmic) {
+                if let Node::Variable(v) = &args[0] {
+                    if v == var {
+                        return Some(ExtPoly::theta(var));
+                    }
+                }
+            }
+            None
+        }
+        Node::Function(name, args) if name == "exp" && args.len() == 1 => {
+            if let ExtensionKind::Exponential(ref g) = kind {
+                let fixed = fixup_negated_power(&args[0]);
+                if let Ok(arg_poly) = Polynomial::from_node(&fixed, var) {
+                    if arg_poly == *g {
+                        return Some(ExtPoly::theta(var));
+                    }
+                }
+            }
+            None
+        }
+        Node::Power(base, exp) => {
+            if matches!(kind, ExtensionKind::Logarithmic) {
+                if let Node::Function(name, args) = base.as_ref() {
+                    if name == "ln" && args.len() == 1 {
+                        if let Node::Variable(v) = &args[0] {
+                            if v == var {
+                                if let Node::Num(n) = exp.as_ref() {
+                                    if let Some(e) = n.to_i64() {
+                                        if e >= 1 {
+                                            let mut r = ExtPoly::theta(var);
+                                            for _ in 1..e {
+                                                r = &r * &ExtPoly::theta(var);
+                                            }
+                                            return Some(r);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Node::Variable(v) = base.as_ref() {
+                if v == var {
+                    if let Node::Num(n) = exp.as_ref() {
+                        if let Some(e) = n.to_i64() {
+                            if e >= 1 {
+                                let p =
+                                    Polynomial::monomial(BigRational::one(), e as usize, var);
+                                return Some(ExtPoly::from_rf(RationalFunction::from_poly(p)));
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Node::Add(l, r) => {
+            Some(&node_to_extpoly_general(l, var, kind)? + &node_to_extpoly_general(r, var, kind)?)
+        }
+        Node::Subtract(l, r) => {
+            Some(&node_to_extpoly_general(l, var, kind)? - &node_to_extpoly_general(r, var, kind)?)
+        }
+        Node::Negate(inner) => Some(-&node_to_extpoly_general(inner, var, kind)?),
+        Node::Multiply(l, r) => {
+            Some(&node_to_extpoly_general(l, var, kind)? * &node_to_extpoly_general(r, var, kind)?)
+        }
+        Node::Divide(num, den) => {
+            let n = node_to_extpoly_general(num, var, kind)?;
+            let den_poly = Polynomial::from_node(den, var).ok()?;
+            if den_poly.is_zero() {
+                return None;
+            }
+            let inv = RationalFunction::new(Polynomial::one(var), den_poly);
+            Some(n.scalar_mul(&inv))
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -2700,5 +2843,126 @@ mod tests {
                 panic!("Expected non-elementary, got: {}", node);
             }
         }
+    }
+
+    // === Scanning tests ===
+
+    #[test]
+    fn test_contains_ln_yes() {
+        let expr = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(contains_ln(&expr, "x"));
+    }
+
+    #[test]
+    fn test_contains_ln_nested() {
+        let expr = Node::Add(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        assert!(contains_ln(&expr, "x"));
+    }
+
+    #[test]
+    fn test_contains_ln_no() {
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(!contains_ln(&expr, "x"));
+    }
+
+    #[test]
+    fn test_find_exp_arg_simple() {
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let arg = find_exp_argument(&expr, "x").unwrap();
+        assert_eq!(arg, poly(&[0, 1], "x"));
+    }
+
+    #[test]
+    fn test_find_exp_arg_x_squared() {
+        let expr = Node::Function(
+            "exp".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )],
+        );
+        let arg = find_exp_argument(&expr, "x").unwrap();
+        assert_eq!(arg, poly(&[0, 0, 1], "x"));
+    }
+
+    #[test]
+    fn test_find_exp_arg_none() {
+        let expr = Node::Variable("x".to_string());
+        assert!(find_exp_argument(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_find_exp_arg_in_product() {
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let arg = find_exp_argument(&expr, "x").unwrap();
+        assert_eq!(arg, poly(&[0, 1], "x"));
+    }
+
+    // === Generalized node_to_extpoly tests ===
+
+    #[test]
+    fn test_general_extpoly_exp_x() {
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let kind = ExtensionKind::Exponential(poly(&[0, 1], "x"));
+        let result = node_to_extpoly_general(&expr, "x", &kind).unwrap();
+        assert_eq!(result, ExtPoly::theta("x"));
+    }
+
+    #[test]
+    fn test_general_extpoly_x_times_exp() {
+        let expr = Node::Multiply(
+            Box::new(Node::Variable("x".to_string())),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let kind = ExtensionKind::Exponential(poly(&[0, 1], "x"));
+        let result = node_to_extpoly_general(&expr, "x", &kind).unwrap();
+        assert_eq!(result.degree(), Some(1));
+        assert_eq!(result.coeff(1), rf_poly(&[0, 1]));
+        assert!(result.coeff(0).is_zero());
+    }
+
+    #[test]
+    fn test_general_extpoly_one_plus_exp() {
+        let expr = Node::Add(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let kind = ExtensionKind::Exponential(poly(&[0, 1], "x"));
+        let result = node_to_extpoly_general(&expr, "x", &kind).unwrap();
+        let expected = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_general_extpoly_log_still_works() {
+        let expr = Node::Add(
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+        let kind = ExtensionKind::Logarithmic;
+        let result = node_to_extpoly_general(&expr, "x", &kind).unwrap();
+        let expected = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        assert_eq!(result, expected);
     }
 }
