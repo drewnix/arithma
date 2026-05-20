@@ -28,11 +28,11 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 18)
+## Current State (Post Session 21)
 
-**703 tests pass. 0 failures. 14 MCP tools. ~18K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**747 tests pass. 0 failures. 14 MCP tools. ~20K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) in progress: exponential case operational, logarithmic case pending. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, and **Risch exponential integration with non-elementary detection**. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) advancing: exponential case operational, logarithmic polynomial case operational, **Rothstein-Trager resultant method for logarithmic rational integration operational**. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch exponential integration**, **Risch logarithmic polynomial integration**, and **Rothstein-Trager logarithmic rational integration** — all with non-elementary detection. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -73,8 +73,19 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 
 **Key results:** ∫e^{-x²}dx → "non-elementary" ✓. ∫e^{x³}dx → "non-elementary" ✓. ∫x²·e^{-x²}dx → "non-elementary" ✓. ∫2x·e^{x²}dx = e^{x²} ✓.
 
-**Remaining (2-3 sessions):**
-- Logarithmic extension integration (Rothstein-Trager resultant method)
+**Session 3 completed (Session 19/20).** Logarithmic polynomial integration operational. Top-down coefficient solving for ∫(a₀ + a₁·ln(x) + ... + aₙ·ln(x)ⁿ)dx. 3 tests.
+
+**Session 4 completed (Session 21).** Rothstein-Trager resultant method for logarithmic rational integration:
+
+- **Sylvester matrix determinant:** Cofactor expansion for matrices of ExtPolys, computing R(z) = res_θ(d, a − z·D(d)) symbolically with z as parameter.
+- **Constant root finder:** Specializes R(z) ∈ Q(x)[z] at x = x₀, finds Q-roots via rational root theorem, verifies against full R(z).
+- **Pattern detector:** Converts Node AST to (numerator, denominator) ExtPoly pairs for rational functions of ln(x).
+- **Full pipeline:** Pattern detect → Hermite reduce → Rothstein-Trager → result assembly.
+- **Node conversion:** ExtPoly and RationalFunction back to Node AST for result output.
+
+**Key results:** ∫1/(x·ln(x))dx = ln(ln(x)) ✓. ∫1/(x·(ln(x)−1))dx = ln(ln(x)−1) ✓. ∫1/ln(x)dx → "non-elementary" ✓. ∫1/(1+ln(x))dx → "non-elementary" ✓. All verified numerically.
+
+**Remaining (1-2 sessions):**
 - Tower builder (automatic Node → DifferentialExtension conversion)
 - Risch DE for rational coefficients (extends to exp(rational))
 - Multi-extension towers (exp + log combinations)
@@ -164,6 +175,17 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 21 (2026-05-19)
+- Phase 9 Session 4: ExtPoly matrix determinant via cofactor expansion
+- Phase 9 Session 4: Rothstein-Trager resultant R(z) via Sylvester matrix
+- Phase 9 Session 4: RationalFunction::evaluate + constant root finder
+- Phase 9 Session 4: ExtPoly-to-Node and RF-to-Node conversion
+- Phase 9 Session 4: Pattern detector for rational-in-log expressions
+- Phase 9 Session 4: try_risch_log_rational (Hermite + Rothstein-Trager pipeline)
+- Phase 9 Session 4: Integration engine wiring for log-rational path
+- Phase 9 Session 4: End-to-end + numerical verification tests
+- 36 new tests (747 total)
 
 ### Session 18 (2026-05-18)
 - Phase 9 Session 1: RationalFunction type (p(x)/q(x), full arithmetic, derivative)
