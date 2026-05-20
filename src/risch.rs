@@ -648,6 +648,89 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
     solve_risch_de(&Polynomial::one(var), f, g, var)
 }
 
+/// Solve the Risch differential equation **q' + f·q = g** where g is a rational function.
+///
+/// Returns `Some(q)` with `q` a [`RationalFunction`] satisfying the ODE, or `None`
+/// if no rational solution exists.
+///
+/// # Algorithm
+///
+/// 1. If g is polynomial (denominator is 1), delegate to [`solve_risch_de`] with s = 1.
+/// 2. Compute the squarefree decomposition of `den(g)`.  If any factor has
+///    multiplicity 1, the ODE has no rational solution (the simple pole creates
+///    an uncancellable singularity).
+/// 3. Build the denominator bound `s = ∏ factor^{mult-1}` for each factor with
+///    multiplicity ≥ 2.
+/// 4. Substitute `q = p / s` to obtain a polynomial ODE `s·p' + F·p = G` with
+///    `F = f·s − s'`, `G = num(g) · (s² / den(g))`, and solve with
+///    [`solve_risch_de`].
+/// 5. Verify the result by polynomial cross-multiplication.
+pub fn solve_risch_de_rational(
+    f: &Polynomial,
+    g: &RationalFunction,
+    var: &str,
+) -> Option<RationalFunction> {
+    let one_poly = Polynomial::one(var);
+
+    // Step 1: trivial case — g is polynomial
+    if g.denominator() == &one_poly {
+        let p = solve_risch_de(&one_poly, f, g.numerator(), var)?;
+        return Some(RationalFunction::from_poly(p));
+    }
+
+    // Step 2: squarefree rejection and denominator bound
+    let sfd = g.denominator().square_free_decomposition();
+
+    // Reject if any factor has multiplicity 1 and is not constant.
+    for (factor, mult) in &sfd {
+        if *mult == 1 && !factor.is_constant() {
+            return None;
+        }
+    }
+
+    // Step 3: denominator bound s = ∏ factor^{mult-1}
+    let mut s = Polynomial::one(var);
+    for (factor, mult) in &sfd {
+        if *mult >= 2 {
+            for _ in 0..(*mult - 1) {
+                s = &s * factor;
+            }
+        }
+    }
+
+    // Step 4: transform to polynomial ODE
+    let s_prime = s.derivative();
+    // F = f·s - s'
+    let big_f = &(f * &s) - &s_prime;
+
+    // G = num(g) · (s² / den(g))
+    let s_sq = &s * &s;
+    let (ratio, rem) = s_sq.div_rem(g.denominator()).unwrap();
+    debug_assert!(
+        rem.is_zero(),
+        "s² / den(g) must divide evenly, but got remainder: {:?}",
+        rem
+    );
+    let big_g = &(g.numerator().clone()) * &ratio;
+
+    // Solve s·p' + F·p = G
+    let p = solve_risch_de(&s, &big_f, &big_g, var)?;
+
+    // Step 5: verify by polynomial cross-multiplication
+    // q = p/s, q' + f·q should equal g = num(g)/den(g)
+    // q' = (p'·s - p·s')/s²
+    // q' + f·q = (p'·s - p·s' + f·p·s) / s²
+    // Check: (p'·s - p·s' + f·p·s) · den(g) == num(g) · s²
+    let p_prime = p.derivative();
+    let check_num = &(&(&p_prime * &s) - &(&p * &s_prime)) + &(&(f * &p) * &s);
+    let check_den_factor = &s * &s; // s²
+    if &check_num * g.denominator() == g.numerator() * &check_den_factor {
+        Some(RationalFunction::new(p, s))
+    } else {
+        None
+    }
+}
+
 /// Result of a Risch integration attempt.
 #[derive(Debug)]
 pub enum RischResult {
@@ -1969,6 +2052,52 @@ mod tests {
         let g = Polynomial::zero("x");
         let result = solve_risch_de(&s, &f, &g, "x");
         assert_eq!(result, Some(Polynomial::zero("x")));
+    }
+
+    #[test]
+    fn test_solve_risch_de_rational_poly_rhs() {
+        // When g is polynomial: q' + x·q = x → q = 1
+        let f = poly(&[0, 1], "x");
+        let g = RationalFunction::from_poly(poly(&[0, 1], "x"));
+        let result = solve_risch_de_rational(&f, &g, "x");
+        assert_eq!(result, Some(RationalFunction::from_poly(poly(&[1], "x"))));
+    }
+
+    #[test]
+    fn test_solve_risch_de_rational_simple_pole_rejection() {
+        // q' + q = 1/x → no rational solution (simple pole)
+        let f = poly(&[1], "x");
+        let g = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let result = solve_risch_de_rational(&f, &g, "x");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_solve_risch_de_rational_double_pole_success() {
+        // q' + q = (1-x)/x² → q = -1/x
+        let f = poly(&[1], "x");
+        let g = RationalFunction::new(poly(&[1, -1], "x"), poly(&[0, 0, 1], "x"));
+        let result = solve_risch_de_rational(&f, &g, "x");
+        let expected = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
+        assert_eq!(result, Some(expected));
+    }
+
+    #[test]
+    fn test_solve_risch_de_rational_double_pole_no_solution() {
+        // q' + q = 1/x² → no polynomial p satisfies x·p' + (x-1)·p = 1
+        let f = poly(&[1], "x");
+        let g = RationalFunction::new(poly(&[1], "x"), poly(&[0, 0, 1], "x"));
+        let result = solve_risch_de_rational(&f, &g, "x");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_solve_risch_de_rational_simple_pole_in_product() {
+        // q' + q = 2/x → no solution (simple pole in denominator x)
+        let f = poly(&[1], "x");
+        let g = RationalFunction::new(poly(&[2], "x"), poly(&[0, 1], "x"));
+        let result = solve_risch_de_rational(&f, &g, "x");
+        assert_eq!(result, None);
     }
 
     #[test]
