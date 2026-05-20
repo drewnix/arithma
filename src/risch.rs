@@ -1039,6 +1039,77 @@ pub(crate) fn extpoly_matrix_det(m: &[Vec<ExtPoly>], var: &str) -> ExtPoly {
     result
 }
 
+/// Build the Sylvester matrix and compute R(z) = res_θ(d, a − z·D(d)).
+///
+/// d and a are ExtPolys in θ (tower variable) with RF(x) coefficients.
+/// dd = D(d) is the full derivative of d in the extension.
+/// Returns R(z) as an ExtPoly where the "variable" represents z, with RF(x) coefficients.
+#[allow(dead_code)] // Used by Rothstein-Trager integration (upcoming)
+fn rothstein_trager_resultant(
+    d: &ExtPoly,
+    a: &ExtPoly,
+    dd: &ExtPoly,
+    var: &str,
+) -> ExtPoly {
+    let m = d.degree().unwrap_or(0); // degree of d in θ
+    // degree of g = a - z·dd in θ
+    let n = {
+        let da = a.degree().unwrap_or(0);
+        let ddd = dd.degree().unwrap_or(0);
+        da.max(ddd)
+    };
+
+    if m == 0 && n == 0 {
+        // Both constant in θ: resultant is a₀ - z·dd₀
+        let c0 = a.coeff(0);
+        let c1 = -&dd.coeff(0);
+        return ExtPoly::from_coeffs(vec![c0, c1], var);
+    }
+
+    let size = m + n;
+    if size == 0 {
+        return ExtPoly::one(var);
+    }
+
+    let zero_z = ExtPoly::zero(var);
+    let mut matrix: Vec<Vec<ExtPoly>> = Vec::with_capacity(size);
+
+    // First n rows from d (no z-dependence — constant ExtPolys in z)
+    // Sylvester convention: row i has d's coefficients shifted by i positions
+    // Coefficients listed highest-to-lowest: d_m, d_{m-1}, ..., d_0
+    for i in 0..n {
+        let mut row = vec![zero_z.clone(); size];
+        for k in 0..=m {
+            let col = i + k;
+            if col < size {
+                row[col] = ExtPoly::from_rf(d.coeff(m - k));
+            }
+        }
+        matrix.push(row);
+    }
+
+    // Last m rows from g = a - z·dd (linear in z)
+    // g has degree n in θ; coefficients g_k = a_k - z·dd_k
+    for i in 0..m {
+        let mut row = vec![zero_z.clone(); size];
+        for k in 0..=n {
+            let col = i + k;
+            if col < size {
+                let a_coeff = a.coeff(n - k);
+                let dd_coeff = dd.coeff(n - k);
+                if dd_coeff.is_zero() {
+                    row[col] = ExtPoly::from_rf(a_coeff);
+                } else {
+                    row[col] = ExtPoly::from_coeffs(vec![a_coeff, -&dd_coeff], var);
+                }
+            }
+        }
+        matrix.push(row);
+    }
+
+    extpoly_matrix_det(&matrix, var)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1938,5 +2009,61 @@ mod tests {
             vec![zero.clone(), zero.clone(), one.clone()],
         ];
         assert_eq!(extpoly_matrix_det(&m, "x"), one);
+    }
+
+    #[test]
+    fn test_resultant_z_simple() {
+        // ∫1/(x·ln(x))dx: d=θ, a=1/x, D(d)=1/x
+        // R(z) = (1-z)/x: coeff(0) = 1/x, coeff(1) = -1/x
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let d = ExtPoly::theta("x");
+        let a = ExtPoly::from_rf(one_over_x.clone());
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_resultant(&d, &a, &dd, "x");
+        assert_eq!(rz.degree(), Some(1));
+        assert_eq!(rz.coeff(0), one_over_x);
+        assert_eq!(rz.coeff(1), -&one_over_x);
+    }
+
+    #[test]
+    fn test_resultant_z_non_elementary() {
+        // ∫1/ln(x)dx: d=θ, a=1, D(d)=1/x
+        // R(z) = 1 - z/x: coeff(0) = 1, coeff(1) = -1/x
+        let d = ExtPoly::theta("x");
+        let a = ExtPoly::from_rf(rf_const(1));
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_resultant(&d, &a, &dd, "x");
+        assert_eq!(rz.degree(), Some(1));
+        assert_eq!(rz.coeff(0), rf_const(1));
+        let neg_one_over_x = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
+        assert_eq!(rz.coeff(1), neg_one_over_x);
+    }
+
+    #[test]
+    fn test_resultant_z_degree2() {
+        // d = θ²+θ, a = (2θ+1)/x, D(d) = (2θ+1)/x
+        // R(z) = -(1-z)²/x²: verify R(1) = 0
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let two_over_x = RationalFunction::new(poly(&[2], "x"), poly(&[0, 1], "x"));
+        let d = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1), rf_const(1)], "x");
+        let a = ExtPoly::from_coeffs(vec![one_over_x, two_over_x], "x");
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_resultant(&d, &a, &dd, "x");
+        assert_eq!(rz.degree(), Some(2));
+        // Verify R(1) = 0: sum of all coefficients should be zero
+        let r1 = &(&rz.coeff(0) + &rz.coeff(1)) + &rz.coeff(2);
+        assert!(r1.is_zero(), "R(1) should be 0, got {}", r1);
     }
 }
