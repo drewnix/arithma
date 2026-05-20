@@ -1787,6 +1787,81 @@ fn integrate_poly_exp(
     Some(RischResult::Elementary(result))
 }
 
+/// Integrate a polynomial in θ = ln(x): Σ aᵢ(x)·θⁱ.
+/// Top-down: qₙ' = aₙ, then qₖ' = aₖ - (k+1)·q_{k+1}/x.
+#[allow(dead_code)] // Will be wired into the main integration engine in a subsequent task.
+fn integrate_poly_log(
+    num: &ExtPoly,
+    _ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    let deg = num.degree().unwrap_or(0);
+    let mut q: Vec<Polynomial> = vec![Polynomial::zero(var); deg + 1];
+
+    for k in (0..=deg).rev() {
+        let a_k_rf = num.coeff(k);
+        if *a_k_rf.denominator() != Polynomial::one(var) {
+            return None;
+        }
+        let a_k = a_k_rf.numerator().clone();
+
+        if k == deg {
+            q[k] = a_k.integral();
+        } else {
+            let q_kp1 = &q[k + 1];
+
+            if !q_kp1.coeff(0).is_zero() {
+                return Some(RischResult::NonElementary(format!(
+                    "No elementary antiderivative of polynomial-in-ln(x) form exists. \
+                     At degree {}, the coefficient has nonzero constant term.",
+                    k + 1
+                )));
+            }
+
+            let x_poly = Polynomial::x(var);
+            let (q_kp1_div_x, rem) = q_kp1.div_rem(&x_poly).unwrap();
+            debug_assert!(rem.is_zero());
+
+            let scalar = BigRational::from_integer(BigInt::from(k as i64 + 1));
+            let correction = q_kp1_div_x.scalar_mul(&scalar);
+            let rhs = &a_k - &correction;
+            q[k] = rhs.integral();
+        }
+    }
+
+    let ln_x = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
+    let mut terms: Vec<Node> = Vec::new();
+    for (k, qk) in q.iter().enumerate() {
+        if qk.is_zero() {
+            continue;
+        }
+        let q_node = qk.to_node();
+        let term = if k == 0 {
+            q_node
+        } else if k == 1 {
+            Node::Multiply(Box::new(q_node), Box::new(ln_x.clone()))
+        } else {
+            Node::Multiply(
+                Box::new(q_node),
+                Box::new(Node::Power(
+                    Box::new(ln_x.clone()),
+                    Box::new(Node::Num(ExactNum::integer(k as i64))),
+                )),
+            )
+        };
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = terms.remove(0);
+    for t in terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3269,6 +3344,37 @@ mod tests {
                 assert!(s.contains("x"), "Expected x in {}", s);
                 assert!(s.contains("exp"), "Expected exp in {}", s);
             }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_log_ln_x() {
+        // ∫ln(x)dx: num=[0,1] → result = -x + x·ln(x)
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        match integrate_poly_log(&num, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_log_x_ln_x() {
+        // ∫x·ln(x)dx: num=[0,x]
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_poly(&[0, 1])], "x");
+        match integrate_poly_log(&num, &ext, "x").unwrap() {
+            RischResult::Elementary(_) => {}
             r => panic!("Expected elementary, got {:?}", r),
         }
     }
