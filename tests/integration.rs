@@ -269,6 +269,56 @@ mod integration_tests {
         assert!(result.contains("+ C"));
     }
 
+    // ===== Rothstein-Trager logarithmic integration =====
+
+    #[test]
+    fn test_integrate_1_over_x_ln_x() {
+        // ∫1/(x·ln(x))dx = ln(ln(x)) + C
+        let result = integrate_latex("\\frac{1}{x \\cdot \\ln(x)}", "x");
+        assert!(
+            result.is_ok(),
+            "∫1/(x·ln(x))dx should succeed: {:?}",
+            result
+        );
+        let s = result.unwrap();
+        assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+        assert!(s.contains("+ C"), "Result should contain + C: {}", s);
+    }
+
+    #[test]
+    fn test_integrate_1_over_ln_x_non_elementary() {
+        // ∫1/ln(x)dx — non-elementary (logarithmic integral)
+        let result = integrate_latex("\\frac{1}{\\ln(x)}", "x");
+        assert!(result.is_err(), "∫1/ln(x)dx should be non-elementary");
+        let err = result.unwrap_err();
+        assert!(
+            err.starts_with("NON_ELEMENTARY:"),
+            "Expected NON_ELEMENTARY, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_integrate_1_over_x_ln_x_minus_1() {
+        // ∫1/(x·(ln(x)-1))dx = ln(ln(x)-1) + C
+        let result = integrate_latex("\\frac{1}{x \\cdot (\\ln(x) - 1)}", "x");
+        assert!(
+            result.is_ok(),
+            "∫1/(x·(ln(x)-1))dx should succeed: {:?}",
+            result
+        );
+        let s = result.unwrap();
+        assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+    }
+
+    #[test]
+    fn test_integrate_1_over_1_plus_ln_x_non_elementary() {
+        // ∫1/(1+ln(x))dx — non-elementary (gives Ei)
+        let result = integrate_latex("\\frac{1}{1 + \\ln(x)}", "x");
+        assert!(result.is_err(), "∫1/(1+ln(x))dx should be non-elementary");
+        assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
+    }
+
     #[test]
     fn test_definite_sin() {
         let result = definite_integral_latex("\\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
