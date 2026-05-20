@@ -1223,29 +1223,29 @@ fn integrate_poly_exp(
     }
     let g_prime = g_prime_rf.numerator().clone();
 
-    let mut q: Vec<Polynomial> = vec![Polynomial::zero(var); deg + 1];
+    let mut q: Vec<RationalFunction> = vec![RationalFunction::zero(var); deg + 1];
 
     for i in 0..=deg {
         let a_i_rf = num.coeff(i);
         if a_i_rf.is_zero() {
             continue;
         }
-        if *a_i_rf.denominator() != Polynomial::one(var) {
-            return None;
-        }
-        let a_i = a_i_rf.numerator().clone();
 
         if i == 0 {
-            q[0] = a_i.integral();
+            // Degree 0: q_0 = ∫a_0 dx
+            if *a_i_rf.denominator() != Polynomial::one(var) {
+                return None; // Rational function integration of x not yet supported
+            }
+            q[0] = RationalFunction::from_poly(a_i_rf.numerator().clone().integral());
         } else {
             let f = g_prime.scalar_mul(&BigRational::from_integer(BigInt::from(i as i64)));
-            match solve_risch_de_poly(&f, &a_i, var) {
+            match solve_risch_de_rational(&f, &a_i_rf, var) {
                 Some(qi) => q[i] = qi,
                 None => {
                     return Some(RischResult::NonElementary(format!(
                         "No elementary antiderivative exists. \
-                         The differential equation q' + ({})·q = {} has no polynomial solution.",
-                        f, a_i
+                         The differential equation q' + ({})·q = {} has no rational solution.",
+                        f, a_i_rf
                     )));
                 }
             }
@@ -1258,7 +1258,7 @@ fn integrate_poly_exp(
         if qi.is_zero() {
             continue;
         }
-        let q_node = qi.to_node();
+        let q_node = rf_to_node(qi, var);
         let term = if i == 0 {
             q_node
         } else {
@@ -1271,7 +1271,7 @@ fn integrate_poly_exp(
                     Box::new(Node::Num(ExactNum::integer(i as i64))),
                 )
             };
-            if *qi == Polynomial::one(var) {
+            if *qi == RationalFunction::one(var) {
                 exp_part
             } else {
                 Node::Multiply(Box::new(q_node), Box::new(exp_part))
@@ -2640,6 +2640,71 @@ mod tests {
                 assert!(s.contains("x"), "Expected x from residual: {}", s);
             }
             _ => panic!("Expected elementary with residual"),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_rational_coeff_elementary() {
+        // ∫((1-x)/x²)·exp(x)dx = -exp(x)/x
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                RationalFunction::new(
+                    poly(&[1, -1], "x"),   // 1 - x
+                    poly(&[0, 0, 1], "x"), // x²
+                ),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_exp(&num, &ext, "x") {
+            Some(RischResult::Elementary(_node)) => {
+                // Success — the result should be equivalent to -exp(x)/x
+            }
+            other => panic!("Expected Elementary, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_rational_coeff_non_elementary_simple_pole() {
+        // ∫(1/x)·exp(x)dx is non-elementary (Ei function)
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x")),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_exp(&num, &ext, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected NonElementary, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_rational_coeff_non_elementary_double_pole() {
+        // ∫(1/x²)·exp(x)dx is non-elementary
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                RationalFunction::new(poly(&[1], "x"), poly(&[0, 0, 1], "x")),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_exp(&num, &ext, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected NonElementary, got: {:?}", other),
         }
     }
 }
