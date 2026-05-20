@@ -558,30 +558,6 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
     }
 }
 
-/// Fixup for a known parser precedence issue: the parser treats `-x^2` as `(-x)^2`
-/// instead of `-(x^2)`. In the context of exp arguments, `exp((-x)^n)` with even n
-/// is almost certainly intended as `exp(-(x^n))`. This rewrites such patterns.
-fn fixup_negated_power(arg: &Node) -> Node {
-    match arg {
-        Node::Power(base, exp) => {
-            if let Node::Negate(inner_base) = base.as_ref() {
-                if let Node::Num(n) = exp.as_ref() {
-                    if let Some(e) = n.to_i64() {
-                        if e > 0 && e % 2 == 0 {
-                            return Node::Negate(Box::new(Node::Power(
-                                Box::new(*inner_base.clone()),
-                                Box::new(Node::Num(n.clone())),
-                            )));
-                        }
-                    }
-                }
-            }
-            arg.clone()
-        }
-        _ => arg.clone(),
-    }
-}
-
 /// Result of a Risch integration attempt.
 #[derive(Debug)]
 pub enum RischResult {
@@ -874,8 +850,7 @@ fn contains_ln(expr: &Node, var: &str) -> bool {
 fn find_exp_argument(expr: &Node, var: &str) -> Option<Polynomial> {
     match expr {
         Node::Function(name, args) if name == "exp" && args.len() == 1 => {
-            let fixed = fixup_negated_power(&args[0]);
-            Polynomial::from_node(&fixed, var).ok()
+            Polynomial::from_node(&args[0], var).ok()
         }
         Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
             match (find_exp_argument(l, var), find_exp_argument(r, var)) {
@@ -921,8 +896,7 @@ fn node_to_extpoly_general(expr: &Node, var: &str, kind: &ExtensionKind) -> Opti
         }
         Node::Function(name, args) if name == "exp" && args.len() == 1 => {
             if let ExtensionKind::Exponential(ref g) = kind {
-                let fixed = fixup_negated_power(&args[0]);
-                if let Ok(arg_poly) = Polynomial::from_node(&fixed, var) {
+                if let Ok(arg_poly) = Polynomial::from_node(&args[0], var) {
                     if arg_poly == *g {
                         return Some(ExtPoly::theta(var));
                     }

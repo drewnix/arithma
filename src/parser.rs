@@ -88,12 +88,12 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
 
 pub fn get_precedence(op: &str) -> i32 {
     match op {
-        "NEG" => 4,                          // Highest precedence for unary minus
-        "^" => 3,                            // Exponentiation
-        "*" | "/" => 2,                      // Multiplication and Division
-        "+" | "-" => 1,                      // Addition and Subtraction
-        ">" | "<" | ">=" | "<=" | "==" => 0, // Inequality operators
-        "=" => -1,                           // Equation has lowest precedence
+        "^" => 5,                            // Exponentiation
+        "NEG" => 4,                          // Unary minus (binds tighter than *, looser than ^)
+        "*" | "/" => 3,                      // Multiplication and Division
+        "+" | "-" => 2,                      // Addition and Subtraction
+        ">" | "<" | ">=" | "<=" | "==" => 1, // Inequality operators
+        "=" => 0,                            // Equation has lowest precedence
         _ => 0,
     }
 }

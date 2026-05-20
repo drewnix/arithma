@@ -232,4 +232,47 @@ mod latex_parser_tests {
         let result = eval_latex_expression("(2 + 3)(4 + 1)").unwrap();
         assert_eq!(result, 25.0); // 5 * 5 = 25
     }
+
+    #[test]
+    fn test_neg_power_precedence() {
+        let mut env = Environment::new();
+        env.set("x", 3.0);
+        // -x^2 should be -(x^2) = -9, not (-x)^2 = 9
+        let result = eval_latex_expression_with_env("-x^2", &env).unwrap();
+        assert_eq!(result, -9.0);
+    }
+
+    #[test]
+    fn test_neg_power_precedence_numeric() {
+        // -3^2 = -(3^2) = -9
+        let result = eval_latex_expression("-3^2").unwrap();
+        assert_eq!(result, -9.0);
+    }
+
+    #[test]
+    fn test_explicit_neg_paren_power() {
+        let mut env = Environment::new();
+        env.set("x", 3.0);
+        // (-x)^2 with explicit parens should be 9
+        let result = eval_latex_expression_with_env("(-x)^2", &env).unwrap();
+        assert_eq!(result, 9.0);
+    }
+
+    #[test]
+    fn test_power_of_negative_exponent() {
+        let mut env = Environment::new();
+        env.set("x", 2.0);
+        // x^-2 = 1/x^2 = 0.25
+        let result = eval_latex_expression_with_env("x^{-2}", &env).unwrap();
+        assert_eq!(result, 0.25);
+    }
+
+    #[test]
+    fn test_neg_power_in_expression() {
+        let mut env = Environment::new();
+        env.set("x", 3.0);
+        // 1 - x^2 = 1 - 9 = -8
+        let result = eval_latex_expression_with_env("1 - x^2", &env).unwrap();
+        assert_eq!(result, -8.0);
+    }
 }
