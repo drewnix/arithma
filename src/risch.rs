@@ -433,93 +433,164 @@ fn hermite_reduce_multi_factor(
     })
 }
 
-/// Solve the Risch differential equation for polynomial solutions.
+/// Solve the generalised Risch differential equation for polynomial solutions.
 ///
-/// Given polynomials f, g ∈ Q\[x\], find q ∈ Q\[x\] such that **q' + f·q = g**,
-/// or return `None` if no polynomial solution exists (indicating the
-/// corresponding integral is non-elementary).
+/// Given polynomials s, F, G ∈ Q\[x\], find p ∈ Q\[x\] such that
+/// **s·p' + F·p = G**, or return `None` if no polynomial solution exists.
 ///
 /// # Algorithm
 ///
-/// 1. **f = 0:** q' = g, so q = ∫g dx (always succeeds).
-/// 2. **Degree bound:** For f of degree m and g of degree n:
-///    - m ≥ 1: deg(q) = n − m (if n < m and g ≠ 0, no solution).
-///    - m = 0: deg(q) = n.
-/// 3. **Top-down coefficient matching:** For m ≥ 1, the leading coefficient f_m
-///    is the divisor at each step; for m = 0, f_0 is the divisor.
-pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<Polynomial> {
-    // Special case: f = 0 → q' = g → q = ∫g
-    if f.is_zero() {
-        return Some(g.integral());
+/// 1. **F = 0 and s = 1:** p' = G, so p = ∫G dx.
+/// 2. **Degree bound:** Determined by the leading-order balance of s·p' vs F·p.
+/// 3. **Top-down coefficient matching:** At each degree r the equation
+///    `Σ_j s_j·(r+1-j)·b_{r+1-j} + Σ_j F_j·b_{r-j} = G_r`
+///    is solved for the single unknown coefficient b[target].
+/// 4. **Verification:** s·p' + F·p must equal G exactly.
+pub fn solve_risch_de(
+    s: &Polynomial,
+    f_poly: &Polynomial,
+    g_poly: &Polynomial,
+    var: &str,
+) -> Option<Polynomial> {
+    // Special case: F = 0 and s = constant → s·p' = G → p = ∫(G/s) dx
+    if f_poly.is_zero() && s.is_constant() {
+        let lc_s = s.coeff(0);
+        if lc_s.is_zero() {
+            // s = 0 and F = 0: equation is 0 = G
+            return if g_poly.is_zero() {
+                Some(Polynomial::zero(var))
+            } else {
+                None
+            };
+        }
+        // s·p' = G → p' = G/lc(s) → p = ∫(G/lc(s))
+        let scaled = g_poly.scalar_mul(&(&BigRational::one() / &lc_s));
+        return Some(scaled.integral());
     }
 
-    // g = 0 → q = 0 is always a solution
-    if g.is_zero() {
+    // g = 0 → p = 0 is always a solution
+    if g_poly.is_zero() {
         return Some(Polynomial::zero(var));
     }
 
-    let m = f.degree().unwrap(); // f is nonzero
-    let n = g.degree().unwrap(); // g is nonzero
+    let deg_s = s.degree().unwrap_or(0);
+    let deg_f = f_poly.degree().unwrap_or(0);
+    let n_g = g_poly.degree().unwrap(); // g is nonzero
 
-    // Degree bound
-    let k: usize = if m >= 1 {
-        if n < m {
-            return None; // No polynomial solution exists
+    // Degree bound for p.
+    // Leading balance: if deg(F) >= deg(s), the F·p term dominates and
+    //   deg(G) = deg(F) + deg(p), so deg(p) = n_g - deg(F).
+    // If deg(F) < deg(s), the s·p' term dominates and
+    //   deg(G) = deg(s) + deg(p) - 1, so deg(p) = n_g - deg(s) + 1.
+    // When F = 0 (with non-constant s), use the s-branch.
+    let k: usize = if f_poly.is_zero() || deg_f < deg_s {
+        // s·p' dominates
+        if n_g + 1 < deg_s {
+            return None;
         }
-        n - m
+        n_g + 1 - deg_s
+    } else if deg_f > deg_s {
+        // F·p dominates
+        if n_g < deg_f {
+            return None;
+        }
+        n_g - deg_f
     } else {
-        // m = 0, f is a nonzero constant
-        n
+        // deg_f == deg_s: both contribute at the same order.
+        // The effective leading coefficient at degree (k + deg_f) is
+        //   lc(s)·k + lc(F).  If that vanishes for the naive bound k = n_g - deg_f,
+        //   the actual degree could be lower.  Try k = n_g - deg_f first.
+        if n_g < deg_f {
+            return None;
+        }
+        n_g - deg_f
+    };
+
+    // The highest degree that appears in the equation s·p' + F·p = G.
+    // It is max(deg_s + k - 1, deg_f + k, n_g).  We iterate from max_r down to 0.
+    let max_r = if k == 0 {
+        n_g
+    } else {
+        let from_s = deg_s + k - 1;
+        let from_f = if !f_poly.is_zero() { deg_f + k } else { 0 };
+        from_s.max(from_f).max(n_g)
     };
 
     let mut b = vec![BigRational::zero(); k + 1];
 
-    // Process degrees from n down to 0.
-    //
-    // At degree r, the equation q' + f·q = g gives:
-    //   (r+1)·b_{r+1} + Σ_{i+j=r, 0≤i≤m, 0≤j≤k} f_i·b_j = g_r
-    //
-    // For m ≥ 1: the "new" unknown at degree r is b_{r-m} (coefficient f_m),
-    //   all b_j for j > r-m are already determined from higher degrees.
-    // For m = 0: the "new" unknown at degree r is b_r (coefficient f_0).
-    for r in (0..=n).rev() {
-        let g_r = g.coeff(r);
+    for r in (0..=max_r).rev() {
+        let g_r = g_poly.coeff(r);
 
-        // Derivative contribution: (r+1)·b_{r+1} if r+1 ≤ k
-        let mut known = if r < k {
-            BigRational::from_integer(BigInt::from(r as i64 + 1)) * &b[r + 1]
-        } else {
-            BigRational::zero()
-        };
-
-        // Determine which b index we're solving for at this degree
-        let target_j: Option<usize> = if m >= 1 {
-            if r >= m && r - m <= k {
-                Some(r - m)
+        // Determine the target b-index at degree r.
+        // The terms that produce degree r from s·p' are s_i * (j+1) * b_{j+1}
+        // where i + j = r, so j = r - i and the b-index is j+1 = r+1-i.
+        // The terms from F·p at degree r are F_i * b_j where i + j = r.
+        //
+        // "Target" = the b-index we solve for (not yet determined from higher degrees).
+        // All b[j] with j > target are already known.
+        let target_j: Option<usize> = if f_poly.is_zero() || deg_f < deg_s {
+            // s dominates: target is b_{r+1-deg_s}
+            let idx = (r + 1).checked_sub(deg_s)?;
+            if idx <= k {
+                Some(idx)
+            } else {
+                None
+            }
+        } else if deg_f > deg_s {
+            // F dominates: target is b_{r-deg_f}
+            if r >= deg_f && r - deg_f <= k {
+                Some(r - deg_f)
             } else {
                 None
             }
         } else {
-            // m = 0
-            if r <= k {
-                Some(r)
+            // deg_f == deg_s: both terms can contribute to the same target.
+            // Target from F: b_{r - deg_f} = b_{r - deg_s}
+            // Target from s: b_{r + 1 - deg_s}
+            // Since deg_f == deg_s, the F-target (r - deg_f) is one less than
+            // the s-target (r + 1 - deg_s).  So the lowest unknown is from F.
+            if r >= deg_f && r - deg_f <= k {
+                Some(r - deg_f)
             } else {
                 None
             }
         };
 
-        // Convolution contribution: Σ_{i=0}^{min(m,r)} f_i · b_{r-i}, skipping target
-        for i in 0..=m.min(r) {
-            let j = r - i;
-            if j > k {
+        // Accumulate known contributions from s·p' (derivative terms).
+        let mut known = BigRational::zero();
+        for i in 0..=deg_s.min(r) {
+            let s_i = s.coeff(i);
+            if s_i.is_zero() {
                 continue;
             }
-            if Some(j) == target_j {
+            // b-index from derivative: j+1 where j = r - i, so b_{r+1-i}
+            let b_idx = r + 1 - i;
+            if b_idx > k || b_idx == 0 {
                 continue;
             }
-            let f_i = f.coeff(i);
-            if !f_i.is_zero() {
-                known += &f_i * &b[j];
+            // But b_idx refers to b[b_idx], and the derivative produces (b_idx)*b[b_idx]
+            // from the term (j+1)*b_{j+1} where j = r-i, j+1 = b_idx
+            // Skip if this is the target
+            if Some(b_idx) == target_j {
+                continue;
+            }
+            known += &s_i * BigRational::from_integer(BigInt::from(b_idx as i64)) * &b[b_idx];
+        }
+
+        // Accumulate known contributions from F·p (convolution terms).
+        if !f_poly.is_zero() {
+            for i in 0..=deg_f.min(r) {
+                let j = r - i;
+                if j > k {
+                    continue;
+                }
+                if Some(j) == target_j {
+                    continue;
+                }
+                let f_i = f_poly.coeff(i);
+                if !f_i.is_zero() {
+                    known += &f_i * &b[j];
+                }
             }
         }
 
@@ -527,20 +598,32 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
 
         match target_j {
             Some(j) => {
-                // The coefficient of b_j in the equation
-                let divisor = if m >= 1 { f.coeff(m) } else { f.coeff(0) };
+                // Compute the divisor: coefficient of b[j] in the equation at degree r.
+                let mut divisor = BigRational::zero();
+
+                // Contribution from s·p': s_i * b_idx where b_idx = j, so i = r+1-j
+                // and the factor is j (from (j)*b[j] in the derivative).
+                let deriv_i = r + 1 - j;
+                if deriv_i <= deg_s && j > 0 {
+                    divisor +=
+                        &s.coeff(deriv_i) * BigRational::from_integer(BigInt::from(j as i64));
+                }
+
+                // Contribution from F·p: F_i * b_j where i = r - j
+                if !f_poly.is_zero() && r >= j && r - j <= deg_f {
+                    divisor += f_poly.coeff(r - j);
+                }
+
                 if divisor.is_zero() {
-                    // b_j doesn't appear; check consistency
                     if !residual.is_zero() {
                         return None;
                     }
-                    // b_j is free; set to 0
+                    // b[j] is free; leave it as 0
                 } else {
                     b[j] = &residual / &divisor;
                 }
             }
             None => {
-                // No unknown at this degree — check consistency
                 if !residual.is_zero() {
                     return None;
                 }
@@ -548,14 +631,21 @@ pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<
         }
     }
 
-    // Build q and verify: q' + f·q must equal g
-    let q = Polynomial::from_coeffs(b, var);
-    let check = &q.derivative() + &(f * &q);
-    if check == *g {
-        Some(q)
+    // Build p and verify: s·p' + F·p must equal G
+    let p = Polynomial::from_coeffs(b, var);
+    let check = &(s * &p.derivative()) + &(f_poly * &p);
+    if check == *g_poly {
+        Some(p)
     } else {
         None
     }
+}
+
+/// Solve the Risch differential equation **q' + f·q = g** for polynomial q.
+///
+/// This is a thin wrapper around [`solve_risch_de`] with s = 1.
+pub fn solve_risch_de_poly(f: &Polynomial, g: &Polynomial, var: &str) -> Option<Polynomial> {
+    solve_risch_de(&Polynomial::one(var), f, g, var)
 }
 
 /// Result of a Risch integration attempt.
@@ -1840,6 +1930,45 @@ mod tests {
         let g = Polynomial::zero("x");
         let q = solve_risch_de_poly(&f, &g, "x").unwrap();
         assert!(q.is_zero());
+    }
+
+    #[test]
+    fn test_solve_risch_de_s1_identity() {
+        // s=1: p' + x·p = x → p = 1
+        let s = Polynomial::one("x");
+        let f = poly(&[0, 1], "x");
+        let g = poly(&[0, 1], "x");
+        let result = solve_risch_de(&s, &f, &g, "x");
+        assert_eq!(result, Some(poly(&[1], "x")));
+    }
+
+    #[test]
+    fn test_solve_risch_de_s_x() {
+        // x·p' + (x-1)·p = 1-x → p = -1
+        let s = poly(&[0, 1], "x");
+        let f = poly(&[-1, 1], "x");
+        let g = poly(&[1, -1], "x");
+        let result = solve_risch_de(&s, &f, &g, "x");
+        assert_eq!(result, Some(poly(&[-1], "x")));
+    }
+
+    #[test]
+    fn test_solve_risch_de_s_x_no_solution() {
+        // x·p' + (x-1)·p = 1 → no solution
+        let s = poly(&[0, 1], "x");
+        let f = poly(&[-1, 1], "x");
+        let g = poly(&[1], "x");
+        let result = solve_risch_de(&s, &f, &g, "x");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_solve_risch_de_g_zero() {
+        let s = poly(&[0, 1], "x");
+        let f = poly(&[1, 1], "x");
+        let g = Polynomial::zero("x");
+        let result = solve_risch_de(&s, &f, &g, "x");
+        assert_eq!(result, Some(Polynomial::zero("x")));
     }
 
     #[test]
