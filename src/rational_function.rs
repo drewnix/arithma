@@ -1,5 +1,5 @@
 use num_rational::BigRational;
-use num_traits::One;
+use num_traits::{One, Zero};
 use std::fmt;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -118,6 +118,16 @@ impl RationalFunction {
         let num = &(&p_prime * &self.den) - &(&self.num * &q_prime);
         let den = &self.den * &self.den;
         Self::new(num, den)
+    }
+
+    /// Evaluate the rational function at a specific value.
+    /// Returns None if the denominator is zero at that point.
+    pub fn evaluate(&self, x: &BigRational) -> Option<BigRational> {
+        let den_val = self.den.evaluate(x);
+        if den_val.is_zero() {
+            return None;
+        }
+        Some(self.num.evaluate(x) / den_val)
     }
 
     /// Divide two rational functions: (a/b) / (c/d) = (a*d) / (b*c).
@@ -422,5 +432,31 @@ mod tests {
         let rf = RationalFunction::from_constant(int(5), "x");
         let drf = rf.derivative();
         assert!(drf.is_zero());
+    }
+
+    #[test]
+    fn test_rf_evaluate() {
+        // (x+1)/x at x=2 → 3/2
+        let rf = RationalFunction::new(
+            Polynomial::from_coeffs(vec![int(1), int(1)], "x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        assert_eq!(rf.evaluate(&int(2)), Some(rat(3, 2)));
+    }
+
+    #[test]
+    fn test_rf_evaluate_zero_denom() {
+        // 1/x at x=0 → None
+        let rf = RationalFunction::new(
+            Polynomial::one("x"),
+            Polynomial::from_coeffs(vec![int(0), int(1)], "x"),
+        );
+        assert_eq!(rf.evaluate(&int(0)), None);
+    }
+
+    #[test]
+    fn test_rf_evaluate_constant() {
+        let rf = RationalFunction::from_constant(rat(3, 4), "x");
+        assert_eq!(rf.evaluate(&int(100)), Some(rat(3, 4)));
     }
 }

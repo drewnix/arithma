@@ -1110,6 +1110,76 @@ fn rothstein_trager_resultant(
     extpoly_matrix_det(&matrix, var)
 }
 
+/// Find all c ∈ Q such that R(c) = 0, where R(z) is a polynomial in z
+/// with RationalFunction(x) coefficients.
+///
+/// Strategy: specialize x to a concrete value x₀, find rational roots of
+/// the resulting Q[z] polynomial, then verify each candidate against the
+/// full R(z).
+#[allow(dead_code)] // Used by Rothstein-Trager integration (upcoming)
+fn find_constant_roots(rz: &ExtPoly, var: &str) -> Vec<BigRational> {
+    let deg = match rz.degree() {
+        Some(d) => d,
+        None => return vec![],
+    };
+
+    if deg == 0 {
+        return vec![];
+    }
+
+    let candidates_x = [2i64, 3, 5, 7, 11];
+    let mut candidate_roots: Option<Vec<BigRational>> = None;
+
+    for &x_val in &candidates_x {
+        let x_br = BigRational::from_integer(BigInt::from(x_val));
+        let mut specialized_coeffs = Vec::with_capacity(deg + 1);
+        let mut valid = true;
+        for i in 0..=deg {
+            match rz.coeff(i).evaluate(&x_br) {
+                Some(val) => specialized_coeffs.push(val),
+                None => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if !valid {
+            continue;
+        }
+
+        let spec_poly = Polynomial::from_coeffs(specialized_coeffs, "z");
+        if spec_poly.is_zero() {
+            continue;
+        }
+
+        candidate_roots = Some(spec_poly.rational_roots());
+        break;
+    }
+
+    let candidates = match candidate_roots {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    // Verify each candidate: compute R(c) as an RF and check if zero
+    let mut verified = Vec::new();
+    for c in candidates {
+        let mut sum = RationalFunction::zero(var);
+        let mut c_power = BigRational::one();
+        for i in 0..=deg {
+            let term = &rz.coeff(i)
+                * &RationalFunction::from_constant(c_power.clone(), var);
+            sum = &sum + &term;
+            c_power = &c_power * &c;
+        }
+        if sum.is_zero() && !verified.contains(&c) {
+            verified.push(c);
+        }
+    }
+
+    verified
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2065,5 +2135,35 @@ mod tests {
         // Verify R(1) = 0: sum of all coefficients should be zero
         let r1 = &(&rz.coeff(0) + &rz.coeff(1)) + &rz.coeff(2);
         assert!(r1.is_zero(), "R(1) should be 0, got {}", r1);
+    }
+
+    // ======== find_constant_roots tests ========
+
+    #[test]
+    fn test_find_constant_roots_simple() {
+        // R(z) = (1-z)/x → root at z=1
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let rz = ExtPoly::from_coeffs(vec![one_over_x.clone(), -&one_over_x], "x");
+        let roots = find_constant_roots(&rz, "x");
+        assert_eq!(roots, vec![int(1)]);
+    }
+
+    #[test]
+    fn test_find_constant_roots_none() {
+        // R(z) = 1 - z/x → z=x not constant, no roots
+        let neg_one_over_x = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
+        let rz = ExtPoly::from_coeffs(vec![rf_const(1), neg_one_over_x], "x");
+        let roots = find_constant_roots(&rz, "x");
+        assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn test_find_constant_roots_repeated() {
+        // R(z) = -(1-z)²/x² = (-1/x² + 2z/x² - z²/x²)
+        let one_over_x2 = RationalFunction::new(poly(&[1], "x"), poly(&[0, 0, 1], "x"));
+        let two_over_x2 = RationalFunction::new(poly(&[2], "x"), poly(&[0, 0, 1], "x"));
+        let rz = ExtPoly::from_coeffs(vec![-&one_over_x2, two_over_x2, -&one_over_x2], "x");
+        let roots = find_constant_roots(&rz, "x");
+        assert_eq!(roots, vec![int(1)]);
     }
 }
