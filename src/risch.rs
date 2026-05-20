@@ -1180,6 +1180,64 @@ fn find_constant_roots(rz: &ExtPoly, var: &str) -> Vec<BigRational> {
     verified
 }
 
+/// Convert a RationalFunction p(x)/q(x) to a Node expression.
+#[allow(dead_code)]
+fn rf_to_node(rf: &RationalFunction, var: &str) -> Node {
+    let num_node = rf.numerator().to_node();
+    if *rf.denominator() == Polynomial::one(var) {
+        num_node
+    } else {
+        Node::Divide(Box::new(num_node), Box::new(rf.denominator().to_node()))
+    }
+}
+
+/// Convert an ExtPoly Σ aᵢ(x)·θⁱ to a Node expression,
+/// replacing θ with `theta_node` (e.g., ln(x)).
+#[allow(dead_code)]
+fn extpoly_to_node(ep: &ExtPoly, theta_node: &Node, var: &str) -> Node {
+    let deg = match ep.degree() {
+        Some(d) => d,
+        None => return Node::Num(ExactNum::zero()),
+    };
+
+    let mut terms: Vec<Node> = Vec::new();
+    for i in 0..=deg {
+        let coeff = ep.coeff(i);
+        if coeff.is_zero() {
+            continue;
+        }
+        let coeff_node = rf_to_node(&coeff, var);
+        let term = if i == 0 {
+            coeff_node
+        } else {
+            let theta_power = if i == 1 {
+                theta_node.clone()
+            } else {
+                Node::Power(
+                    Box::new(theta_node.clone()),
+                    Box::new(Node::Num(ExactNum::integer(i as i64))),
+                )
+            };
+            if coeff == RationalFunction::one(var) {
+                theta_power
+            } else {
+                Node::Multiply(Box::new(coeff_node), Box::new(theta_power))
+            }
+        };
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Node::Num(ExactNum::zero());
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2165,5 +2223,54 @@ mod tests {
         let rz = ExtPoly::from_coeffs(vec![-&one_over_x2, two_over_x2, -&one_over_x2], "x");
         let roots = find_constant_roots(&rz, "x");
         assert_eq!(roots, vec![int(1)]);
+    }
+
+    #[test]
+    fn test_rf_to_node_constant() {
+        let rf = rf_const(5);
+        let result = rf_to_node(&rf, "x");
+        assert_eq!(format!("{}", result), "5");
+    }
+
+    #[test]
+    fn test_rf_to_node_polynomial() {
+        let rf = rf_poly(&[1, 1]); // x + 1
+        let result = rf_to_node(&rf, "x");
+        let s = format!("{}", result);
+        assert!(s.contains("x"), "Expected x in {}", s);
+    }
+
+    #[test]
+    fn test_rf_to_node_fraction() {
+        // 1/x
+        let rf = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let result = rf_to_node(&rf, "x");
+        let s = format!("{}", result);
+        assert!(s.contains("x"), "Expected x in {}", s);
+    }
+
+    #[test]
+    fn test_extpoly_to_node_constant() {
+        let ep = ExtPoly::from_rf(rf_const(3));
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = extpoly_to_node(&ep, &ln_x, "x");
+        assert_eq!(format!("{}", result), "3");
+    }
+
+    #[test]
+    fn test_extpoly_to_node_theta() {
+        let ep = ExtPoly::theta("x");
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = extpoly_to_node(&ep, &ln_x, "x");
+        assert_eq!(format!("{}", result), "\\ln(x)");
+    }
+
+    #[test]
+    fn test_extpoly_to_node_theta_plus_one() {
+        let ep = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = extpoly_to_node(&ep, &ln_x, "x");
+        let s = format!("{}", result);
+        assert!(s.contains("\\ln(x)"), "Expected ln(x) in {}", s);
     }
 }
