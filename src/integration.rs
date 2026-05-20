@@ -2133,4 +2133,28 @@ mod tests {
             err
         );
     }
+
+    #[test]
+    fn test_integrate_ln_x_over_x_sq() {
+        // ∫ln(x)/x² dx = -(ln(x)+1)/x
+        let expr = parse_expression("\\frac{\\ln(x)}{x^2}").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "Expected elementary result, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_ln_x_over_x_plus_1_non_elementary() {
+        // ∫ln(x)/(x+1) dx is non-elementary in single tower
+        let expr = parse_expression("\\frac{\\ln(x)}{x + 1}").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(
+            result.is_err(),
+            "Expected non-elementary, got: {:?}",
+            result
+        );
+    }
 }

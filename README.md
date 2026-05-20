@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**762 tests, zero failures.** Every algorithm is verified against known results.
+**772 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -49,7 +49,8 @@ trig powers, inverse trig, partial fractions, trig substitution) plus the
 that can prove an integral has no elementary closed form. Handles both
 exponential extensions (∫r(x)·e^{g(x)}dx, including rational-coefficient
 integrands like ∫((1-x)/x²)·e^x dx) and logarithmic extensions
-(∫f(ln(x))dx) via Hermite reduction and the Rothstein-Trager resultant method.
+(∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption)
+via Hermite reduction and the Rothstein-Trager resultant method.
 Taylor/Maclaurin series with exact rational coefficients. Symbolic limits via
 direct substitution, GCD cancellation, and L'Hopital's rule.
 
@@ -190,6 +191,13 @@ No elementary antiderivative exists. The Risch algorithm proves that
 the differential equation q' + (1)·q = (1)/(x) has no rational
 solution, so ∫(1/x)·exp(x) dx cannot be expressed in terms of
 elementary functions.
+
+$ arithma integrate "\frac{\ln(x)}{x^2}" x
+\frac{-1}{x} + \frac{-1}{x} \cdot \ln(x) + C
+
+$ arithma integrate "\frac{\ln(x)}{x + 1}" x
+No elementary antiderivative exists. The integral requires ln(x + 1),
+which is outside the single ln(x) extension tower.
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -201,7 +209,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 762 tests
+cargo test                                # run all 772 tests
 ```
 
 ## Design principles
