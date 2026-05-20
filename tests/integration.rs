@@ -360,6 +360,52 @@ mod integration_tests {
         );
     }
 
+    // ===== Tower builder: exp-rational integration =====
+
+    #[test]
+    fn test_integrate_exp_over_1_plus_exp() {
+        // ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) + C
+        let result = integrate_latex("\\frac{\\exp(x)}{1 + \\exp(x)}", "x");
+        assert!(
+            result.is_ok(),
+            "∫exp(x)/(1+exp(x))dx should succeed: {:?}",
+            result
+        );
+        let s = result.unwrap();
+        assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+        assert!(s.contains("+ C"), "Result should contain + C: {}", s);
+    }
+
+    #[test]
+    fn test_integrate_1_over_1_plus_exp() {
+        // ∫1/(1+exp(x))dx = x - ln(1+exp(x)) + C
+        let result = integrate_latex("\\frac{1}{1 + \\exp(x)}", "x");
+        assert!(
+            result.is_ok(),
+            "∫1/(1+exp(x))dx should succeed: {:?}",
+            result
+        );
+        let s = result.unwrap();
+        assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+    }
+
+    #[test]
+    fn test_integrate_exp_over_1_plus_exp_numerical() {
+        // Verify: d/dx[ln(1+exp(x))] = exp(x)/(1+exp(x))
+        let result = integrate_latex("\\frac{\\exp(x)}{1 + \\exp(x)}", "x").unwrap();
+        let integral_expr = result.replace(" + C", "");
+        let mut env = Environment::new();
+        env.set("x", 1.0);
+        let val = evaluate_expression(&integral_expr, &env).unwrap();
+        let expected = (1.0 + std::f64::consts::E).ln();
+        assert!(
+            approx_eq(val, expected, 0.01),
+            "Expected {:.4}, got {:.4}",
+            expected,
+            val
+        );
+    }
+
     #[test]
     fn test_definite_sin() {
         let result = definite_integral_latex("\\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
