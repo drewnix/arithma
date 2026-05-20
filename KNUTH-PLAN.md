@@ -30,9 +30,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State (Post Session 21)
 
-**747 tests pass. 0 failures. 14 MCP tools. ~20K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**742 tests pass. 0 failures. 14 MCP tools. ~20K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) advancing: exponential case operational, logarithmic polynomial case operational, **Rothstein-Trager resultant method for logarithmic rational integration operational**. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch exponential integration**, **Risch logarithmic polynomial integration**, and **Rothstein-Trager logarithmic rational integration** — all with non-elementary detection. Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) advancing: **unified tower builder** replaces three hand-coded pattern detectors with a single pipeline handling both logarithmic and exponential extensions. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree), **Risch polynomial-in-log integration** (top-down coefficient solving), **Rothstein-Trager for logarithmic rational integration**, and **Rothstein-Trager for exponential rational integration** (with residual computation) — all with non-elementary detection. New capability: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)), ∫1/(1+exp(x))dx = x - ln(1+exp(x)). Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -177,15 +177,17 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ## Completed Work
 
 ### Session 21 (2026-05-19)
-- Phase 9 Session 4: ExtPoly matrix determinant via cofactor expansion
-- Phase 9 Session 4: Rothstein-Trager resultant R(z) via Sylvester matrix
-- Phase 9 Session 4: RationalFunction::evaluate + constant root finder
-- Phase 9 Session 4: ExtPoly-to-Node and RF-to-Node conversion
-- Phase 9 Session 4: Pattern detector for rational-in-log expressions
-- Phase 9 Session 4: try_risch_log_rational (Hermite + Rothstein-Trager pipeline)
-- Phase 9 Session 4: Integration engine wiring for log-rational path
-- Phase 9 Session 4: End-to-end + numerical verification tests
-- 36 new tests (747 total)
+- Phase 9 Session 4: Rothstein-Trager resultant method (Sylvester matrix, root finder, RT pipeline)
+- Phase 9 Session 5: Unified tower builder replacing three pattern detectors
+- Phase 9 Session 5: Transcendental scanning + generalized node_to_extpoly (log + exp)
+- Phase 9 Session 5: build_tower (scan → classify → convert to ExtPoly num/den)
+- Phase 9 Session 5: integrate_poly_exp (independent Risch DE per degree)
+- Phase 9 Session 5: integrate_poly_log (refactored standalone)
+- Phase 9 Session 5: integrate_rational_ext (generalized Hermite + RT + exp residual)
+- Phase 9 Session 5: try_risch_tower (unified dispatcher)
+- Phase 9 Session 5: Removed 12 old functions, 23 old tests; net -1100 lines
+- Phase 9 Session 5: New capability: rational-in-exp integration (∫exp(x)/(1+exp(x))dx, ∫1/(1+exp(x))dx)
+- 742 total tests (30 old removed, 25 new added)
 
 ### Session 18 (2026-05-18)
 - Phase 9 Session 1: RationalFunction type (p(x)/q(x), full arithmetic, derivative)
