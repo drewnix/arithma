@@ -2,12 +2,22 @@ use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
-use crate::risch::{try_risch_exponential, try_risch_log_rational, try_risch_logarithmic, RischResult};
+use crate::risch::{
+    try_risch_exponential, try_risch_log_rational, try_risch_logarithmic, try_risch_tower,
+    RischResult,
+};
 use crate::tokenizer::Tokenizer;
 use num_traits::{One, ToPrimitive, Zero};
 
 fn try_risch_fallback(expr: &Node, var_name: &str) -> Option<Result<Node, String>> {
-    // Try exponential first
+    // Unified tower path (handles both exp and log extensions)
+    if let Some(result) = try_risch_tower(expr, var_name) {
+        return Some(match result {
+            RischResult::Elementary(node) => Ok(node),
+            RischResult::NonElementary(reason) => Err(format!("NON_ELEMENTARY: {}", reason)),
+        });
+    }
+    // Legacy fallback paths (to be removed once tower handles all cases)
     if let Some(result) = try_risch_exponential(expr, var_name) {
         return Some(match result {
             RischResult::Elementary(node) => Ok(node),

@@ -87,6 +87,6 @@ pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode
 
 pub mod risch;
 pub use crate::risch::{
-    hermite_reduce, try_risch_exponential, try_risch_log_rational, try_risch_logarithmic,
-    DifferentialExtension, HermiteResult, RischResult,
+    build_tower, hermite_reduce, try_risch_exponential, try_risch_log_rational,
+    try_risch_logarithmic, try_risch_tower, DifferentialExtension, HermiteResult, RischResult,
 };

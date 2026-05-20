@@ -1600,8 +1600,7 @@ fn node_to_extpoly_general(expr: &Node, var: &str, kind: &ExtensionKind) -> Opti
                     if let Node::Num(n) = exp.as_ref() {
                         if let Some(e) = n.to_i64() {
                             if e >= 1 {
-                                let p =
-                                    Polynomial::monomial(BigRational::one(), e as usize, var);
+                                let p = Polynomial::monomial(BigRational::one(), e as usize, var);
                                 return Some(ExtPoly::from_rf(RationalFunction::from_poly(p)));
                             }
                         }
@@ -1878,9 +1877,10 @@ fn integrate_rational_ext(
         ExtensionType::Logarithmic => {
             Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())])
         }
-        ExtensionType::Exponential => {
-            Node::Function("exp".to_string(), vec![ext.argument().numerator().to_node()])
-        }
+        ExtensionType::Exponential => Node::Function(
+            "exp".to_string(),
+            vec![ext.argument().numerator().to_node()],
+        ),
     };
 
     let mut result_terms: Vec<Node> = Vec::new();
@@ -2001,6 +2001,23 @@ fn integrate_rational_ext(
         result = Node::Add(Box::new(result), Box::new(t));
     }
     Some(RischResult::Elementary(result))
+}
+
+/// Unified Risch integration via tower builder.
+///
+/// Replaces try_risch_exponential, try_risch_logarithmic, and try_risch_log_rational
+/// with a single entry point that handles both extension types.
+pub fn try_risch_tower(expr: &Node, var: &str) -> Option<RischResult> {
+    let (num, den, ext) = build_tower(expr, var)?;
+
+    if den.is_constant() || den == ExtPoly::one(var) {
+        match ext.ext_type() {
+            ExtensionType::Logarithmic => integrate_poly_log(&num, &ext, var),
+            ExtensionType::Exponential => integrate_poly_exp(&num, &ext, var),
+        }
+    } else {
+        integrate_rational_ext(&num, &den, &ext, var)
+    }
 }
 
 #[cfg(test)]
