@@ -1238,6 +1238,154 @@ fn extpoly_to_node(ep: &ExtPoly, theta_node: &Node, var: &str) -> Node {
     result
 }
 
+/// Convert a Node to an ExtPoly in θ = ln(x).
+/// Returns None if the expression can't be represented as a polynomial
+/// in θ with Q(x) coefficients.
+fn node_to_extpoly(expr: &Node, var: &str) -> Option<ExtPoly> {
+    match expr {
+        Node::Num(n) => {
+            if let ExactNum::Rational(val) = n {
+                Some(ExtPoly::from_rf(RationalFunction::from_constant(
+                    val.clone(),
+                    var,
+                )))
+            } else {
+                None
+            }
+        }
+        Node::Variable(v) if v == var => Some(ExtPoly::from_rf(RationalFunction::from_poly(
+            Polynomial::x(var),
+        ))),
+        Node::Variable(_) => None,
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            if let Node::Variable(v) = &args[0] {
+                if v == var {
+                    return Some(ExtPoly::theta(var));
+                }
+            }
+            None
+        }
+        Node::Power(base, exp) => {
+            // ln(x)^n
+            if let Node::Function(name, args) = base.as_ref() {
+                if name == "ln" && args.len() == 1 {
+                    if let Node::Variable(v) = &args[0] {
+                        if v == var {
+                            if let Node::Num(n) = exp.as_ref() {
+                                if let Some(e) = n.to_i64() {
+                                    if e >= 1 {
+                                        let mut result = ExtPoly::theta(var);
+                                        for _ in 1..e {
+                                            let theta = ExtPoly::theta(var);
+                                            result = &result * &theta;
+                                        }
+                                        return Some(result);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // x^n (positive integer)
+            if let Node::Variable(v) = base.as_ref() {
+                if v == var {
+                    if let Node::Num(n) = exp.as_ref() {
+                        if let Some(e) = n.to_i64() {
+                            if e >= 1 {
+                                let p =
+                                    Polynomial::monomial(BigRational::one(), e as usize, var);
+                                return Some(ExtPoly::from_rf(RationalFunction::from_poly(p)));
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Node::Add(left, right) => {
+            Some(&node_to_extpoly(left, var)? + &node_to_extpoly(right, var)?)
+        }
+        Node::Subtract(left, right) => {
+            Some(&node_to_extpoly(left, var)? - &node_to_extpoly(right, var)?)
+        }
+        Node::Negate(inner) => Some(-&node_to_extpoly(inner, var)?),
+        Node::Multiply(left, right) => {
+            Some(&node_to_extpoly(left, var)? * &node_to_extpoly(right, var)?)
+        }
+        // Divide by x-only polynomial (no θ in denominator)
+        Node::Divide(num, den) => {
+            let n = node_to_extpoly(num, var)?;
+            let den_poly = Polynomial::from_node(den, var).ok()?;
+            if den_poly.is_zero() {
+                return None;
+            }
+            let inv = RationalFunction::new(Polynomial::one(var), den_poly);
+            Some(n.scalar_mul(&inv))
+        }
+        _ => None,
+    }
+}
+
+/// Try to express a Node as a rational function of ln(x): A(x,θ)/D(x,θ)
+/// where θ = ln(x), and A, D are polynomials in θ with Q(x) coefficients.
+///
+/// Returns (numerator, denominator, extension) or None.
+pub fn extract_log_rational_pattern(
+    expr: &Node,
+    var: &str,
+) -> Option<(ExtPoly, ExtPoly, DifferentialExtension)> {
+    let ext = DifferentialExtension::logarithmic(
+        RationalFunction::from_poly(Polynomial::x(var)),
+        var,
+    );
+    if let Some((num, den)) = extract_log_rational_inner(expr, var) {
+        return Some((num, den, ext));
+    }
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    let (num, den) = extract_log_rational_inner(&simplified, var)?;
+    Some((num, den, ext))
+}
+
+fn extract_log_rational_inner(expr: &Node, var: &str) -> Option<(ExtPoly, ExtPoly)> {
+    match expr {
+        Node::Divide(num, den) => {
+            let num_ep = node_to_extpoly(num, var)?;
+            let den_ep = node_to_extpoly(den, var)?;
+            if den_ep.is_zero() {
+                return None;
+            }
+            if den_ep.is_constant() {
+                return None;
+            } // plain rational, not our domain
+            Some((num_ep, den_ep))
+        }
+        Node::Multiply(left, right) => {
+            // Handle a * (b/c) where c involves θ
+            if let Node::Divide(n, d) = right.as_ref() {
+                let d_ep = node_to_extpoly(d, var)?;
+                if !d_ep.is_constant() {
+                    let n_ep = node_to_extpoly(n, var)?;
+                    let l_ep = node_to_extpoly(left, var)?;
+                    return Some((&l_ep * &n_ep, d_ep));
+                }
+            }
+            if let Node::Divide(n, d) = left.as_ref() {
+                let d_ep = node_to_extpoly(d, var)?;
+                if !d_ep.is_constant() {
+                    let n_ep = node_to_extpoly(n, var)?;
+                    let r_ep = node_to_extpoly(right, var)?;
+                    return Some((&r_ep * &n_ep, d_ep));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2272,5 +2420,83 @@ mod tests {
         let result = extpoly_to_node(&ep, &ln_x, "x");
         let s = format!("{}", result);
         assert!(s.contains("\\ln(x)"), "Expected ln(x) in {}", s);
+    }
+
+    #[test]
+    fn test_node_to_extpoly_constant() {
+        let node = Node::Num(ExactNum::integer(5));
+        let result = node_to_extpoly(&node, "x").unwrap();
+        assert_eq!(result, ExtPoly::from_rf(rf_const(5)));
+    }
+
+    #[test]
+    fn test_node_to_extpoly_variable() {
+        let node = Node::Variable("x".to_string());
+        let result = node_to_extpoly(&node, "x").unwrap();
+        assert_eq!(result, ExtPoly::from_rf(rf_poly(&[0, 1])));
+    }
+
+    #[test]
+    fn test_node_to_extpoly_ln_x() {
+        let node = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = node_to_extpoly(&node, "x").unwrap();
+        assert_eq!(result, ExtPoly::theta("x"));
+    }
+
+    #[test]
+    fn test_node_to_extpoly_ln_x_plus_one() {
+        let node = Node::Add(
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+        let result = node_to_extpoly(&node, "x").unwrap();
+        let expected = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_extract_log_rational_inv_x_ln_x() {
+        // 1/(x·ln(x)) → num constant, den = θ
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Function(
+                    "ln".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )),
+        );
+        let result = extract_log_rational_pattern(&expr, "x");
+        assert!(result.is_some(), "Should detect 1/(x·ln(x))");
+        let (num, den, _ext) = result.unwrap();
+        assert!(num.is_constant());
+        assert_eq!(den.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_extract_log_rational_inv_ln_x() {
+        // 1/ln(x) → num = [1], den = θ
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let result = extract_log_rational_pattern(&expr, "x");
+        assert!(result.is_some(), "Should detect 1/ln(x)");
+        let (num, den, _) = result.unwrap();
+        assert_eq!(num, ExtPoly::from_rf(rf_const(1)));
+        assert_eq!(den, ExtPoly::theta("x"));
+    }
+
+    #[test]
+    fn test_extract_log_rational_not_applicable() {
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(extract_log_rational_pattern(&expr, "x").is_none());
     }
 }
