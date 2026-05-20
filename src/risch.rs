@@ -1633,6 +1633,78 @@ fn node_to_extpoly_general(expr: &Node, var: &str, kind: &ExtensionKind) -> Opti
     }
 }
 
+/// Build a single-level transcendental tower from a Node expression.
+/// Returns (numerator, denominator, extension) or None.
+pub fn build_tower(expr: &Node, var: &str) -> Option<(ExtPoly, ExtPoly, DifferentialExtension)> {
+    if let Some(r) = build_tower_inner(expr, var) {
+        return Some(r);
+    }
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+    build_tower_inner(&simplified, var)
+}
+
+fn build_tower_inner(expr: &Node, var: &str) -> Option<(ExtPoly, ExtPoly, DifferentialExtension)> {
+    let has_ln = contains_ln(expr, var);
+    let exp_arg = find_exp_argument(expr, var);
+
+    let (kind, ext) = match (has_ln, exp_arg) {
+        (true, None) => (
+            ExtensionKind::Logarithmic,
+            DifferentialExtension::logarithmic(
+                RationalFunction::from_poly(Polynomial::x(var)),
+                var,
+            ),
+        ),
+        (false, Some(g)) => (
+            ExtensionKind::Exponential(g.clone()),
+            DifferentialExtension::exponential(RationalFunction::from_poly(g), var),
+        ),
+        _ => return None,
+    };
+
+    match expr {
+        Node::Divide(num_node, den_node) => {
+            let num = node_to_extpoly_general(num_node, var, &kind)?;
+            let den = node_to_extpoly_general(den_node, var, &kind)?;
+            if den.is_zero() {
+                return None;
+            }
+            Some((num, den, ext))
+        }
+        Node::Multiply(left, right) => {
+            // a * (b/c) where c involves θ
+            if let Node::Divide(n, d) = right.as_ref() {
+                if let Some(d_ep) = node_to_extpoly_general(d, var, &kind) {
+                    if !d_ep.is_constant() {
+                        let n_ep = node_to_extpoly_general(n, var, &kind)?;
+                        let l_ep = node_to_extpoly_general(left, var, &kind)?;
+                        return Some((&l_ep * &n_ep, d_ep, ext));
+                    }
+                }
+            }
+            // (a/b) * c where b involves θ
+            if let Node::Divide(n, d) = left.as_ref() {
+                if let Some(d_ep) = node_to_extpoly_general(d, var, &kind) {
+                    if !d_ep.is_constant() {
+                        let n_ep = node_to_extpoly_general(n, var, &kind)?;
+                        let r_ep = node_to_extpoly_general(right, var, &kind)?;
+                        return Some((&r_ep * &n_ep, d_ep, ext));
+                    }
+                }
+            }
+            // Polynomial in θ (den = 1)
+            let num = node_to_extpoly_general(expr, var, &kind)?;
+            Some((num, ExtPoly::one(var), ext))
+        }
+        _ => {
+            let num = node_to_extpoly_general(expr, var, &kind)?;
+            Some((num, ExtPoly::one(var), ext))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2964,5 +3036,91 @@ mod tests {
         let result = node_to_extpoly_general(&expr, "x", &kind).unwrap();
         let expected = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
         assert_eq!(result, expected);
+    }
+
+    // === build_tower tests ===
+
+    #[test]
+    fn test_build_tower_log() {
+        // 1/(x·ln(x)) → Logarithmic, num constant, den degree 1
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Function(
+                    "ln".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )),
+        );
+        let (num, den, ext) = build_tower(&expr, "x").unwrap();
+        assert!(matches!(ext.ext_type(), ExtensionType::Logarithmic));
+        assert!(num.is_constant());
+        assert_eq!(den.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_build_tower_exp_polynomial() {
+        // 2x·exp(x²) → Exponential, num degree 1, den = 1
+        let two_x = Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(2))),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let exp_x2 = Node::Function(
+            "exp".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )],
+        );
+        let expr = Node::Multiply(Box::new(two_x), Box::new(exp_x2));
+        let (num, den, ext) = build_tower(&expr, "x").unwrap();
+        assert!(matches!(ext.ext_type(), ExtensionType::Exponential));
+        assert_eq!(num.degree(), Some(1));
+        assert!(den.is_constant() || den == ExtPoly::one("x"));
+    }
+
+    #[test]
+    fn test_build_tower_exp_rational() {
+        // exp(x)/(1+exp(x)) → Exponential, num=[0,1], den=[1,1]
+        let expr = Node::Divide(
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "exp".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )),
+        );
+        let (num, den, ext) = build_tower(&expr, "x").unwrap();
+        assert!(matches!(ext.ext_type(), ExtensionType::Exponential));
+        assert_eq!(num.degree(), Some(1));
+        assert_eq!(den.degree(), Some(1));
+    }
+
+    #[test]
+    fn test_build_tower_mixed_returns_none() {
+        // ln(x) * exp(x) → mixed, None
+        let expr = Node::Multiply(
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        assert!(build_tower(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_build_tower_no_transcendental() {
+        let expr = Node::Variable("x".to_string());
+        assert!(build_tower(&expr, "x").is_none());
     }
 }
