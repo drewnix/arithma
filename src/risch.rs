@@ -731,6 +731,85 @@ pub fn solve_risch_de_rational(
     }
 }
 
+/// Result of integrating a rational function over the base field (Q(x)).
+///
+/// The integral has the form: rational_part + ln_x_coeff * ln(x).
+#[derive(Debug)]
+pub struct BaseFieldIntegral {
+    pub rational_part: RationalFunction,
+    pub ln_x_coeff: BigRational,
+}
+
+/// Integrate a rational function of `var` over the base field Q(x).
+///
+/// Returns the rational part and the coefficient of ln(x). Any term that
+/// would produce ln(x + a) with a ≠ 0 (or log of an irreducible quadratic)
+/// is rejected as non-elementary in this restricted setting.
+pub fn integrate_rational_base(
+    rf: &RationalFunction,
+    var: &str,
+) -> Result<BaseFieldIntegral, String> {
+    if rf.is_zero() {
+        return Ok(BaseFieldIntegral {
+            rational_part: RationalFunction::from_constant(BigRational::zero(), var),
+            ln_x_coeff: BigRational::zero(),
+        });
+    }
+
+    let decomp =
+        crate::partial_fractions::partial_fraction_decomposition(rf.numerator(), rf.denominator())?;
+
+    // Integrate the polynomial part
+    let poly_integral = decomp.polynomial_part.integral();
+    let mut rational_part = RationalFunction::from_poly(poly_integral);
+    let mut ln_x_coeff = BigRational::zero();
+
+    for term in &decomp.terms {
+        let deg = term.denominator.degree().unwrap_or(0);
+        if deg >= 2 {
+            return Err(format!(
+                "Irreducible factor of degree {} produces non-elementary integral",
+                deg
+            ));
+        }
+
+        let c = term.numerator.coeff(0);
+        let a = term.denominator.coeff(0);
+
+        if term.power == 1 {
+            if a.is_zero() {
+                // Term is c/x → integral is c·ln(x)
+                ln_x_coeff += c;
+            } else {
+                // Term is c/(x+a) → integral is c·ln(x+a), non-elementary in base field
+                return Err(format!(
+                    "Term produces ln(x + {}) which is non-elementary in the base field",
+                    a
+                ));
+            }
+        } else {
+            // power > 1: c/(x+a)^k → c/((1-k)·(x+a)^{k-1})
+            let k = term.power;
+            let one_minus_k = BigRational::from_integer(BigInt::from(1i64 - k as i64));
+            let scale = &c / &one_minus_k;
+
+            // Build (x+a)^{k-1}
+            let mut den_power = Polynomial::constant(BigRational::one(), var);
+            for _ in 0..(k - 1) {
+                den_power = &den_power * &term.denominator;
+            }
+
+            let term_rf = RationalFunction::new(Polynomial::constant(scale, var), den_power);
+            rational_part = &rational_part + &term_rf;
+        }
+    }
+
+    Ok(BaseFieldIntegral {
+        rational_part,
+        ln_x_coeff,
+    })
+}
+
 /// Result of a Risch integration attempt.
 #[derive(Debug)]
 pub enum RischResult {
@@ -2716,5 +2795,51 @@ mod tests {
             Some(RischResult::NonElementary(_)) => {}
             other => panic!("Expected NonElementary, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_integrate_rational_base_polynomial() {
+        // ∫x dx = x²/2 (polynomial, no log)
+        let rf = RationalFunction::from_poly(poly(&[0, 1], "x")); // x
+        let result = integrate_rational_base(&rf, "x").unwrap();
+        assert!(result.ln_x_coeff.is_zero());
+        assert!(!result.rational_part.is_zero());
+    }
+
+    #[test]
+    fn test_integrate_rational_base_inv_x_sq() {
+        // ∫1/x² dx = -1/x
+        let rf = RationalFunction::new(poly(&[1], "x"), poly(&[0, 0, 1], "x"));
+        let result = integrate_rational_base(&rf, "x").unwrap();
+        let expected = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
+        assert_eq!(result.rational_part, expected);
+        assert!(result.ln_x_coeff.is_zero());
+    }
+
+    #[test]
+    fn test_integrate_rational_base_inv_x() {
+        // ∫1/x dx = ln(x)
+        let rf = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let result = integrate_rational_base(&rf, "x").unwrap();
+        assert!(result.rational_part.is_zero());
+        assert_eq!(result.ln_x_coeff, int(1));
+    }
+
+    #[test]
+    fn test_integrate_rational_base_inv_x_plus_1() {
+        // ∫1/(x+1) dx = ln(x+1) → non-elementary
+        let rf = RationalFunction::new(poly(&[1], "x"), poly(&[1, 1], "x"));
+        let result = integrate_rational_base(&rf, "x");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_integrate_rational_base_mixed() {
+        // ∫(x+1)/x² dx = ln(x) - 1/x
+        let rf = RationalFunction::new(poly(&[1, 1], "x"), poly(&[0, 0, 1], "x"));
+        let result = integrate_rational_base(&rf, "x").unwrap();
+        let expected_rat = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
+        assert_eq!(result.rational_part, expected_rat);
+        assert_eq!(result.ln_x_coeff, int(1));
     }
 }
