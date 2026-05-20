@@ -1001,6 +1001,44 @@ pub fn try_risch_logarithmic(expr: &Node, var: &str) -> Option<RischResult> {
     Some(RischResult::Elementary(result))
 }
 
+/// Determinant of a square matrix of ExtPolys via cofactor expansion.
+/// For small matrices (size ≤ 5, covering Risch degrees in practice).
+#[allow(dead_code)] // Used by Rothstein-Trager resultant (upcoming)
+pub(crate) fn extpoly_matrix_det(m: &[Vec<ExtPoly>], var: &str) -> ExtPoly {
+    let n = m.len();
+    if n == 0 {
+        return ExtPoly::one(var);
+    }
+    if n == 1 {
+        return m[0][0].clone();
+    }
+    if n == 2 {
+        return &(&m[0][0] * &m[1][1]) - &(&m[0][1] * &m[1][0]);
+    }
+    let mut result = ExtPoly::zero(var);
+    for j in 0..n {
+        if m[0][j].is_zero() {
+            continue;
+        }
+        let minor: Vec<Vec<ExtPoly>> = (1..n)
+            .map(|row| {
+                (0..n)
+                    .filter(|&col| col != j)
+                    .map(|col| m[row][col].clone())
+                    .collect()
+            })
+            .collect();
+        let cofactor = extpoly_matrix_det(&minor, var);
+        let term = &m[0][j] * &cofactor;
+        if j % 2 == 0 {
+            result = &result + &term;
+        } else {
+            result = &result - &term;
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1856,5 +1894,49 @@ mod tests {
         // sin(x) — not a log pattern
         let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
         assert!(try_risch_logarithmic(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_extpoly_det_1x1() {
+        let m = vec![vec![ExtPoly::from_rf(rf_const(3))]];
+        let result = extpoly_matrix_det(&m, "x");
+        assert_eq!(result, ExtPoly::from_rf(rf_const(3)));
+    }
+
+    #[test]
+    fn test_extpoly_det_2x2() {
+        // det([[1, 2], [3, 4]]) = 1*4 - 2*3 = -2
+        let m = vec![
+            vec![ExtPoly::from_rf(rf_const(1)), ExtPoly::from_rf(rf_const(2))],
+            vec![ExtPoly::from_rf(rf_const(3)), ExtPoly::from_rf(rf_const(4))],
+        ];
+        let result = extpoly_matrix_det(&m, "x");
+        assert_eq!(result, ExtPoly::from_rf(rf_const(-2)));
+    }
+
+    #[test]
+    fn test_extpoly_det_2x2_with_theta() {
+        // det([[θ, 1], [1, θ]]) = θ² - 1
+        let theta = ExtPoly::theta("x");
+        let one = ExtPoly::from_rf(rf_const(1));
+        let m = vec![
+            vec![theta.clone(), one.clone()],
+            vec![one.clone(), theta.clone()],
+        ];
+        let result = extpoly_matrix_det(&m, "x");
+        let expected = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_extpoly_det_3x3_identity() {
+        let one = ExtPoly::from_rf(rf_const(1));
+        let zero = ExtPoly::zero("x");
+        let m = vec![
+            vec![one.clone(), zero.clone(), zero.clone()],
+            vec![zero.clone(), one.clone(), zero.clone()],
+            vec![zero.clone(), zero.clone(), one.clone()],
+        ];
+        assert_eq!(extpoly_matrix_det(&m, "x"), one);
     }
 }
