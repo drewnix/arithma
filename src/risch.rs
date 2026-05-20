@@ -1371,6 +1371,13 @@ fn integrate_poly_exp(
 
 /// Integrate a polynomial in θ = ln(x): Σ aᵢ(x)·θⁱ.
 /// Top-down: qₙ' = aₙ, then qₖ' = aₖ - (k+1)·q_{k+1}/x.
+///
+/// Each coefficient aₖ(x) may be a rational function of x. Integration of
+/// each right-hand side uses `integrate_rational_base`, which decomposes the
+/// result into a rational part plus a coefficient of ln(x). Since ln(x) = θ,
+/// any ln(x) produced at degree k > 0 is "absorbed" into the θ¹ coefficient
+/// via a Δ accumulator. A ln(x) term at degree 0 means the integral is
+/// non-elementary (it would require θ² in the result, contradicting degree).
 #[allow(dead_code)] // Will be wired into the main integration engine in a subsequent task.
 fn integrate_poly_log(
     num: &ExtPoly,
@@ -1378,37 +1385,53 @@ fn integrate_poly_log(
     var: &str,
 ) -> Option<RischResult> {
     let deg = num.degree().unwrap_or(0);
-    let mut q: Vec<Polynomial> = vec![Polynomial::zero(var); deg + 1];
+    let mut q: Vec<RationalFunction> = vec![RationalFunction::zero(var); deg + 1];
+    let mut ln_x_accum = BigRational::zero();
+    let x_rf = RationalFunction::from_poly(Polynomial::x(var));
 
     for k in (0..=deg).rev() {
         let a_k_rf = num.coeff(k);
-        if *a_k_rf.denominator() != Polynomial::one(var) {
-            return None;
-        }
-        let a_k = a_k_rf.numerator().clone();
 
-        if k == deg {
-            q[k] = a_k.integral();
+        let rhs = if k == deg {
+            // Top degree: RHS = a_n directly
+            a_k_rf
+        } else if k == 0 {
+            // Degree 0: use (q[1] + Δ) in the correction instead of q[1]
+            let delta_rf = RationalFunction::from_constant(ln_x_accum.clone(), var);
+            let q1_adjusted = &q[1] + &delta_rf;
+            let q1_div_x = q1_adjusted.checked_div(&x_rf).ok()?;
+            let scalar_rf =
+                RationalFunction::from_constant(BigRational::from_integer(BigInt::from(1i64)), var);
+            let correction = &q1_div_x * &scalar_rf;
+            &a_k_rf - &correction
         } else {
-            let q_kp1 = &q[k + 1];
-
-            if !q_kp1.coeff(0).is_zero() {
-                return Some(RischResult::NonElementary(format!(
-                    "No elementary antiderivative of polynomial-in-ln(x) form exists. \
-                     At degree {}, the coefficient has nonzero constant term.",
-                    k + 1
-                )));
-            }
-
-            let x_poly = Polynomial::x(var);
-            let (q_kp1_div_x, rem) = q_kp1.div_rem(&x_poly).unwrap();
-            debug_assert!(rem.is_zero());
-
+            // Intermediate degrees: RHS = a_k - (k+1)·q_{k+1}/x
+            let q_kp1_div_x = q[k + 1].checked_div(&x_rf).ok()?;
             let scalar = BigRational::from_integer(BigInt::from(k as i64 + 1));
-            let correction = q_kp1_div_x.scalar_mul(&scalar);
-            let rhs = &a_k - &correction;
-            q[k] = rhs.integral();
+            let scalar_rf = RationalFunction::from_constant(scalar, var);
+            let correction = &q_kp1_div_x * &scalar_rf;
+            &a_k_rf - &correction
+        };
+
+        match integrate_rational_base(&rhs, var) {
+            Ok(result) => {
+                q[k] = result.rational_part;
+                // ln(x) = θ, so any ln(x) produced by integration is absorbed
+                // into the θ¹ coefficient via the Δ accumulator.
+                ln_x_accum += result.ln_x_coeff;
+            }
+            Err(msg) => {
+                // integrate_rational_base returns Err for ln(x+a) with a≠0
+                // or irreducible quadratic factors — genuinely non-elementary.
+                return Some(RischResult::NonElementary(msg));
+            }
         }
+    }
+
+    // Adjust q[1] by adding Δ
+    if deg >= 1 && !ln_x_accum.is_zero() {
+        let delta_rf = RationalFunction::from_constant(ln_x_accum, var);
+        q[1] = &q[1] + &delta_rf;
     }
 
     let ln_x = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
@@ -1417,7 +1440,7 @@ fn integrate_poly_log(
         if qk.is_zero() {
             continue;
         }
-        let q_node = qk.to_node();
+        let q_node = rf_to_node(qk, var);
         let term = if k == 0 {
             q_node
         } else if k == 1 {
@@ -2670,6 +2693,72 @@ mod tests {
         match integrate_poly_log(&num, &ext, "x").unwrap() {
             RischResult::Elementary(_) => {}
             r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_log_rational_coeff() {
+        // ∫(1/x²)·ln(x) dx = -(ln(x)+1)/x
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                RationalFunction::new(poly(&[1], "x"), poly(&[0, 0, 1], "x")),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_log(&num, &ext, "x") {
+            Some(RischResult::Elementary(_)) => {}
+            other => panic!("Expected Elementary, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_log_ln_x_absorption() {
+        // ∫(1/x + ln(x)) dx = (x+1)·ln(x) - x
+        // coeffs: a_0 = 1/x, a_1 = 1
+        // degree 1: q_1 = ∫1 dx = x
+        // degree 0: RHS = 1/x - q_1/x = 1/x - x/x = 1/x - 1
+        //   ∫(1/x - 1) dx = ln(x) - x → ln_x_coeff=1 absorbed into Δ
+        //   rational part = -x
+        // Final: q[0] + (q[1] + Δ)·θ = -x + (x+1)·ln(x)
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x")),
+                RationalFunction::from_poly(poly(&[1], "x")),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_log(&num, &ext, "x") {
+            Some(RischResult::Elementary(_)) => {}
+            other => panic!("Expected Elementary, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_log_rational_non_elementary() {
+        // ∫(1/(x+1))·ln(x) dx is non-elementary in single tower
+        let num = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                RationalFunction::new(poly(&[1], "x"), poly(&[1, 1], "x")),
+            ],
+            "x",
+        );
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_poly_log(&num, &ext, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected NonElementary, got: {:?}", other),
         }
     }
 
