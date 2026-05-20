@@ -1862,6 +1862,147 @@ fn integrate_poly_log(
     Some(RischResult::Elementary(result))
 }
 
+/// Integrate a rational function in a single transcendental extension.
+/// Uses Hermite reduction + Rothstein-Trager.
+/// For exponential extensions, computes the residual after RT and integrates it.
+#[allow(dead_code)]
+fn integrate_rational_ext(
+    num: &ExtPoly,
+    den: &ExtPoly,
+    ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    let hr = hermite_reduce(num, den, var).ok()?;
+
+    let theta_node = match ext.ext_type() {
+        ExtensionType::Logarithmic => {
+            Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())])
+        }
+        ExtensionType::Exponential => {
+            Node::Function("exp".to_string(), vec![ext.argument().numerator().to_node()])
+        }
+    };
+
+    let mut result_terms: Vec<Node> = Vec::new();
+
+    // Rational part from Hermite reduction
+    if !hr.g_num.is_zero() {
+        result_terms.push(Node::Divide(
+            Box::new(extpoly_to_node(&hr.g_num, &theta_node, var)),
+            Box::new(extpoly_to_node(&hr.g_den, &theta_node, var)),
+        ));
+    }
+
+    if !hr.h_num.is_zero() {
+        if hr.h_den.is_constant() {
+            // Polynomial remainder — integrate as polynomial
+            let poly_result = match ext.ext_type() {
+                ExtensionType::Logarithmic => integrate_poly_log(&hr.h_num, ext, var),
+                ExtensionType::Exponential => integrate_poly_exp(&hr.h_num, ext, var),
+            };
+            match poly_result {
+                Some(RischResult::Elementary(n)) => result_terms.push(n),
+                Some(RischResult::NonElementary(r)) => return Some(RischResult::NonElementary(r)),
+                None => return None,
+            }
+        } else {
+            // Rothstein-Trager on squarefree remainder
+            let dd = ext.differentiate(&hr.h_den);
+            let rz = rothstein_trager_resultant(&hr.h_den, &hr.h_num, &dd, var);
+            let roots = find_constant_roots(&rz, var);
+
+            if roots.is_empty() {
+                return Some(RischResult::NonElementary(
+                    "No elementary antiderivative exists. \
+                     The Rothstein-Trager resultant has no rational roots."
+                        .into(),
+                ));
+            }
+
+            let h_den_deg = hr.h_den.degree().unwrap_or(0);
+            let mut gcd_deg_sum = 0;
+            let mut log_terms: Vec<(BigRational, ExtPoly)> = Vec::new();
+
+            for c in &roots {
+                let c_rf = RationalFunction::from_constant(c.clone(), var);
+                let g_c = &hr.h_num - &dd.scalar_mul(&c_rf);
+                let v = hr.h_den.gcd(&g_c);
+                let v_deg = v.degree().unwrap_or(0);
+                gcd_deg_sum += v_deg;
+                if v_deg > 0 {
+                    log_terms.push((c.clone(), v));
+                }
+            }
+
+            if gcd_deg_sum != h_den_deg {
+                return Some(RischResult::NonElementary(format!(
+                    "No elementary antiderivative exists. \
+                     Rational residues cover degree {} but denominator has degree {}.",
+                    gcd_deg_sum, h_den_deg
+                )));
+            }
+
+            // Build log terms: Σ cᵢ·ln(vᵢ)
+            for (c, v) in &log_terms {
+                let v_node = extpoly_to_node(v, &theta_node, var);
+                let ln_v = Node::Function("ln".to_string(), vec![v_node]);
+                let term = if *c == BigRational::one() {
+                    ln_v
+                } else {
+                    Node::Multiply(Box::new(bigrat_to_node(c)), Box::new(ln_v))
+                };
+                result_terms.push(term);
+            }
+
+            // For exponential extensions: compute residual
+            // residual = h_num/h_den - Σ cᵢ·D(vᵢ)/vᵢ
+            // If nonzero, integrate the polynomial part
+            if matches!(ext.ext_type(), ExtensionType::Exponential) {
+                // Compute Σ cᵢ · (h_den/vᵢ) · D(vᵢ) (numerator over common den h_den)
+                let mut log_deriv_num = ExtPoly::zero(var);
+                for (c, v) in &log_terms {
+                    let (w, rem) = hr.h_den.div_rem(v).unwrap();
+                    debug_assert!(rem.is_zero(), "v should divide h_den");
+                    let dv = ext.differentiate(v);
+                    let c_rf = RationalFunction::from_constant(c.clone(), var);
+                    log_deriv_num = &log_deriv_num + &(&w * &dv).scalar_mul(&c_rf);
+                }
+                // residual_num = h_num - log_deriv_num
+                let residual_num = &hr.h_num - &log_deriv_num;
+
+                if !residual_num.is_zero() {
+                    // Should divide evenly by h_den to give a polynomial
+                    let (quotient, remainder) = residual_num.div_rem(&hr.h_den).unwrap();
+                    if !remainder.is_zero() {
+                        return Some(RischResult::NonElementary(
+                            "No elementary antiderivative. \
+                             Residual after Rothstein-Trager is not polynomial."
+                                .into(),
+                        ));
+                    }
+                    // Integrate the polynomial residual
+                    match integrate_poly_exp(&quotient, ext, var) {
+                        Some(RischResult::Elementary(n)) => result_terms.push(n),
+                        Some(RischResult::NonElementary(r)) => {
+                            return Some(RischResult::NonElementary(r))
+                        }
+                        None => return None,
+                    }
+                }
+            }
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = result_terms.remove(0);
+    for t in result_terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3376,6 +3517,65 @@ mod tests {
         match integrate_poly_log(&num, &ext, "x").unwrap() {
             RischResult::Elementary(_) => {}
             r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_log() {
+        // ∫(1/x)/θ where θ=ln(x) → ln(ln(x))
+        let ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let num = ExtPoly::from_rf(one_over_x);
+        let den = ExtPoly::theta("x");
+        match integrate_rational_ext(&num, &den, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln in {}", s);
+            }
+            _ => panic!("Expected elementary"),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_exp_no_residual() {
+        // ∫θ/(1+θ) where θ=exp(x) → ln(1+exp(x))
+        // RT: c=1, v=1+θ, D(v)=θ. Residual: θ/(1+θ) - 1·θ/(1+θ) = 0.
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        match integrate_rational_ext(&num, &den, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln in {}", s);
+            }
+            _ => panic!("Expected elementary"),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_exp_with_residual() {
+        // ∫1/(1+θ) where θ=exp(x) → x - ln(1+exp(x))
+        // RT: c=-1, v=1+θ. Residual: 1/(1+θ) - (-θ/(1+θ)) = (1+θ)/(1+θ) = 1.
+        // ∫1 = x.
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_rf(rf_const(1));
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        match integrate_rational_ext(&num, &den, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln: {}", s);
+                assert!(s.contains("x"), "Expected x from residual: {}", s);
+            }
+            _ => panic!("Expected elementary with residual"),
         }
     }
 }
