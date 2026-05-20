@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**742 tests, zero failures.** Every algorithm is verified against known results.
+**762 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -47,7 +47,8 @@ methods (polynomial rules, transcendental table, integration by parts, u-sub,
 trig powers, inverse trig, partial fractions, trig substitution) plus the
 **Risch algorithm** for transcendental integration — the decision procedure
 that can prove an integral has no elementary closed form. Handles both
-exponential extensions (∫r(x)·e^{g(x)}dx) and logarithmic extensions
+exponential extensions (∫r(x)·e^{g(x)}dx, including rational-coefficient
+integrands like ∫((1-x)/x²)·e^x dx) and logarithmic extensions
 (∫f(ln(x))dx) via Hermite reduction and the Rothstein-Trager resultant method.
 Taylor/Maclaurin series with exact rational coefficients. Symbolic limits via
 direct substitution, GCD cancellation, and L'Hopital's rule.
@@ -180,6 +181,15 @@ $ arithma integrate "\frac{\exp(x)}{1 + \exp(x)}" x
 
 $ arithma integrate "\frac{1}{1 + \exp(x)}" x
 -1 \cdot \ln(1 + \exp(x)) + x + C
+
+$ arithma integrate "\frac{1-x}{x^2} \cdot \exp(x)" x
+\frac{-1}{x} \cdot \exp(x) + C
+
+$ arithma integrate "\frac{\exp(x)}{x}" x
+No elementary antiderivative exists. The Risch algorithm proves that
+the differential equation q' + (1)·q = (1)/(x) has no rational
+solution, so ∫(1/x)·exp(x) dx cannot be expressed in terms of
+elementary functions.
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -191,7 +201,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 742 tests
+cargo test                                # run all 762 tests
 ```
 
 ## Design principles
@@ -223,7 +233,8 @@ src/
   integration.rs       -- symbolic integration (heuristics + Risch fallback)
   rational_function.rs -- p(x)/q(x) arithmetic for Risch algorithm
   ext_poly.rs          -- polynomials in tower variable θ over Q(x)
-  risch.rs             -- Risch algorithm: Hermite reduction, DE solver,
+  risch.rs             -- Risch algorithm: Hermite reduction, DE solver
+                          (polynomial and rational coefficients),
                           exponential/logarithmic integration, Rothstein-Trager
                           resultant method, non-elementary proofs
   ode.rs               -- ODE solver (separable, linear, constant-coefficient)
