@@ -1705,6 +1705,88 @@ fn build_tower_inner(expr: &Node, var: &str) -> Option<(ExtPoly, ExtPoly, Differ
     }
 }
 
+/// Integrate a polynomial in θ = exp(g(x)): Σ aᵢ(x)·θⁱ.
+/// Each degree decouples: qᵢ' + i·g'·qᵢ = aᵢ.
+#[allow(dead_code)] // Will be wired into the main integration engine in a subsequent task.
+fn integrate_poly_exp(
+    num: &ExtPoly,
+    ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    let deg = num.degree().unwrap_or(0);
+    let g_prime_rf = ext.argument().derivative();
+    if *g_prime_rf.denominator() != Polynomial::one(var) {
+        return None;
+    }
+    let g_prime = g_prime_rf.numerator().clone();
+
+    let mut q: Vec<Polynomial> = vec![Polynomial::zero(var); deg + 1];
+
+    for i in 0..=deg {
+        let a_i_rf = num.coeff(i);
+        if a_i_rf.is_zero() {
+            continue;
+        }
+        if *a_i_rf.denominator() != Polynomial::one(var) {
+            return None;
+        }
+        let a_i = a_i_rf.numerator().clone();
+
+        if i == 0 {
+            q[0] = a_i.integral();
+        } else {
+            let f = g_prime.scalar_mul(&BigRational::from_integer(BigInt::from(i as i64)));
+            match solve_risch_de_poly(&f, &a_i, var) {
+                Some(qi) => q[i] = qi,
+                None => {
+                    return Some(RischResult::NonElementary(format!(
+                        "No elementary antiderivative exists. \
+                         The differential equation q' + ({})·q = {} has no polynomial solution.",
+                        f, a_i
+                    )));
+                }
+            }
+        }
+    }
+
+    let g_node = ext.argument().numerator().to_node();
+    let mut terms: Vec<Node> = Vec::new();
+    for (i, qi) in q.iter().enumerate() {
+        if qi.is_zero() {
+            continue;
+        }
+        let q_node = qi.to_node();
+        let term = if i == 0 {
+            q_node
+        } else {
+            let exp_g = Node::Function("exp".to_string(), vec![g_node.clone()]);
+            let exp_part = if i == 1 {
+                exp_g
+            } else {
+                Node::Power(
+                    Box::new(exp_g),
+                    Box::new(Node::Num(ExactNum::integer(i as i64))),
+                )
+            };
+            if *qi == Polynomial::one(var) {
+                exp_part
+            } else {
+                Node::Multiply(Box::new(q_node), Box::new(exp_part))
+            }
+        };
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = terms.remove(0);
+    for t in terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3122,5 +3204,72 @@ mod tests {
     fn test_build_tower_no_transcendental() {
         let expr = Node::Variable("x".to_string());
         assert!(build_tower(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_simple() {
+        // ∫exp(x)dx: num=[0,1], θ=exp(x), g'=1
+        // q₁' + 1·q₁ = 1 → q₁ = 1, result = exp(x)
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        match integrate_poly_exp(&num, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("exp"), "Expected exp in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_2x_exp_x2() {
+        // ∫2x·exp(x²)dx: num=[0,2x], θ=exp(x²), g'=2x
+        // q₁' + 2x·q₁ = 2x → q₁ = 1
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_poly(&[0, 2])], "x");
+        match integrate_poly_exp(&num, &ext, "x").unwrap() {
+            RischResult::Elementary(_) => {}
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_non_elementary() {
+        // ∫exp(-x²)dx: num=[0,1], θ=exp(-x²), g'=-2x
+        // q₁' + (-2x)·q₁ = 1 → no polynomial solution
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 0, -1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        match integrate_poly_exp(&num, &ext, "x").unwrap() {
+            RischResult::NonElementary(_) => {}
+            r => panic!("Expected non-elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_poly_exp_with_constant_term() {
+        // ∫(1 + exp(x))dx: num=[1,1], θ=exp(x)
+        // q₀ = x, q₁ = 1, result = x + exp(x)
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let num = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        match integrate_poly_exp(&num, &ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("x"), "Expected x in {}", s);
+                assert!(s.contains("exp"), "Expected exp in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
     }
 }
