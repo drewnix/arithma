@@ -5,7 +5,7 @@ use crate::polynomial::Polynomial;
 use crate::rational_function::RationalFunction;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{One, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 
 /// Type of transcendental extension.
 #[derive(Debug, Clone)]
@@ -1386,6 +1386,110 @@ fn extract_log_rational_inner(expr: &Node, var: &str) -> Option<(ExtPoly, ExtPol
     }
 }
 
+/// Convert a BigRational to a Node expression.
+fn bigrat_to_node(r: &BigRational) -> Node {
+    if r.denom() == &BigInt::one() {
+        Node::Num(ExactNum::integer(r.numer().to_i64().unwrap_or(0)))
+    } else {
+        Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(
+                r.numer().to_i64().unwrap_or(0),
+            ))),
+            Box::new(Node::Num(ExactNum::integer(
+                r.denom().to_i64().unwrap_or(1),
+            ))),
+        )
+    }
+}
+
+/// Integrate a rational function of ln(x) using Hermite reduction + Rothstein-Trager.
+pub fn try_risch_log_rational(expr: &Node, var: &str) -> Option<RischResult> {
+    let (num, den, ext) = extract_log_rational_pattern(expr, var)?;
+
+    let hr = hermite_reduce(&num, &den, var).ok()?;
+
+    let theta_node = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
+    let mut result_terms: Vec<Node> = Vec::new();
+
+    // Rational part from Hermite reduction
+    if !hr.g_num.is_zero() {
+        let g_node = Node::Divide(
+            Box::new(extpoly_to_node(&hr.g_num, &theta_node, var)),
+            Box::new(extpoly_to_node(&hr.g_den, &theta_node, var)),
+        );
+        result_terms.push(g_node);
+    }
+
+    // Remaining integral with squarefree denominator
+    if !hr.h_num.is_zero() {
+        if hr.h_den.is_constant() {
+            // Polynomial in θ — defer to existing handler
+            return None;
+        }
+
+        // Rothstein-Trager
+        let dd = ext.differentiate(&hr.h_den);
+        let rz = rothstein_trager_resultant(&hr.h_den, &hr.h_num, &dd, var);
+        let roots = find_constant_roots(&rz, var);
+
+        if roots.is_empty() {
+            let reason = "No elementary antiderivative exists. \
+                 The Rothstein-Trager resultant has no rational roots, \
+                 so the integral cannot be expressed as a sum of logarithms."
+                .to_string();
+            return Some(RischResult::NonElementary(reason));
+        }
+
+        let h_den_deg = hr.h_den.degree().unwrap_or(0);
+        let mut gcd_deg_sum = 0;
+        let mut log_terms: Vec<(BigRational, ExtPoly)> = Vec::new();
+
+        for c in &roots {
+            let c_rf = RationalFunction::from_constant(c.clone(), var);
+            let c_dd = dd.scalar_mul(&c_rf);
+            let g_c = &hr.h_num - &c_dd;
+            let v = hr.h_den.gcd(&g_c);
+            let v_deg = v.degree().unwrap_or(0);
+            gcd_deg_sum += v_deg;
+            if v_deg > 0 {
+                log_terms.push((c.clone(), v));
+            }
+        }
+
+        if gcd_deg_sum != h_den_deg {
+            let reason = format!(
+                "No elementary antiderivative exists. \
+                 The Rothstein-Trager method found rational residues covering degree {} \
+                 but the denominator has degree {}; algebraic residues would be needed.",
+                gcd_deg_sum, h_den_deg
+            );
+            return Some(RischResult::NonElementary(reason));
+        }
+
+        for (c, v) in &log_terms {
+            let v_node = extpoly_to_node(v, &theta_node, var);
+            let ln_v = Node::Function("ln".to_string(), vec![v_node]);
+            let term = if *c == BigRational::one() {
+                ln_v
+            } else {
+                let c_node = bigrat_to_node(c);
+                Node::Multiply(Box::new(c_node), Box::new(ln_v))
+            };
+            result_terms.push(term);
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+
+    let mut result = result_terms.remove(0);
+    for term in result_terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2498,5 +2602,103 @@ mod tests {
     fn test_extract_log_rational_not_applicable() {
         let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
         assert!(extract_log_rational_pattern(&expr, "x").is_none());
+    }
+
+    #[test]
+    fn test_risch_log_rational_elementary() {
+        // ∫1/(x·ln(x))dx = ln(ln(x))
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Function(
+                    "ln".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )),
+        );
+        let result = try_risch_log_rational(&expr, "x");
+        assert!(result.is_some(), "Should recognize log rational pattern");
+        match result.unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+            }
+            RischResult::NonElementary(reason) => {
+                panic!("Expected elementary, got non-elementary: {}", reason);
+            }
+        }
+    }
+
+    #[test]
+    fn test_risch_log_rational_non_elementary() {
+        // ∫1/ln(x)dx — non-elementary
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let result = try_risch_log_rational(&expr, "x");
+        assert!(result.is_some(), "Should recognize 1/ln(x)");
+        match result.unwrap() {
+            RischResult::NonElementary(_) => {}
+            RischResult::Elementary(node) => {
+                panic!("Expected non-elementary, got: {}", node);
+            }
+        }
+    }
+
+    #[test]
+    fn test_risch_log_rational_ln_x_minus_one() {
+        // ∫1/(x·(ln(x)-1))dx = ln(ln(x)-1)
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Subtract(
+                    Box::new(Node::Function(
+                        "ln".to_string(),
+                        vec![Node::Variable("x".to_string())],
+                    )),
+                    Box::new(Node::Num(ExactNum::integer(1))),
+                )),
+            )),
+        );
+        let result = try_risch_log_rational(&expr, "x");
+        assert!(result.is_some());
+        match result.unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Result should contain ln: {}", s);
+            }
+            RischResult::NonElementary(reason) => {
+                panic!("Expected elementary, got: {}", reason);
+            }
+        }
+    }
+
+    #[test]
+    fn test_risch_log_rational_one_plus_ln_x() {
+        // ∫1/(1+ln(x))dx — non-elementary (gives Ei)
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "ln".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )),
+        );
+        let result = try_risch_log_rational(&expr, "x");
+        assert!(result.is_some());
+        match result.unwrap() {
+            RischResult::NonElementary(_) => {}
+            RischResult::Elementary(node) => {
+                panic!("Expected non-elementary, got: {}", node);
+            }
+        }
     }
 }
