@@ -320,6 +320,47 @@ mod integration_tests {
     }
 
     #[test]
+    fn test_integrate_1_over_x_ln_x_numerical() {
+        // Verify: d/dx[ln(ln(x))] = 1/(x·ln(x))
+        // At x = e² ≈ 7.389: ln(x) = 2, ln(ln(x)) = ln(2) ≈ 0.693
+        let result = integrate_latex("\\frac{1}{x \\cdot \\ln(x)}", "x").unwrap();
+        let integral_expr = result.replace(" + C", "");
+
+        let mut env = Environment::new();
+        let x_val = std::f64::consts::E * std::f64::consts::E; // e²
+        env.set("x", x_val);
+
+        let integral_val = evaluate_expression(&integral_expr, &env).unwrap();
+        let expected = (x_val.ln()).ln(); // ln(ln(e²)) = ln(2)
+        assert!(
+            approx_eq(integral_val, expected, 0.01),
+            "ln(ln(e²)) should be ln(2) ≈ {:.4}, got {:.4}",
+            expected,
+            integral_val
+        );
+    }
+
+    #[test]
+    fn test_integrate_1_over_x_ln_x_minus_1_numerical() {
+        // Verify at x = e³: ln(x) = 3, ln(x)-1 = 2, ln(ln(x)-1) = ln(2) ≈ 0.693
+        let result = integrate_latex("\\frac{1}{x \\cdot (\\ln(x) - 1)}", "x").unwrap();
+        let integral_expr = result.replace(" + C", "");
+
+        let mut env = Environment::new();
+        let x_val = std::f64::consts::E.powi(3); // e³
+        env.set("x", x_val);
+
+        let integral_val = evaluate_expression(&integral_expr, &env).unwrap();
+        let expected = (x_val.ln() - 1.0).ln(); // ln(3-1) = ln(2)
+        assert!(
+            approx_eq(integral_val, expected, 0.01),
+            "Expected {:.4}, got {:.4}",
+            expected,
+            integral_val
+        );
+    }
+
+    #[test]
     fn test_definite_sin() {
         let result = definite_integral_latex("\\sin(x)", "x", 0.0, std::f64::consts::PI).unwrap();
         let value = result.parse::<f64>().unwrap_or(0.0);
