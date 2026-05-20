@@ -1,7 +1,7 @@
 # Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Last updated: 2026-05-18, Sessions 17-18*
+*Last updated: 2026-05-20, Session 22*
 
 ---
 
@@ -28,11 +28,17 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 21)
+## Current State (Post Session 22)
 
-**742 tests pass. 0 failures. 14 MCP tools. ~20K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**772 tests pass. 0 failures. 14 MCP tools. ~20K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) advancing: **unified tower builder** replaces three hand-coded pattern detectors with a single pipeline handling both logarithmic and exponential extensions. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree), **Risch polynomial-in-log integration** (top-down coefficient solving), **Rothstein-Trager for logarithmic rational integration**, and **Rothstein-Trager for exponential rational integration** (with residual computation) — all with non-elementary detection. New capability: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)), ∫1/(1+exp(x))dx = x - ln(1+exp(x)). Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) nearing single-extension completeness: **unified tower builder** handles both logarithmic and exponential extensions. Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, and **Rothstein-Trager for exponential rational integration** (with residual computation) — all with non-elementary detection.
+
+**Rational-coefficient capabilities (Session 22):** Generalized DE solver (s·p'+F·p=G), squarefree rejection for simple poles, denominator bound computation. Base-field rational integration via partial fractions with structured output (rational part + ln(x) coefficient). Both exp and log extensions now handle rational function coefficients.
+
+**Key results:** ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
+
+Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -85,10 +91,20 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 
 **Key results:** ∫1/(x·ln(x))dx = ln(ln(x)) ✓. ∫1/(x·(ln(x)−1))dx = ln(ln(x)−1) ✓. ∫1/ln(x)dx → "non-elementary" ✓. ∫1/(1+ln(x))dx → "non-elementary" ✓. All verified numerically.
 
-**Remaining (1-2 sessions):**
-- Tower builder (automatic Node → DifferentialExtension conversion)
-- Risch DE for rational coefficients (extends to exp(rational))
-- Multi-extension towers (exp + log combinations)
+**Session 6 completed (Session 22).** Rational-coefficient Risch DE and base-field rational integration:
+
+- **Generalized DE solver:** `solve_risch_de(s, F, G)` solves s·p' + F·p = G for polynomial p. Three-way degree bound (deg(F) ≷ deg(s)). Backward-compatible wrapper for s=1 case.
+- **Rational wrapper:** `solve_risch_de_rational(f, g)` for q' + f·q = g where g ∈ K(x). Squarefree rejection (simple poles → no rational solution), denominator bound computation, polynomial ODE transformation.
+- **Base-field integration:** `integrate_rational_base` decomposes via partial fractions, separates rational part from ln(x) coefficient. Rejects ln(x+a) for a≠0.
+- **Pipeline upgrades:** Both `integrate_poly_exp` and `integrate_poly_log` now accept rational function coefficients. Log extension uses Δ accumulator for ln(x) absorption across degrees.
+- **Tower dispatch fix:** `try_risch_tower` now folds x-polynomial denominators into ExtPoly coefficients instead of discarding them.
+- **Parser precedence fix:** `-x^2` → `-(x^2)`. Removed `fixup_negated_power` workaround.
+
+**Key results:** ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
+
+**Remaining (3-5 sessions):**
+- Multi-extension towers (exp + log combinations in same integrand)
+- Algebraic extensions (integration over Q(α) for algebraic α)
 
 **Reference:** Manuel Bronstein, *Symbolic Integration I: Transcendental Functions*.
 
@@ -155,7 +171,7 @@ arithma/
 
 Each crate depends only on `arithma-core`. Each can be compiled to WASM independently.
 
-**When:** When the codebase exceeds ~25K lines or when build times become a friction. Currently at ~15K lines — not yet a bottleneck.
+**When:** When the codebase exceeds ~25K lines or when build times become a friction. Currently at ~20K lines — approaching but not yet a bottleneck.
 
 ---
 
@@ -175,6 +191,15 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 22 (2026-05-19/20)
+- Parser precedence fix: -x^2 → -(x^2), removed fixup_negated_power workaround
+- Phase 9 Session 6: Generalized DE solver (s·p'+F·p=G), solve_risch_de_rational
+- Phase 9 Session 6: integrate_rational_base (partial fractions → rational part + ln(x) coeff)
+- Phase 9 Session 6: integrate_poly_exp upgraded for rational coefficients
+- Phase 9 Session 6: integrate_poly_log upgraded with Δ accumulator for ln(x) absorption
+- Phase 9 Session 6: Tower dispatch fix (fold x-polynomial denominators into coefficients)
+- 30 new tests (747→772), 9 commits
 
 ### Session 21 (2026-05-19)
 - Phase 9 Session 4: Rothstein-Trager resultant method (Sylvester matrix, root finder, RT pipeline)
