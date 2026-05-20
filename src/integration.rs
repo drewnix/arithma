@@ -2093,4 +2093,44 @@ mod tests {
         let result = integrate(&expr, "x");
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_integrate_1_minus_x_over_x_sq_exp_x() {
+        // ∫((1-x)/x²)·exp(x)dx = -exp(x)/x  (elementary)
+        let expr = parse_expression("\\frac{1-x}{x^2} \\cdot \\exp(x)").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "Expected elementary result, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_x_over_x_non_elementary() {
+        // ∫exp(x)/x dx is non-elementary (exponential integral Ei)
+        let expr = parse_expression("\\frac{\\exp(x)}{x}").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.starts_with("NON_ELEMENTARY:"),
+            "Expected NON_ELEMENTARY, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_x_over_x_sq_non_elementary() {
+        // ∫exp(x)/x² dx is non-elementary
+        let expr = parse_expression("\\frac{\\exp(x)}{x^2}").unwrap();
+        let result = integrate(&expr, "x");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.starts_with("NON_ELEMENTARY:"),
+            "Expected NON_ELEMENTARY, got: {}",
+            err
+        );
+    }
 }

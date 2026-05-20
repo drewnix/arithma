@@ -1514,10 +1514,20 @@ fn integrate_rational_ext(
 pub fn try_risch_tower(expr: &Node, var: &str) -> Option<RischResult> {
     let (num, den, ext) = build_tower(expr, var)?;
 
-    if den.is_constant() || den == ExtPoly::one(var) {
+    if den == ExtPoly::one(var) {
         match ext.ext_type() {
             ExtensionType::Logarithmic => integrate_poly_log(&num, &ext, var),
             ExtensionType::Exponential => integrate_poly_exp(&num, &ext, var),
+        }
+    } else if den.is_constant() {
+        // Denominator is a polynomial in x only (constant in θ).
+        // Fold it into the numerator's coefficients: num/den → num · (1/den).
+        let den_rf = den.coeff(0);
+        let inv = RationalFunction::new(den_rf.denominator().clone(), den_rf.numerator().clone());
+        let adjusted = num.scalar_mul(&inv);
+        match ext.ext_type() {
+            ExtensionType::Logarithmic => integrate_poly_log(&adjusted, &ext, var),
+            ExtensionType::Exponential => integrate_poly_exp(&adjusted, &ext, var),
         }
     } else {
         integrate_rational_ext(&num, &den, &ext, var)
