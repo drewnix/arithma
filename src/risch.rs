@@ -3438,6 +3438,29 @@ mod tests {
         assert_eq!(result, ExtPoly::from_rf(rf_const(1)));
     }
 
+    #[test]
+    fn test_inner_de_rational_coeff_non_elementary() {
+        // q' + q = 1/x + θ₁/x → b₁' + b₁ = 1/x → no rational solution (simple pole)
+        let f = poly(&[1], "x");
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let g = ExtPoly::from_coeffs(vec![one_over_x.clone(), one_over_x], "x");
+        let result = solve_risch_de_in_log_ext(&f, &g, "x");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_inner_de_higher_f_coefficient() {
+        // q' + 2x·q = 2x·θ₁ + 2/x
+        // b₁' + 2x·b₁ = 2x → b₁ = 1
+        // b₀' + 2x·b₀ = 2/x - 1·1/x = 1/x → no rational solution (simple pole)
+        let f = poly(&[0, 2], "x");
+        let two_x_rf = rf_poly(&[0, 2]);
+        let two_over_x = RationalFunction::new(poly(&[2], "x"), poly(&[0, 1], "x"));
+        let g = ExtPoly::from_coeffs(vec![two_over_x, two_x_rf], "x");
+        let result = solve_risch_de_in_log_ext(&f, &g, "x");
+        assert!(result.is_none());
+    }
+
     // === Two-level integration tests ===
 
     #[test]

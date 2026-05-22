@@ -451,6 +451,58 @@ mod integration_tests {
     }
 
     #[test]
+    fn test_integrate_exp_x_ln_x_sq_correction_numerical() {
+        // ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² + C
+        // d/dx[exp(x)·ln(x)²] = exp(x)·ln(x)² + 2·exp(x)·ln(x)/x
+        // Use product form: (ln(x)² + 2·ln(x)/x) · exp(x)
+        use arithma::integration::integrate;
+        use arithma::ExactNum;
+        use arithma::Node;
+
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x_sq = Node::Power(
+            Box::new(ln_x.clone()),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let two = Node::Num(ExactNum::integer(2));
+        let x = Node::Variable("x".to_string());
+        let two_ln_over_x = Node::Divide(
+            Box::new(Node::Multiply(Box::new(two), Box::new(ln_x))),
+            Box::new(x),
+        );
+        let inner_sum = Node::Add(Box::new(ln_x_sq), Box::new(two_ln_over_x));
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(Box::new(inner_sum), Box::new(exp_x));
+
+        let result = integrate(&expr, "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+
+        // Numerical verification at x=2: exp(2)·ln(2)²
+        let result_node = result.unwrap();
+        let mut env = Environment::new();
+        env.set("x", 2.0);
+        let val = Evaluator::evaluate(&result_node, &env).unwrap();
+        let expected = 2.0_f64.exp() * 2.0_f64.ln().powi(2);
+        assert!(
+            approx_eq(val, expected, 0.01),
+            "Expected {:.4}, got {:.4}",
+            expected,
+            val,
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_x_sq_times_ln_x_non_elementary() {
+        // ∫exp(x²)·ln(x) dx → non-elementary
+        let result = integrate_latex("\\exp(x^2) \\cdot \\ln(x)", "x");
+        assert!(
+            result.is_err(),
+            "∫exp(x²)·ln(x)dx should be non-elementary",
+        );
+        assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
+    }
+
+    #[test]
     fn test_integrate_exp_x_ln_x_plus_exp_x_over_x_numerical() {
         // Verify: d/dx[exp(x)·ln(x)] = exp(x)·ln(x) + exp(x)/x
         // So ∫(ln(x) + 1/x)·exp(x) dx = exp(x)·ln(x)
