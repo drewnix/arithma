@@ -2020,6 +2020,307 @@ fn extract_two_level_rational(
     }
 }
 
+#[allow(dead_code)]
+fn sub_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
+    let neg_b = negate_two_level(b);
+    add_two_level(a, &neg_b, var)
+}
+
+/// Result of two-level Hermite reduction.
+#[allow(dead_code)]
+struct HermiteResultTwoLevel {
+    /// Numerator of rational part (θ₁-structured, indexed by θ₂ degree)
+    g_num: Vec<ExtPoly>,
+    /// Denominator of rational part (standard ExtPoly in θ₂)
+    g_den: ExtPoly,
+    /// Numerator of integrand remainder (θ₁-structured)
+    h_num: Vec<ExtPoly>,
+    /// Squarefree denominator (standard ExtPoly in θ₂)
+    h_den: ExtPoly,
+}
+
+/// Hermite reduction for two-level integrand A/D where A has θ₁ coefficients
+/// and D ∈ Q(x)[θ₂].
+///
+/// Exploits linearity: runs existing `hermite_reduce` on each θ₁-degree
+/// independently, then combines. The h_den is identical for all θ₁-degrees.
+#[allow(dead_code)]
+fn hermite_reduce_two_level(
+    num: &[ExtPoly],
+    den: &ExtPoly,
+    var: &str,
+) -> Result<HermiteResultTwoLevel, String> {
+    // Find max θ₁-degree across all θ₂-coefficients
+    let max_theta1_deg = num.iter().filter_map(|ep| ep.degree()).max().unwrap_or(0);
+
+    // For each θ₁-degree j, extract Aⱼ (standard ExtPoly in θ₂) and run Hermite reduction
+    let mut all_results: Vec<HermiteResult> = Vec::new();
+
+    for j in 0..=max_theta1_deg {
+        // Aⱼ[i] = num[i].coeff(j) — Q(x) coefficient of θ₁ʲ at θ₂ⁱ
+        let a_j_coeffs: Vec<RationalFunction> = (0..num.len()).map(|i| num[i].coeff(j)).collect();
+        let a_j = ExtPoly::from_coeffs(a_j_coeffs, var);
+        let hr = hermite_reduce(&a_j, den, var)?;
+        all_results.push(hr);
+    }
+
+    // h_den is the same for all j
+    let h_den = all_results[0].h_den.clone();
+
+    // Combine g_den using LCM
+    let mut g_den = ExtPoly::one(var);
+    for hr in &all_results {
+        if !hr.g_num.is_zero() {
+            let g = g_den.gcd(&hr.g_den);
+            if !g.is_zero() {
+                let (factor, _) = hr.g_den.div_rem(&g)?;
+                g_den = &g_den * &factor;
+            }
+        }
+    }
+
+    // Build output: distribute θ₁ʲ coefficients
+    let max_g_theta2 = all_results
+        .iter()
+        .filter_map(|hr| hr.g_num.degree())
+        .max()
+        .unwrap_or(0);
+    let max_h_theta2 = all_results
+        .iter()
+        .filter_map(|hr| hr.h_num.degree())
+        .max()
+        .unwrap_or(0);
+
+    let mut g_num_out = vec![ExtPoly::zero(var); max_g_theta2 + 1];
+    let mut h_num_out = vec![ExtPoly::zero(var); max_h_theta2 + 1];
+
+    for (j, hr) in all_results.iter().enumerate() {
+        // Scale g_num by common denominator factor
+        let scale = if hr.g_num.is_zero() {
+            ExtPoly::one(var)
+        } else {
+            let g = g_den.gcd(&hr.g_den);
+            if g.is_zero() {
+                ExtPoly::one(var)
+            } else {
+                let (s, _) = g_den.div_rem(&hr.g_den)?;
+                s
+            }
+        };
+        let scaled_g = &hr.g_num * &scale;
+
+        for (i, g_out) in g_num_out.iter_mut().enumerate().take(max_g_theta2 + 1) {
+            let coeff = scaled_g.coeff(i);
+            if !coeff.is_zero() {
+                let mut new_coeffs = vec![RationalFunction::zero(var); j + 1];
+                new_coeffs[j] = coeff;
+                let term = ExtPoly::from_coeffs(new_coeffs, var);
+                *g_out = &*g_out + &term;
+            }
+        }
+
+        for (i, h_out) in h_num_out.iter_mut().enumerate().take(max_h_theta2 + 1) {
+            let coeff = hr.h_num.coeff(i);
+            if !coeff.is_zero() {
+                let mut new_coeffs = vec![RationalFunction::zero(var); j + 1];
+                new_coeffs[j] = coeff;
+                let term = ExtPoly::from_coeffs(new_coeffs, var);
+                *h_out = &*h_out + &term;
+            }
+        }
+    }
+
+    // Strip trailing zeros
+    while g_num_out.last().is_some_and(|c| c.is_zero()) {
+        g_num_out.pop();
+    }
+    while h_num_out.last().is_some_and(|c| c.is_zero()) {
+        h_num_out.pop();
+    }
+    if g_num_out.is_empty() {
+        g_num_out.push(ExtPoly::zero(var));
+    }
+    if h_num_out.is_empty() {
+        h_num_out.push(ExtPoly::zero(var));
+    }
+
+    Ok(HermiteResultTwoLevel {
+        g_num: g_num_out,
+        g_den,
+        h_num: h_num_out,
+        h_den,
+    })
+}
+
+/// Two-level Rothstein-Trager resultant: R(z) = res_θ₂(d, a − z·D(d)).
+///
+/// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), D(d) ∈ Q(x)[θ₂].
+/// Returns R(z) as Vec<ExtPoly> — polynomial in z with ExtPoly-in-θ₁ coefficients.
+#[allow(dead_code)]
+fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &str) -> Vec<ExtPoly> {
+    let m = d.degree().unwrap_or(0);
+    let n = {
+        let da = if a.is_empty() { 0 } else { a.len() - 1 };
+        let ddd = dd.degree().unwrap_or(0);
+        da.max(ddd)
+    };
+
+    if m == 0 && n == 0 {
+        let c0 = a.first().cloned().unwrap_or_else(|| ExtPoly::zero(var));
+        let c1 = ExtPoly::from_rf(-&dd.coeff(0));
+        return vec![c0, c1];
+    }
+
+    let size = m + n;
+    if size == 0 {
+        return vec![ExtPoly::one(var)];
+    }
+
+    let zero_z: Vec<ExtPoly> = vec![ExtPoly::zero(var)];
+    let mut matrix: Vec<Vec<Vec<ExtPoly>>> = Vec::with_capacity(size);
+
+    // First n rows from d (constant in z, no θ₁)
+    for i in 0..n {
+        let mut row = vec![zero_z.clone(); size];
+        for k in 0..=m {
+            let col = i + k;
+            if col < size {
+                row[col] = vec![ExtPoly::from_rf(d.coeff(m - k))];
+            }
+        }
+        matrix.push(row);
+    }
+
+    // Last m rows from g = a − z·dd (linear in z, θ₁ in constant term)
+    for i in 0..m {
+        let mut row = vec![zero_z.clone(); size];
+        for k in 0..=n {
+            let col = i + k;
+            if col < size {
+                let a_coeff = a.get(n - k).cloned().unwrap_or_else(|| ExtPoly::zero(var));
+                let dd_coeff = dd.coeff(n - k);
+                if dd_coeff.is_zero() {
+                    row[col] = vec![a_coeff];
+                } else {
+                    row[col] = vec![a_coeff, ExtPoly::from_rf(-&dd_coeff)];
+                }
+            }
+        }
+        matrix.push(row);
+    }
+
+    two_level_det(&matrix, var)
+}
+
+/// Determinant of a square matrix whose entries are Vec<ExtPoly>
+/// (polynomials in z with ExtPoly coefficients).
+#[allow(dead_code)]
+fn two_level_det(m: &[Vec<Vec<ExtPoly>>], var: &str) -> Vec<ExtPoly> {
+    let n = m.len();
+    if n == 0 {
+        return vec![ExtPoly::one(var)];
+    }
+    if n == 1 {
+        return m[0][0].clone();
+    }
+    if n == 2 {
+        let a = mul_two_level(&m[0][0], &m[1][1], var);
+        let b = mul_two_level(&m[0][1], &m[1][0], var);
+        return sub_two_level(&a, &b, var);
+    }
+    let mut result = vec![ExtPoly::zero(var)];
+    for j in 0..n {
+        if m[0][j].iter().all(|ep| ep.is_zero()) {
+            continue;
+        }
+        let minor: Vec<Vec<Vec<ExtPoly>>> = (1..n)
+            .map(|row| {
+                (0..n)
+                    .filter(|&col| col != j)
+                    .map(|col| m[row][col].clone())
+                    .collect()
+            })
+            .collect();
+        let cofactor = two_level_det(&minor, var);
+        let term = mul_two_level(&m[0][j], &cofactor, var);
+        if j % 2 == 0 {
+            result = add_two_level(&result, &term, var);
+        } else {
+            result = sub_two_level(&result, &term, var);
+        }
+    }
+    result
+}
+
+/// Find constant roots c ∈ Q of R(z) where R has ExtPoly (θ₁) coefficients.
+///
+/// Strategy: specialize x, evaluate θ₁-degree-0 coefficients to get Q[z],
+/// find rational roots, verify as ExtPoly identities.
+#[allow(dead_code)]
+fn find_constant_roots_two_level(rz: &[ExtPoly], var: &str) -> Vec<BigRational> {
+    let deg = match rz.len().checked_sub(1) {
+        Some(d) if d > 0 => d,
+        _ => return vec![],
+    };
+
+    if rz.iter().all(|ep| ep.is_zero()) {
+        return vec![];
+    }
+
+    let candidates_x = [2i64, 3, 5, 7, 11];
+    let mut candidate_roots: Option<Vec<BigRational>> = None;
+
+    for &x_val in &candidates_x {
+        let x_br = BigRational::from_integer(BigInt::from(x_val));
+        let mut spec_coeffs = Vec::with_capacity(deg + 1);
+        let mut valid = true;
+        for rz_k in rz.iter().take(deg + 1) {
+            // Evaluate θ₁-degree-0 coefficient at x = x₀
+            let rf_at_0 = rz_k.coeff(0);
+            match rf_at_0.evaluate(&x_br) {
+                Some(val) => spec_coeffs.push(val),
+                None => {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if !valid {
+            continue;
+        }
+
+        let spec_poly = Polynomial::from_coeffs(spec_coeffs, "z");
+        if spec_poly.is_zero() {
+            continue;
+        }
+
+        candidate_roots = Some(spec_poly.rational_roots());
+        break;
+    }
+
+    let candidates = match candidate_roots {
+        Some(c) => c,
+        None => return vec![],
+    };
+
+    // Verify: R(c) must be zero as ExtPoly (all θ₁-coefficients vanish)
+    let mut verified = Vec::new();
+    for c in candidates {
+        let mut sum = ExtPoly::zero(var);
+        let mut c_power = BigRational::one();
+        for rz_k in rz.iter().take(deg + 1) {
+            let scaled = rz_k.scalar_mul(&RationalFunction::from_constant(c_power.clone(), var));
+            sum = &sum + &scaled;
+            c_power = &c_power * &c;
+        }
+        if sum.is_zero() && !verified.contains(&c) {
+            verified.push(c);
+        }
+    }
+
+    verified
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3626,5 +3927,67 @@ mod tests {
         let expr = Node::Multiply(Box::new(exp_x), Box::new(ln_x));
         let exp_arg = poly(&[0, 1], "x");
         assert!(extract_two_level_rational(&expr, "x", &exp_arg).is_none());
+    }
+
+    // === Two-level Hermite reduction tests ===
+
+    #[test]
+    fn test_hermite_reduce_two_level_squarefree() {
+        // Squarefree denominator: no reduction needed
+        let num = vec![ExtPoly::theta("x")]; // [θ₁]
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₂
+        let result = hermite_reduce_two_level(&num, &den, "x").unwrap();
+        assert!(result.g_num.iter().all(|ep| ep.is_zero()));
+        assert_eq!(result.h_num.len(), 1);
+        assert_eq!(result.h_num[0], ExtPoly::theta("x"));
+        assert_eq!(result.h_den, den);
+    }
+
+    #[test]
+    fn test_hermite_reduce_two_level_non_squarefree() {
+        // den = (1+θ₂)², num = [θ₁]
+        let num = vec![ExtPoly::theta("x")];
+        let t_plus_1 = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let den = &t_plus_1 * &t_plus_1;
+        let result = hermite_reduce_two_level(&num, &den, "x").unwrap();
+        assert!(!result.g_num.iter().all(|ep| ep.is_zero()));
+        let sfd = result.h_den.square_free_decomposition();
+        assert!(sfd.iter().all(|(_, m)| *m <= 1));
+    }
+
+    // === Two-level Rothstein-Trager tests ===
+
+    #[test]
+    fn test_rt_two_level_ln_over_1_plus_exp() {
+        // d=1+θ₂, a=[θ₁], D(d)=θ₂ → R(z) = θ₁ + z → no constant roots
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let a = vec![ExtPoly::theta("x")];
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_two_level(&d, &a, &dd, "x");
+        let roots = find_constant_roots_two_level(&rz, "x");
+        assert!(
+            roots.is_empty(),
+            "Should have no constant roots, got {:?}",
+            roots
+        );
+    }
+
+    #[test]
+    fn test_rt_two_level_constant_coeff_has_root() {
+        // d=1+θ₂, a=[1] (no θ₁), D(d)=θ₂ → R(z) = 1+z → root at -1
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let a = vec![ExtPoly::from_rf(rf_const(1))];
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_two_level(&d, &a, &dd, "x");
+        let roots = find_constant_roots_two_level(&rz, "x");
+        assert_eq!(roots, vec![int(-1)]);
     }
 }
