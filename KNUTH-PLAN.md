@@ -1,7 +1,7 @@
 # Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Last updated: 2026-05-21, Session 24*
+*Last updated: 2026-05-21, Session 25*
 
 ---
 
@@ -28,15 +28,15 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 24)
+## Current State (Post Session 25)
 
-**805 tests pass. 0 failures. 14 MCP tools. ~22K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**813 tests pass. 0 failures. 14 MCP tools. ~22K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** for both polynomial AND rational integrands: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log polynomial towers**, AND **two-level exp-over-log rational towers** (rational functions of exp(g(x)) with ln(x) coefficients). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), and **two-level rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant) — all with non-elementary detection.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** for both polynomial AND rational integrands: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log polynomial towers**, AND **two-level exp-over-log rational towers** (rational functions of exp(g(x)) with ln(x) coefficients, **any denominator degree**). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), and **two-level rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, **general GCD via θ₁-component decomposition**) — all with non-elementary detection.
 
-**Multi-extension towers (Session 24):** Two-level tower Q(x) ⊂ Q(x, ln(x)) ⊂ Q(x, ln(x), exp(g(x))). Polynomial integrands: inner Risch DE solver via triangular decomposition. Rational integrands: per-θ₁-degree Hermite reduction (exploiting linearity), two-level Rothstein-Trager with θ₁-structured Sylvester matrix. Non-elementarity detection: θ₁ terms in the resultant prevent constant roots — most rational integrals with mixed exp+ln are non-elementary, and the algorithm proves it.
+**Multi-extension towers (Sessions 24-25):** Two-level tower Q(x) ⊂ Q(x, ln(x)) ⊂ Q(x, ln(x), exp(g(x))). Polynomial integrands: inner Risch DE solver via triangular decomposition. Rational integrands: per-θ₁-degree Hermite reduction (exploiting linearity), two-level Rothstein-Trager with θ₁-structured Sylvester matrix, **general denominator GCD via θ₁-component decomposition** (since θ₁ is transcendental, gcd(d, g_c) = gcd(d, r₀, r₁, ...) where rⱼ is the θ₁ʲ component — reduces to iterative ExtPoly::gcd). Non-elementarity detection: θ₁ terms in the resultant prevent constant roots — most rational integrals with mixed exp+ln are non-elementary, and the algorithm proves it.
 
-**Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (RT resultant has θ₁ term). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
+**Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (RT resultant has θ₁ term). ∫ln(x)/(1+exp(2x)) dx → non-elementary ✓ (degree-2 denominator). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
 
 Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
@@ -121,8 +121,7 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 
 **Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓.
 
-**Remaining (1-3 sessions):**
-- Higher-degree denominators in two-level rational (degree ≥ 2 GCD verification)
+**Remaining (1-2 sessions):**
 - θ₁ in denominator (requires mixed-coefficient GCD)
 - Log-on-top-of-exp tower ordering
 - Algebraic extensions (integration over Q(α) for algebraic α)
