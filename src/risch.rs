@@ -1700,11 +1700,10 @@ fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec
                     if let Node::Num(n) = exp.as_ref() {
                         if let Some(e) = n.to_i64() {
                             if e >= 1 {
-                                let p =
-                                    Polynomial::monomial(BigRational::one(), e as usize, var);
-                                return Some(vec![ExtPoly::from_rf(
-                                    RationalFunction::from_poly(p),
-                                )]);
+                                let p = Polynomial::monomial(BigRational::one(), e as usize, var);
+                                return Some(vec![ExtPoly::from_rf(RationalFunction::from_poly(
+                                    p,
+                                ))]);
                             }
                         }
                     }
@@ -1818,11 +1817,7 @@ fn scalar_mul_two_level(v: &[ExtPoly], s: &ExtPoly) -> Vec<ExtPoly> {
 ///   bₖ' + f·bₖ = gₖ − (k+1)·b_{k+1}/x
 ///
 /// Each is a standard Risch DE over Q(x), solved by `solve_risch_de_rational`.
-fn solve_risch_de_in_log_ext(
-    f: &Polynomial,
-    g: &ExtPoly,
-    var: &str,
-) -> Option<ExtPoly> {
+fn solve_risch_de_in_log_ext(f: &Polynomial, g: &ExtPoly, var: &str) -> Option<ExtPoly> {
     if g.is_zero() {
         return Some(ExtPoly::zero(var));
     }
@@ -1910,9 +1905,7 @@ fn integrate_two_level_exp_log(
                 None => return None,
             }
         } else {
-            let f_scaled = g_prime.scalar_mul(
-                &BigRational::from_integer(BigInt::from(i as i64)),
-            );
+            let f_scaled = g_prime.scalar_mul(&BigRational::from_integer(BigInt::from(i as i64)));
             match solve_risch_de_in_log_ext(&f_scaled, a_i, var) {
                 Some(qi) => {
                     let qi_node = extpoly_to_node(&qi, &ln_x, var);
@@ -1925,10 +1918,7 @@ fn integrate_two_level_exp_log(
                             Box::new(Node::Num(ExactNum::integer(i as i64))),
                         )
                     };
-                    let term = Node::Multiply(
-                        Box::new(qi_node),
-                        Box::new(exp_part),
-                    );
+                    let term = Node::Multiply(Box::new(qi_node), Box::new(exp_part));
                     result_terms.push(term);
                 }
                 None => {
@@ -1971,20 +1961,15 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
         Some(c) => c,
         None => {
             let env = crate::environment::Environment::new();
-            let simplified =
-                crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+            let simplified = crate::simplify::Simplifiable::simplify(expr, &env)
+                .unwrap_or_else(|_| expr.clone());
             node_to_two_level(&simplified, var, &exp_poly)?
         }
     };
 
-    let inner_ext = DifferentialExtension::logarithmic(
-        RationalFunction::from_poly(Polynomial::x(var)),
-        var,
-    );
-    let outer_ext = DifferentialExtension::exponential(
-        RationalFunction::from_poly(exp_poly),
-        var,
-    );
+    let inner_ext =
+        DifferentialExtension::logarithmic(RationalFunction::from_poly(Polynomial::x(var)), var);
+    let outer_ext = DifferentialExtension::exponential(RationalFunction::from_poly(exp_poly), var);
 
     integrate_two_level_exp_log(&outer_coeffs, &inner_ext, &outer_ext, var)
 }
@@ -3310,10 +3295,7 @@ mod tests {
         let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
         let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
         let exp_ln = Node::Multiply(Box::new(exp_x.clone()), Box::new(ln_x));
-        let exp_over_x = Node::Divide(
-            Box::new(exp_x),
-            Box::new(Node::Variable("x".to_string())),
-        );
+        let exp_over_x = Node::Divide(Box::new(exp_x), Box::new(Node::Variable("x".to_string())));
         let expr = Node::Add(Box::new(exp_ln), Box::new(exp_over_x));
         let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
         assert_eq!(result.len(), 2);
@@ -3332,10 +3314,7 @@ mod tests {
     fn test_two_level_exp_times_ln_squared() {
         let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
         let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
-        let ln_x_sq = Node::Power(
-            Box::new(ln_x),
-            Box::new(Node::Num(ExactNum::integer(2))),
-        );
+        let ln_x_sq = Node::Power(Box::new(ln_x), Box::new(Node::Num(ExactNum::integer(2))));
         let expr = Node::Multiply(Box::new(exp_x), Box::new(ln_x_sq));
         let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
         assert_eq!(result.len(), 2);
@@ -3485,8 +3464,7 @@ mod tests {
     fn test_integrate_two_level_exp_ln_plus_exp_over_x() {
         // ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)
         let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
-        let coeff1 =
-            ExtPoly::from_coeffs(vec![one_over_x, RationalFunction::one("x")], "x");
+        let coeff1 = ExtPoly::from_coeffs(vec![one_over_x, RationalFunction::one("x")], "x");
         let coeffs = vec![ExtPoly::zero("x"), coeff1];
         let outer_ext = DifferentialExtension::exponential(
             RationalFunction::from_poly(poly(&[0, 1], "x")),

@@ -423,10 +423,7 @@ mod integration_tests {
     fn test_integrate_exp_x_times_ln_x_non_elementary() {
         // ∫exp(x)·ln(x) dx → non-elementary (reduces to Ei)
         let result = integrate_latex("\\exp(x) \\cdot \\ln(x)", "x");
-        assert!(
-            result.is_err(),
-            "∫exp(x)·ln(x)dx should be non-elementary"
-        );
+        assert!(result.is_err(), "∫exp(x)·ln(x)dx should be non-elementary");
         assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
     }
 
@@ -495,10 +492,7 @@ mod integration_tests {
     fn test_integrate_exp_x_sq_times_ln_x_non_elementary() {
         // ∫exp(x²)·ln(x) dx → non-elementary
         let result = integrate_latex("\\exp(x^2) \\cdot \\ln(x)", "x");
-        assert!(
-            result.is_err(),
-            "∫exp(x²)·ln(x)dx should be non-elementary",
-        );
+        assert!(result.is_err(), "∫exp(x²)·ln(x)dx should be non-elementary",);
         assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
     }
 
