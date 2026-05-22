@@ -1864,6 +1864,99 @@ fn solve_risch_de_in_log_ext(
     Some(ExtPoly::from_coeffs(b, var))
 }
 
+/// Integrate a polynomial in θ₂ = exp(g(x)) whose coefficients are
+/// ExtPolys in θ₁ = ln(x) with Q(x) coefficients.
+///
+/// For each θ₂-degree i:
+/// - i = 0: integrate in Q(x, θ₁) via `integrate_poly_log`
+/// - i ≥ 1: solve Risch DE qᵢ' + i·g'·qᵢ = aᵢ via `solve_risch_de_in_log_ext`
+///
+/// Returns the antiderivative as a Node, or proves non-elementarity.
+#[allow(dead_code)]
+fn integrate_two_level_exp_log(
+    outer_coeffs: &[ExtPoly],
+    inner_ext: &DifferentialExtension,
+    outer_ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    if outer_coeffs.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+
+    // All coefficients zero?
+    if outer_coeffs.iter().all(|c| c.is_zero()) {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+
+    let g_prime_rf = outer_ext.argument().derivative();
+    if *g_prime_rf.denominator() != Polynomial::one(var) {
+        return None;
+    }
+    let g_prime = g_prime_rf.numerator().clone();
+    let g_node = outer_ext.argument().numerator().to_node();
+
+    let ln_x = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
+    let mut result_terms: Vec<Node> = Vec::new();
+
+    for (i, a_i) in outer_coeffs.iter().enumerate() {
+        if a_i.is_zero() {
+            continue;
+        }
+
+        if i == 0 {
+            match integrate_poly_log(a_i, inner_ext, var) {
+                Some(RischResult::Elementary(node)) => {
+                    result_terms.push(node);
+                }
+                Some(RischResult::NonElementary(reason)) => {
+                    return Some(RischResult::NonElementary(reason));
+                }
+                None => return None,
+            }
+        } else {
+            let f_scaled = g_prime.scalar_mul(
+                &BigRational::from_integer(BigInt::from(i as i64)),
+            );
+            match solve_risch_de_in_log_ext(&f_scaled, a_i, var) {
+                Some(qi) => {
+                    let qi_node = extpoly_to_node(&qi, &ln_x, var);
+                    let exp_g = Node::Function("exp".to_string(), vec![g_node.clone()]);
+                    let exp_part = if i == 1 {
+                        exp_g
+                    } else {
+                        Node::Power(
+                            Box::new(exp_g),
+                            Box::new(Node::Num(ExactNum::integer(i as i64))),
+                        )
+                    };
+                    let term = Node::Multiply(
+                        Box::new(qi_node),
+                        Box::new(exp_part),
+                    );
+                    result_terms.push(term);
+                }
+                None => {
+                    return Some(RischResult::NonElementary(format!(
+                        "No elementary antiderivative exists. \
+                         The Risch DE q' + ({})·q = {} has no solution in Q(x, ln(x)), \
+                         so the integral cannot be expressed in terms of elementary functions.",
+                        f_scaled, a_i
+                    )));
+                }
+            }
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = result_terms.remove(0);
+    for t in result_terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3311,5 +3404,102 @@ mod tests {
         let g = ExtPoly::from_rf(rf_poly(&[0, 2]));
         let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
         assert_eq!(result, ExtPoly::from_rf(rf_const(1)));
+    }
+
+    // === Two-level integration tests ===
+
+    #[test]
+    fn test_integrate_two_level_exp_ln_non_elementary() {
+        // ∫exp(x)·ln(x) dx → non-elementary
+        let coeffs = vec![ExtPoly::zero("x"), ExtPoly::theta("x")];
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_two_level_exp_log(&coeffs, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::NonElementary(_) => {}
+            r => panic!("Expected non-elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_two_level_exp_ln_plus_exp_over_x() {
+        // ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let coeff1 =
+            ExtPoly::from_coeffs(vec![one_over_x, RationalFunction::one("x")], "x");
+        let coeffs = vec![ExtPoly::zero("x"), coeff1];
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_two_level_exp_log(&coeffs, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln in {}", s);
+                assert!(s.contains("exp"), "Expected exp in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_two_level_exp_ln_sq_plus_correction() {
+        // ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)²
+        let two_over_x = RationalFunction::new(poly(&[2], "x"), poly(&[0, 1], "x"));
+        let coeff1 = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                two_over_x,
+                RationalFunction::one("x"),
+            ],
+            "x",
+        );
+        let coeffs = vec![ExtPoly::zero("x"), coeff1];
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_two_level_exp_log(&coeffs, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("\\ln"), "Expected ln in {}", s);
+                assert!(s.contains("exp"), "Expected exp in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_two_level_pure_exp() {
+        // ∫exp(x) dx = exp(x)
+        let coeffs = vec![ExtPoly::zero("x"), ExtPoly::from_rf(rf_const(1))];
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_two_level_exp_log(&coeffs, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::Elementary(node) => {
+                let s = format!("{}", node);
+                assert!(s.contains("exp"), "Expected exp in {}", s);
+            }
+            r => panic!("Expected elementary, got {:?}", r),
+        }
     }
 }
