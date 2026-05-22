@@ -1079,7 +1079,6 @@ enum ExtensionKind {
 }
 
 /// Returns `true` if `expr` contains `ln(var)` anywhere in the tree.
-#[allow(dead_code)] // wired in by subsequent tower-builder tasks
 fn contains_ln(expr: &Node, var: &str) -> bool {
     match expr {
         Node::Function(name, args) if name == "ln" && args.len() == 1 => {
@@ -1098,7 +1097,6 @@ fn contains_ln(expr: &Node, var: &str) -> bool {
 /// If the expression contains `exp(g(x))`, return the polynomial `g` when it
 /// is consistent across the whole tree.  Returns `None` when no `exp` is found
 /// or when two incompatible exponent polynomials appear.
-#[allow(dead_code)] // wired in by subsequent tower-builder tasks
 fn find_exp_argument(expr: &Node, var: &str) -> Option<Polynomial> {
     match expr {
         Node::Function(name, args) if name == "exp" && args.len() == 1 => {
@@ -1614,32 +1612,36 @@ fn integrate_rational_ext(
 /// Replaces try_risch_exponential, try_risch_logarithmic, and try_risch_log_rational
 /// with a single entry point that handles both extension types.
 pub fn try_risch_tower(expr: &Node, var: &str) -> Option<RischResult> {
-    let (num, den, ext) = build_tower(expr, var)?;
-
-    if den == ExtPoly::one(var) {
-        match ext.ext_type() {
-            ExtensionType::Logarithmic => integrate_poly_log(&num, &ext, var),
-            ExtensionType::Exponential => integrate_poly_exp(&num, &ext, var),
+    // Try single-extension tower first
+    if let Some((num, den, ext)) = build_tower(expr, var) {
+        if den == ExtPoly::one(var) {
+            return match ext.ext_type() {
+                ExtensionType::Logarithmic => integrate_poly_log(&num, &ext, var),
+                ExtensionType::Exponential => integrate_poly_exp(&num, &ext, var),
+            };
+        } else if den.is_constant() {
+            // Denominator is a polynomial in x only (constant in θ).
+            // Fold it into the numerator's coefficients: num/den → num · (1/den).
+            let den_rf = den.coeff(0);
+            let inv =
+                RationalFunction::new(den_rf.denominator().clone(), den_rf.numerator().clone());
+            let adjusted = num.scalar_mul(&inv);
+            return match ext.ext_type() {
+                ExtensionType::Logarithmic => integrate_poly_log(&adjusted, &ext, var),
+                ExtensionType::Exponential => integrate_poly_exp(&adjusted, &ext, var),
+            };
+        } else {
+            return integrate_rational_ext(&num, &den, &ext, var);
         }
-    } else if den.is_constant() {
-        // Denominator is a polynomial in x only (constant in θ).
-        // Fold it into the numerator's coefficients: num/den → num · (1/den).
-        let den_rf = den.coeff(0);
-        let inv = RationalFunction::new(den_rf.denominator().clone(), den_rf.numerator().clone());
-        let adjusted = num.scalar_mul(&inv);
-        match ext.ext_type() {
-            ExtensionType::Logarithmic => integrate_poly_log(&adjusted, &ext, var),
-            ExtensionType::Exponential => integrate_poly_exp(&adjusted, &ext, var),
-        }
-    } else {
-        integrate_rational_ext(&num, &den, &ext, var)
     }
+
+    // Try two-level tower (exp over ln)
+    try_risch_two_level(expr, var)
 }
 
 /// Convert a Node containing both exp(g(x)) and ln(x) into a two-level
 /// polynomial: Vec<ExtPoly> indexed by θ₂-degree, where each ExtPoly
 /// is a polynomial in θ₁ = ln(x) with Q(x) coefficients.
-#[allow(dead_code)]
 fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec<ExtPoly>> {
     match expr {
         Node::Num(n) => {
@@ -1744,12 +1746,10 @@ fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec
     }
 }
 
-#[allow(dead_code)]
 fn negate_two_level(v: &[ExtPoly]) -> Vec<ExtPoly> {
     v.iter().map(|c| -c).collect()
 }
 
-#[allow(dead_code)]
 fn add_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     let len = a.len().max(b.len());
     let mut result = Vec::with_capacity(len);
@@ -1767,7 +1767,6 @@ fn add_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     result
 }
 
-#[allow(dead_code)]
 fn mul_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     if a.is_empty() || b.is_empty() {
         return vec![ExtPoly::zero(var)];
@@ -1795,7 +1794,6 @@ fn mul_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     result
 }
 
-#[allow(dead_code)]
 fn scalar_mul_two_level(v: &[ExtPoly], s: &ExtPoly) -> Vec<ExtPoly> {
     let var = s.variable().to_string();
     let mut r: Vec<ExtPoly> = v.iter().map(|c| c * s).collect();
@@ -1820,7 +1818,6 @@ fn scalar_mul_two_level(v: &[ExtPoly], s: &ExtPoly) -> Vec<ExtPoly> {
 ///   bₖ' + f·bₖ = gₖ − (k+1)·b_{k+1}/x
 ///
 /// Each is a standard Risch DE over Q(x), solved by `solve_risch_de_rational`.
-#[allow(dead_code)]
 fn solve_risch_de_in_log_ext(
     f: &Polynomial,
     g: &ExtPoly,
@@ -1872,7 +1869,6 @@ fn solve_risch_de_in_log_ext(
 /// - i ≥ 1: solve Risch DE qᵢ' + i·g'·qᵢ = aᵢ via `solve_risch_de_in_log_ext`
 ///
 /// Returns the antiderivative as a Node, or proves non-elementarity.
-#[allow(dead_code)]
 fn integrate_two_level_exp_log(
     outer_coeffs: &[ExtPoly],
     inner_ext: &DifferentialExtension,
@@ -1955,6 +1951,42 @@ fn integrate_two_level_exp_log(
         result = Node::Add(Box::new(result), Box::new(t));
     }
     Some(RischResult::Elementary(result))
+}
+
+/// Try to integrate via a two-level tower (exp on top of ln).
+///
+/// Called when `build_tower` returns None because both exp and ln are present.
+fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
+    let has_ln = contains_ln(expr, var);
+    let exp_arg = find_exp_argument(expr, var);
+
+    let exp_poly = match (has_ln, exp_arg) {
+        (true, Some(g)) => g,
+        _ => return None,
+    };
+
+    let build_result = node_to_two_level(expr, var, &exp_poly);
+
+    let outer_coeffs = match build_result {
+        Some(c) => c,
+        None => {
+            let env = crate::environment::Environment::new();
+            let simplified =
+                crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+            node_to_two_level(&simplified, var, &exp_poly)?
+        }
+    };
+
+    let inner_ext = DifferentialExtension::logarithmic(
+        RationalFunction::from_poly(Polynomial::x(var)),
+        var,
+    );
+    let outer_ext = DifferentialExtension::exponential(
+        RationalFunction::from_poly(exp_poly),
+        var,
+    );
+
+    integrate_two_level_exp_log(&outer_coeffs, &inner_ext, &outer_ext, var)
 }
 
 #[cfg(test)]

@@ -416,4 +416,63 @@ mod integration_tests {
             value
         );
     }
+
+    // ===== Two-level tower: exp + ln integration =====
+
+    #[test]
+    fn test_integrate_exp_x_times_ln_x_non_elementary() {
+        // ∫exp(x)·ln(x) dx → non-elementary (reduces to Ei)
+        let result = integrate_latex("\\exp(x) \\cdot \\ln(x)", "x");
+        assert!(
+            result.is_err(),
+            "∫exp(x)·ln(x)dx should be non-elementary"
+        );
+        assert!(result.unwrap_err().starts_with("NON_ELEMENTARY:"));
+    }
+
+    #[test]
+    fn test_integrate_exp_x_ln_x_plus_exp_x_over_x() {
+        // ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) + C
+        // Build as (ln(x) + 1/x) * exp(x) to avoid Add-splitting
+        use arithma::integration::integrate;
+        let x = arithma::Node::Variable("x".to_string());
+        let ln_x = arithma::Node::Function("ln".to_string(), vec![x.clone()]);
+        let one = arithma::Node::Num(arithma::ExactNum::integer(1));
+        let one_over_x = arithma::Node::Divide(Box::new(one), Box::new(x.clone()));
+        let sum = arithma::Node::Add(Box::new(ln_x), Box::new(one_over_x));
+        let exp_x = arithma::Node::Function("exp".to_string(), vec![x]);
+        let expr = arithma::Node::Multiply(Box::new(sum), Box::new(exp_x));
+        let result = integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "∫(ln(x) + 1/x)·exp(x) dx should succeed: {:?}",
+            result,
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_x_ln_x_plus_exp_x_over_x_numerical() {
+        // Verify: d/dx[exp(x)·ln(x)] = exp(x)·ln(x) + exp(x)/x
+        // So ∫(ln(x) + 1/x)·exp(x) dx = exp(x)·ln(x)
+        use arithma::integration::integrate;
+        use arithma::Evaluator;
+        let x = arithma::Node::Variable("x".to_string());
+        let ln_x = arithma::Node::Function("ln".to_string(), vec![x.clone()]);
+        let one = arithma::Node::Num(arithma::ExactNum::integer(1));
+        let one_over_x = arithma::Node::Divide(Box::new(one), Box::new(x.clone()));
+        let sum = arithma::Node::Add(Box::new(ln_x), Box::new(one_over_x));
+        let exp_x = arithma::Node::Function("exp".to_string(), vec![x]);
+        let expr = arithma::Node::Multiply(Box::new(sum), Box::new(exp_x));
+        let result_node = integrate(&expr, "x").unwrap();
+        let mut env = Environment::new();
+        env.set("x", 2.0);
+        let val = Evaluator::evaluate(&result_node, &env).unwrap();
+        let expected = 2.0_f64.exp() * 2.0_f64.ln();
+        assert!(
+            approx_eq(val, expected, 0.01),
+            "Expected {:.4}, got {:.4}",
+            expected,
+            val,
+        );
+    }
 }
