@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**772 tests, zero failures.** Every algorithm is verified against known results.
+**794 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -48,9 +48,12 @@ trig powers, inverse trig, partial fractions, trig substitution) plus the
 **Risch algorithm** for transcendental integration — the decision procedure
 that can prove an integral has no elementary closed form. Handles both
 exponential extensions (∫r(x)·e^{g(x)}dx, including rational-coefficient
-integrands like ∫((1-x)/x²)·e^x dx) and logarithmic extensions
-(∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption)
-via Hermite reduction and the Rothstein-Trager resultant method.
+integrands like ∫((1-x)/x²)·e^x dx), logarithmic extensions
+(∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption),
+and **multi-extension towers** (integrands with both exp and ln, like
+∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)) via two-level Risch
+towers with inner DE solving over Q(x)[ln(x)]. All via Hermite reduction
+and the Rothstein-Trager resultant method.
 Taylor/Maclaurin series with exact rational coefficients. Symbolic limits via
 direct substitution, GCD cancellation, and L'Hopital's rule.
 
@@ -198,6 +201,11 @@ $ arithma integrate "\frac{\ln(x)}{x^2}" x
 $ arithma integrate "\frac{\ln(x)}{x + 1}" x
 No elementary antiderivative exists. The integral requires ln(x + 1),
 which is outside the single ln(x) extension tower.
+
+$ arithma integrate "\exp(x) \cdot \ln(x)" x
+No elementary antiderivative exists. The Risch DE q' + (1)·q = θ
+has no solution in Q(x, ln(x)), so the integral cannot be expressed
+in terms of elementary functions.
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -209,7 +217,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 772 tests
+cargo test                                # run all 794 tests
 ```
 
 ## Design principles
