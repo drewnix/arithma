@@ -1974,6 +1974,52 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
     integrate_two_level_exp_log(&outer_coeffs, &inner_ext, &outer_ext, var)
 }
 
+/// Extract numerator and denominator as two-level polynomials from a
+/// Node that is a rational function in θ₂ = exp(g(x)) with θ₁ = ln(x) coefficients.
+///
+/// Returns Some((num, den)) where both are Vec<ExtPoly>, or None if the
+/// expression is not a recognizable rational function in θ₂ with a
+/// non-trivial denominator.
+#[allow(dead_code)]
+fn extract_two_level_rational(
+    expr: &Node,
+    var: &str,
+    exp_arg: &Polynomial,
+) -> Option<(Vec<ExtPoly>, Vec<ExtPoly>)> {
+    match expr {
+        Node::Divide(num_node, den_node) => {
+            let num = node_to_two_level(num_node, var, exp_arg)?;
+            let den = node_to_two_level(den_node, var, exp_arg)?;
+            if den.len() <= 1 {
+                return None;
+            }
+            Some((num, den))
+        }
+        Node::Multiply(left, right) => {
+            // a * (b/c) where c has θ₂
+            if let Node::Divide(n, d) = right.as_ref() {
+                let d_tl = node_to_two_level(d, var, exp_arg)?;
+                if d_tl.len() > 1 {
+                    let l_tl = node_to_two_level(left, var, exp_arg)?;
+                    let n_tl = node_to_two_level(n, var, exp_arg)?;
+                    return Some((mul_two_level(&l_tl, &n_tl, var), d_tl));
+                }
+            }
+            // (a/b) * c where b has θ₂
+            if let Node::Divide(n, d) = left.as_ref() {
+                let d_tl = node_to_two_level(d, var, exp_arg)?;
+                if d_tl.len() > 1 {
+                    let r_tl = node_to_two_level(right, var, exp_arg)?;
+                    let n_tl = node_to_two_level(n, var, exp_arg)?;
+                    return Some((mul_two_level(&r_tl, &n_tl, var), d_tl));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3534,5 +3580,51 @@ mod tests {
             }
             r => panic!("Expected elementary, got {:?}", r),
         }
+    }
+
+    // === Two-level rational parsing tests ===
+
+    #[test]
+    fn test_two_level_rational_ln_over_1_plus_exp() {
+        // ln(x)/(1+exp(x)) → num=[θ₁], den=[1,1]
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let one = Node::Num(ExactNum::integer(1));
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let den = Node::Add(Box::new(one), Box::new(exp_x));
+        let expr = Node::Divide(Box::new(ln_x), Box::new(den));
+        let exp_arg = poly(&[0, 1], "x");
+        let (num, denom) = extract_two_level_rational(&expr, "x", &exp_arg).unwrap();
+        assert_eq!(num.len(), 1);
+        assert_eq!(num[0], ExtPoly::theta("x"));
+        assert_eq!(denom.len(), 2);
+        assert_eq!(denom[0], ExtPoly::from_rf(rf_const(1)));
+        assert_eq!(denom[1], ExtPoly::from_rf(rf_const(1)));
+    }
+
+    #[test]
+    fn test_two_level_rational_exp_ln_over_1_plus_exp() {
+        // exp(x)*ln(x)/(1+exp(x)) → num=[0, θ₁], den=[1,1]
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let num_node = Node::Multiply(Box::new(exp_x.clone()), Box::new(ln_x));
+        let one = Node::Num(ExactNum::integer(1));
+        let den_node = Node::Add(Box::new(one), Box::new(exp_x));
+        let expr = Node::Divide(Box::new(num_node), Box::new(den_node));
+        let exp_arg = poly(&[0, 1], "x");
+        let (num, denom) = extract_two_level_rational(&expr, "x", &exp_arg).unwrap();
+        assert_eq!(num.len(), 2);
+        assert!(num[0].is_zero());
+        assert_eq!(num[1], ExtPoly::theta("x"));
+        assert_eq!(denom.len(), 2);
+    }
+
+    #[test]
+    fn test_two_level_rational_polynomial_returns_none() {
+        // exp(x)*ln(x) has no denominator with θ₂ → None
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(Box::new(exp_x), Box::new(ln_x));
+        let exp_arg = poly(&[0, 1], "x");
+        assert!(extract_two_level_rational(&expr, "x", &exp_arg).is_none());
     }
 }
