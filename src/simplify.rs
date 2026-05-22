@@ -37,6 +37,13 @@ impl Simplifiable for Node {
                     return Ok(result);
                 }
 
+                // a/d + b/d → (a+b)/d
+                if let Some(combined) =
+                    try_combine_fractions(&left_simplified, &right_simplified, false, env)
+                {
+                    return Ok(combined);
+                }
+
                 let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
@@ -281,6 +288,13 @@ impl Simplifiable for Node {
                             ))));
                         }
                     }
+                }
+
+                // a/d - b/d → (a-b)/d
+                if let Some(combined) =
+                    try_combine_fractions(&left_simplified, &right_simplified, true, env)
+                {
+                    return Ok(combined);
                 }
 
                 let result = Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
@@ -961,4 +975,26 @@ fn is_even_integer_expr(node: &Node, env: &Environment) -> bool {
         return n.is_even();
     }
     false
+}
+
+/// Combine fractions with the same denominator: a/d ± b/d → (a±b)/d
+fn try_combine_fractions(
+    left: &Node,
+    right: &Node,
+    subtract: bool,
+    env: &Environment,
+) -> Option<Node> {
+    if let (Node::Divide(ln, ld), Node::Divide(rn, rd)) = (left, right) {
+        if ld == rd {
+            let combined_num = if subtract {
+                Node::Subtract(ln.clone(), rn.clone())
+            } else {
+                Node::Add(ln.clone(), rn.clone())
+            };
+            let simplified_num = combined_num.simplify(env).ok()?;
+            let result = Node::Divide(Box::new(simplified_num), ld.clone());
+            return result.simplify(env).ok();
+        }
+    }
+    None
 }

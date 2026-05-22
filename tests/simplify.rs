@@ -1072,4 +1072,34 @@ mod test_simplify {
         });
         assert_eq!(val.unwrap(), ExactNum::integer(4)); // 7 - 3 = 4
     }
+
+    #[test]
+    fn test_combine_fractions_same_denominator_subtract() {
+        let env = Environment::new();
+        // (2x+4)/(x^2+4x+5) - 1/(x^2+4x+5) → (2x+3)/(x^2+4x+5)
+        let expr =
+            arithma::parse_latex("\\frac{2x+4}{x^2+4x+5} - \\frac{1}{x^2+4x+5}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let expected = arithma::parse_latex("\\frac{2x+3}{x^2+4x+5}", &env).unwrap();
+        let expected_simplified = expected.simplify(&env).unwrap();
+        assert_eq!(
+            format!("{}", result),
+            format!("{}", expected_simplified),
+            "Expected (2x+3)/(x^2+4x+5), got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_combine_fractions_same_denominator_add() {
+        let env = Environment::new();
+        // 1/(x+1) + x/(x+1) → (1+x)/(x+1) → 1
+        let expr = arithma::parse_latex("\\frac{1}{x+1} + \\frac{x}{x+1}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        // (1+x)/(x+1) should simplify to 1
+        let mut test_env = Environment::new();
+        test_env.set("x", 5.0);
+        let val = Evaluator::evaluate(&result, &test_env).unwrap();
+        assert_eq!(val, 1.0, "1/(x+1) + x/(x+1) at x=5 should be 1");
+    }
 }
