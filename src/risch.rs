@@ -2064,7 +2064,6 @@ fn sub_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
 ///
 /// Since θ₁ is transcendental over Q(x), the GCD equals gcd(d, r₀, r₁, ...)
 /// where rⱼ is the coefficient of θ₁ʲ in g_c, extracted as a standard ExtPoly.
-#[allow(dead_code)]
 fn gcd_extpoly_with_two_level(d: &ExtPoly, g_c: &[ExtPoly], var: &str) -> ExtPoly {
     let max_theta1_deg = g_c.iter().filter_map(|ep| ep.degree()).max().unwrap_or(0);
 
@@ -2573,14 +2572,19 @@ fn integrate_rational_two_level(
                     ));
                 }
 
-                // Build log terms for degree-1 denominators
+                // Compute GCD and build log terms for each root
                 let h_den_deg = hr.h_den.degree().unwrap_or(0);
                 let mut gcd_deg_sum = 0;
+                let mut log_terms: Vec<(BigRational, ExtPoly)> = Vec::new();
 
                 for c in &roots {
                     let c_rf = RationalFunction::from_constant(c.clone(), var);
                     // g_c = h_num − c·D(d) as two-level
                     let mut g_c = hr.h_num.clone();
+                    let dd_len = dd.degree().map_or(0, |d| d + 1);
+                    while g_c.len() < dd_len {
+                        g_c.push(ExtPoly::zero(var));
+                    }
                     for (i, g_c_i) in g_c.iter_mut().enumerate() {
                         let dd_coeff = dd.coeff(i);
                         if !dd_coeff.is_zero() {
@@ -2589,34 +2593,11 @@ fn integrate_rational_two_level(
                         }
                     }
 
-                    if h_den_deg == 1 {
-                        // For degree-1 denominator: check divisibility by evaluation
-                        let d0 = hr.h_den.coeff(0);
-                        let d1 = hr.h_den.coeff(1);
-                        let neg_d0_over_d1 = -&d0.checked_div(&d1).ok()?;
-
-                        // Evaluate g_c at θ₂ = -d₀/d₁
-                        let mut val = ExtPoly::zero(var);
-                        let mut pt_power = RationalFunction::one(var);
-                        for gc_i in &g_c {
-                            val = &val + &gc_i.scalar_mul(&pt_power);
-                            pt_power = &pt_power * &neg_d0_over_d1;
-                        }
-
-                        if val.is_zero() {
-                            gcd_deg_sum += h_den_deg;
-                            let v_node = extpoly_to_node(&hr.h_den, &exp_g, var);
-                            let ln_v = Node::Function("ln".to_string(), vec![v_node]);
-                            let term = if *c == BigRational::one() {
-                                ln_v
-                            } else {
-                                Node::Multiply(Box::new(bigrat_to_node(c)), Box::new(ln_v))
-                            };
-                            result_terms.push(term);
-                        }
-                    } else {
-                        // Higher-degree denominators not yet supported
-                        return None;
+                    let v = gcd_extpoly_with_two_level(&hr.h_den, &g_c, var);
+                    let v_deg = v.degree().unwrap_or(0);
+                    gcd_deg_sum += v_deg;
+                    if v_deg > 0 {
+                        log_terms.push((c.clone(), v));
                     }
                 }
 
@@ -2626,6 +2607,18 @@ fn integrate_rational_two_level(
                          Rational residues cover degree {} but denominator has degree {}.",
                         gcd_deg_sum, h_den_deg
                     )));
+                }
+
+                // Build log terms: Σ cᵢ·ln(vᵢ)
+                for (c, v) in &log_terms {
+                    let v_node = extpoly_to_node(v, &exp_g, var);
+                    let ln_v = Node::Function("ln".to_string(), vec![v_node]);
+                    let term = if *c == BigRational::one() {
+                        ln_v
+                    } else {
+                        Node::Multiply(Box::new(bigrat_to_node(c)), Box::new(ln_v))
+                    };
+                    result_terms.push(term);
                 }
 
                 // For exp extensions: compute and integrate residual
@@ -4454,5 +4447,26 @@ mod tests {
         ];
         let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
         assert_eq!(v.make_monic(), d.make_monic());
+    }
+
+    #[test]
+    fn test_integrate_rational_two_level_degree2_non_elementary() {
+        // ∫ln(x)/(1+exp(2x)) dx → non-elementary
+        // d = 1 + θ₂² (degree 2), a = [θ₁]
+        // Previously returned None (unsupported). Now should return NonElementary.
+        let num = vec![ExtPoly::theta("x")];
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(0), rf_const(1)], "x");
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected non-elementary, got {:?}", other),
+        }
     }
 }
