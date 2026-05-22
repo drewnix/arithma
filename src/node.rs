@@ -73,6 +73,30 @@ impl Node {
             write!(f, "{}", child)
         }
     }
+
+    /// Format a node as if it were a right child of an Add node at the given precedence.
+    /// Used when we synthesize a positive version of a negative Multiply term.
+    fn fmt_as_add_right_child(
+        child: &Node,
+        parent_prec: u8,
+        f: &mut fmt::Formatter,
+    ) -> fmt::Result {
+        let child_prec = child.precedence();
+        if child_prec < parent_prec {
+            write!(f, "({})", child)
+        } else {
+            write!(f, "{}", child)
+        }
+    }
+
+    /// Check if a node is "variable-like" for implicit multiplication purposes:
+    /// variables, powers, sqrt, or named functions.
+    fn is_var_like(node: &Node) -> bool {
+        matches!(
+            node,
+            Node::Variable(_) | Node::Power(_, _) | Node::Sqrt(_) | Node::Function(_, _)
+        )
+    }
 }
 
 impl fmt::Display for Node {
@@ -82,8 +106,32 @@ impl fmt::Display for Node {
             Node::Variable(v) => write!(f, "{}", v),
             Node::Add(left, right) => {
                 self.fmt_child(left, 2, false, f)?;
-                write!(f, " + ")?;
-                self.fmt_child(right, 2, true, f)
+                match right.as_ref() {
+                    Node::Negate(inner) => {
+                        write!(f, " - ")?;
+                        Node::fmt_as_add_right_child(inner, 2, f)
+                    }
+                    Node::Multiply(l, _r) => {
+                        if let Node::Num(n) = l.as_ref() {
+                            if n.is_negative() {
+                                write!(f, " - ")?;
+                                let abs_n = n.abs();
+                                let pos = Node::Multiply(Box::new(Node::Num(abs_n)), _r.clone());
+                                Node::fmt_as_add_right_child(&pos, 2, f)
+                            } else {
+                                write!(f, " + ")?;
+                                self.fmt_child(right, 2, true, f)
+                            }
+                        } else {
+                            write!(f, " + ")?;
+                            self.fmt_child(right, 2, true, f)
+                        }
+                    }
+                    _ => {
+                        write!(f, " + ")?;
+                        self.fmt_child(right, 2, true, f)
+                    }
+                }
             }
             Node::Subtract(left, right) => {
                 self.fmt_child(left, 2, false, f)?;
@@ -91,12 +139,9 @@ impl fmt::Display for Node {
                 self.fmt_child(right, 2, true, f)
             }
             Node::Multiply(left, right) => {
-                let is_var_like = matches!(
-                    &**right,
-                    Node::Variable(_) | Node::Power(_, _) | Node::Sqrt(_)
-                );
+                // Coefficient (number) on left, var-like on right: implicit mul
                 if let Node::Num(l) = &**left {
-                    if is_var_like {
+                    if Node::is_var_like(right) {
                         if l.is_one() {
                             return write!(f, "{}", right);
                         }
@@ -105,6 +150,20 @@ impl fmt::Display for Node {
                         }
                         if l.is_integer() {
                             return write!(f, "{}{}", l, right);
+                        }
+                    }
+                }
+                // Coefficient (number) on right, var-like on left: swap for display
+                if let Node::Num(r) = &**right {
+                    if Node::is_var_like(left) {
+                        if r.is_one() {
+                            return write!(f, "{}", left);
+                        }
+                        if *r == ExactNum::integer(-1) {
+                            return write!(f, "-{}", left);
+                        }
+                        if r.is_integer() {
+                            return write!(f, "{}{}", r, left);
                         }
                     }
                 }
