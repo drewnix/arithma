@@ -4505,4 +4505,26 @@ mod tests {
             None => panic!("Expected elementary, got None"),
         }
     }
+
+    #[test]
+    fn test_gcd_two_level_with_x_coefficients() {
+        // d = θ₂² - x²  (RationalFunction coefficients)
+        // g_c = [x, 0, -x] = x(1 - θ₂²)
+        // d = (θ₂-x)(θ₂+x), g_c = -x(θ₂-1)(θ₂+1)
+        // gcd = 1 (coprime — different roots)
+        let x_rf = RationalFunction::from_poly(poly(&[0, 1], "x"));
+        let neg_x_sq = -&(&x_rf * &x_rf);
+        let d = ExtPoly::from_coeffs(vec![neg_x_sq, rf_const(0), rf_const(1)], "x");
+        let g_c = vec![
+            ExtPoly::from_rf(x_rf.clone()),
+            ExtPoly::zero("x"),
+            ExtPoly::from_rf(-&x_rf),
+        ];
+        let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
+        assert!(
+            v.is_constant(),
+            "GCD should be 1, got degree {:?}",
+            v.degree()
+        );
+    }
 }

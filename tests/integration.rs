@@ -553,4 +553,19 @@ mod integration_tests {
             "Should be NON_ELEMENTARY"
         );
     }
+
+    #[test]
+    fn test_integrate_ln_x_over_1_plus_exp_2x_non_elementary() {
+        // ∫ln(x)/(1+exp(2x)) dx → non-elementary (degree-2 denominator)
+        let result = integrate_latex("\\frac{\\ln(x)}{1 + \\exp(2x)}", "x");
+        assert!(
+            result.is_err(),
+            "∫ln(x)/(1+exp(2x))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
 }
