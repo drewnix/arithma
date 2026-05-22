@@ -568,4 +568,21 @@ mod integration_tests {
             "Should be NON_ELEMENTARY"
         );
     }
+
+    // ===== Log-over-exp tower integration =====
+
+    #[test]
+    fn test_integrate_ln_1_plus_exp_x_non_elementary() {
+        // ∫ln(1+exp(x)) dx → non-elementary (involves Li₂)
+        let result = integrate_latex("\\ln(1 + \\exp(x))", "x");
+        assert!(
+            result.is_err(),
+            "∫ln(1+exp(x))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
 }
