@@ -1808,6 +1808,62 @@ fn scalar_mul_two_level(v: &[ExtPoly], s: &ExtPoly) -> Vec<ExtPoly> {
     r
 }
 
+/// Solve the Risch DE q' + f·q = g in the logarithmic extension field Q(x)[θ₁],
+/// where θ₁ = ln(x) and f ∈ Q[x].
+///
+/// Returns q ∈ Q(x)[θ₁] as an ExtPoly, or None if no solution exists.
+///
+/// The derivative q' uses the tower rule: d/dx[θ₁] = 1/x, so
+/// d/dx[Σ bₖ·θ₁ᵏ] = Σ (bₖ' + (k+1)·b_{k+1}/x)·θ₁ᵏ.
+///
+/// At each θ₁-degree k (top-down from n):
+///   bₖ' + f·bₖ = gₖ − (k+1)·b_{k+1}/x
+///
+/// Each is a standard Risch DE over Q(x), solved by `solve_risch_de_rational`.
+#[allow(dead_code)]
+fn solve_risch_de_in_log_ext(
+    f: &Polynomial,
+    g: &ExtPoly,
+    var: &str,
+) -> Option<ExtPoly> {
+    if g.is_zero() {
+        return Some(ExtPoly::zero(var));
+    }
+
+    let n = g.degree().unwrap_or(0);
+    let mut b: Vec<RationalFunction> = vec![RationalFunction::zero(var); n + 1];
+    let x_rf = RationalFunction::from_poly(Polynomial::x(var));
+
+    for k in (0..=n).rev() {
+        let g_k = g.coeff(k);
+
+        // Correction from higher degree: (k+1)·b_{k+1}/x
+        let correction = if k < n {
+            let scale = BigRational::from_integer(BigInt::from(k as i64 + 1));
+            let scaled_b = &b[k + 1] * &RationalFunction::from_constant(scale, var);
+            match scaled_b.checked_div(&x_rf) {
+                Ok(result) => result,
+                Err(_) => return None,
+            }
+        } else {
+            RationalFunction::zero(var)
+        };
+
+        let rhs = &g_k - &correction;
+
+        if rhs.is_zero() && f.is_zero() {
+            continue;
+        }
+
+        match solve_risch_de_rational(f, &rhs, var) {
+            Some(bk) => b[k] = bk,
+            None => return None,
+        }
+    }
+
+    Some(ExtPoly::from_coeffs(b, var))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3179,5 +3235,81 @@ mod tests {
         let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], ExtPoly::from_rf(rf_const(3)));
+    }
+
+    // === Inner Risch DE in log extension tests ===
+
+    #[test]
+    fn test_inner_de_constant_rhs() {
+        // q' + q = 1 → q = 1
+        let f = poly(&[1], "x");
+        let g = ExtPoly::from_rf(rf_const(1));
+        let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
+        assert_eq!(result, ExtPoly::from_rf(rf_const(1)));
+    }
+
+    #[test]
+    fn test_inner_de_theta1_rhs_elementary() {
+        // q' + q = θ₁ + 1/x → q = θ₁ (b₁=1, b₀=0)
+        // Check: d/dx[ln(x)] = 1/x, so q'+q = 1/x + ln(x) ✓
+        let f = poly(&[1], "x");
+        let one_over_x = RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x"));
+        let g = ExtPoly::from_coeffs(vec![one_over_x, RationalFunction::one("x")], "x");
+        let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
+        assert_eq!(result, ExtPoly::theta("x"));
+    }
+
+    #[test]
+    fn test_inner_de_theta1_rhs_non_elementary() {
+        // q' + q = θ₁ (just ln(x))
+        // b₁' + b₁ = 1 → b₁ = 1
+        // b₀' + b₀ = 0 - 1·1/x = -1/x → no rational solution (simple pole)
+        let f = poly(&[1], "x");
+        let g = ExtPoly::from_coeffs(
+            vec![RationalFunction::zero("x"), RationalFunction::one("x")],
+            "x",
+        );
+        let result = solve_risch_de_in_log_ext(&f, &g, "x");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_inner_de_theta1_squared_rhs() {
+        // q' + q = θ₁² + 2θ₁/x → q = θ₁²
+        // b₂' + b₂ = 1 → b₂ = 1
+        // b₁' + b₁ = 2/x - 2·1/x = 0 → b₁ = 0
+        // b₀' + b₀ = 0 - 1·0/x = 0 → b₀ = 0
+        let f = poly(&[1], "x");
+        let two_over_x = RationalFunction::new(poly(&[2], "x"), poly(&[0, 1], "x"));
+        let g = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::zero("x"),
+                two_over_x,
+                RationalFunction::one("x"),
+            ],
+            "x",
+        );
+        let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
+        let theta = ExtPoly::theta("x");
+        assert_eq!(result, &theta * &theta);
+    }
+
+    #[test]
+    fn test_inner_de_zero_rhs() {
+        // q' + q = 0 → q = 0
+        let f = poly(&[1], "x");
+        let g = ExtPoly::zero("x");
+        let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
+        assert!(result.is_zero());
+    }
+
+    #[test]
+    fn test_inner_de_2x_coefficient() {
+        // q' + 2x·q = 2x → q = 1 (b₀ = 1)
+        // Check: 0 + 2x·1 = 2x ✓
+        let f = poly(&[0, 2], "x");
+        let g = ExtPoly::from_rf(rf_poly(&[0, 2]));
+        let result = solve_risch_de_in_log_ext(&f, &g, "x").unwrap();
+        assert_eq!(result, ExtPoly::from_rf(rf_const(1)));
     }
 }
