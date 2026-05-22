@@ -152,6 +152,62 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
+        // Handle \sin^2(x) → sin(x)^2 pattern for known trig/math functions
+        let known_power_functions = [
+            "sin", "cos", "tan", "sec", "csc", "cot", "sinh", "cosh", "tanh", "coth", "arcsin",
+            "arccos", "arctan", "ln", "log", "exp",
+        ];
+        if known_power_functions.contains(&stripped_token.as_str())
+            && self.chars.peek() == Some(&'^')
+        {
+            self.chars.next(); // consume '^'
+                               // Read exponent: either {group} or single character
+            let power_str = if self.chars.peek() == Some(&'{') {
+                self.chars.next(); // consume '{'
+                self.consume_brace_group().unwrap_or_default()
+            } else if let Some(&c) = self.chars.peek() {
+                self.chars.next();
+                c.to_string()
+            } else {
+                String::new()
+            };
+            // Skip whitespace before argument
+            while self.chars.peek().is_some_and(|c| c.is_whitespace()) {
+                self.chars.next();
+            }
+            // If next char is '(', consume the balanced paren group and reorder
+            if self.chars.peek() == Some(&'(') {
+                self.chars.next(); // consume '('
+                let mut depth = 1;
+                let mut arg_str = String::new();
+                while let Some(&ch) = self.chars.peek() {
+                    self.chars.next();
+                    if ch == '(' {
+                        depth += 1;
+                    }
+                    if ch == ')' {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    arg_str.push(ch);
+                }
+                // Emit: ( func ( arg_tokens ) ) ^ power
+                let arg_tokens = Tokenizer::new(&arg_str).tokenize();
+                tokens.push("(".to_string());
+                tokens.push(stripped_token.clone());
+                tokens.push("(".to_string());
+                tokens.extend(arg_tokens);
+                tokens.push(")".to_string());
+                tokens.push(")".to_string());
+                tokens.push("^".to_string());
+                tokens.push(power_str);
+                current_token.clear();
+                return;
+            }
+        }
+
         match stripped_token.as_str() {
             "pi" => tokens.push(std::f64::consts::PI.to_string()),
             "mathrm" => {
@@ -510,6 +566,41 @@ mod tests {
         assert_eq!(
             tokens,
             vec!["(", "3", "+", "(", "2", "*", "(", "4", "/", "2", ")", ")", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_power_before_arg() {
+        // \sin^2(x) should reorder to (sin(x))^2
+        let mut tokenizer = Tokenizer::new("\\sin^2(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["(", "sin", "(", "x", ")", ")", "^", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_cos_power_brace_before_arg() {
+        // \cos^{3}(x) should reorder to (cos(x))^3
+        let mut tokenizer = Tokenizer::new("\\cos^{3}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["(", "cos", "(", "x", ")", ")", "^", "3"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_power_after_arg_unchanged() {
+        // \sin(x)^2 should remain sin(x)^2 (no reordering needed)
+        let mut tokenizer = Tokenizer::new("\\sin(x)^2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["sin", "(", "x", ")", "^", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_power_compound_arg() {
+        // \sin^2(x + 1) should reorder to (sin(x + 1))^2
+        let mut tokenizer = Tokenizer::new("\\sin^2(x + 1)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "sin", "(", "x", "+", "1", ")", ")", "^", "2"]
         );
     }
 }
