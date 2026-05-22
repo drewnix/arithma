@@ -1770,6 +1770,139 @@ fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec
     }
 }
 
+/// Parse an expression as polynomial in θ₂ = ln(h(x, θ₁)) with ExtPoly (θ₁=exp(g)) coefficients.
+/// Returns Vec<ExtPoly> where index i = coefficient of θ₂ⁱ.
+#[allow(dead_code)]
+fn node_to_two_level_log_over_exp(
+    expr: &Node,
+    var: &str,
+    exp_arg: &Polynomial,
+    h: &ExtPoly,
+) -> Option<Vec<ExtPoly>> {
+    let kind = ExtensionKind::Exponential(exp_arg.clone());
+    match expr {
+        Node::Num(n) => {
+            if let ExactNum::Rational(val) = n {
+                let rf = RationalFunction::from_constant(val.clone(), var);
+                Some(vec![ExtPoly::from_rf(rf)])
+            } else {
+                None
+            }
+        }
+        Node::Variable(v) if v == var => {
+            let rf = RationalFunction::from_poly(Polynomial::x(var));
+            Some(vec![ExtPoly::from_rf(rf)])
+        }
+        Node::Variable(_) => None,
+        Node::Function(name, args) if name == "exp" && args.len() == 1 => {
+            // exp(g(x)) → θ₁ as coefficient (degree 0 in θ₂)
+            if let Ok(arg_poly) = Polynomial::from_node(&args[0], var) {
+                if arg_poly == *exp_arg {
+                    let theta1 = ExtPoly::from_coeffs(
+                        vec![RationalFunction::zero(var), RationalFunction::one(var)],
+                        var,
+                    );
+                    return Some(vec![theta1]);
+                }
+            }
+            None
+        }
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            // Check if this is ln(h) — our θ₂
+            let arg_ep = node_to_extpoly_general(&args[0], var, &kind)?;
+            if arg_ep == *h {
+                return Some(vec![ExtPoly::zero(var), ExtPoly::one(var)]);
+            }
+            None
+        }
+        Node::Power(base, exp_node) => {
+            // Handle ln(h)^n = θ₂^n
+            if let Node::Function(name, args) = base.as_ref() {
+                if name == "ln" && args.len() == 1 {
+                    let arg_ep = node_to_extpoly_general(&args[0], var, &kind)?;
+                    if arg_ep == *h {
+                        if let Node::Num(n) = exp_node.as_ref() {
+                            if let Some(e) = n.to_i64() {
+                                if e >= 1 {
+                                    let mut result = vec![ExtPoly::zero(var); e as usize + 1];
+                                    result[e as usize] = ExtPoly::one(var);
+                                    return Some(result);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle exp(g)^n = θ₁^n
+            if let Node::Function(name, args) = base.as_ref() {
+                if name == "exp" && args.len() == 1 {
+                    if let Ok(arg_poly) = Polynomial::from_node(&args[0], var) {
+                        if arg_poly == *exp_arg {
+                            if let Node::Num(n) = exp_node.as_ref() {
+                                if let Some(e) = n.to_i64() {
+                                    if e >= 1 {
+                                        let mut coeffs =
+                                            vec![RationalFunction::zero(var); e as usize + 1];
+                                        coeffs[e as usize] = RationalFunction::one(var);
+                                        return Some(vec![ExtPoly::from_coeffs(coeffs, var)]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle x^n
+            if let Node::Variable(v) = base.as_ref() {
+                if v == var {
+                    if let Node::Num(n) = exp_node.as_ref() {
+                        if let Some(e) = n.to_i64() {
+                            if e >= 1 {
+                                let p = Polynomial::monomial(BigRational::one(), e as usize, var);
+                                return Some(vec![ExtPoly::from_rf(RationalFunction::from_poly(
+                                    p,
+                                ))]);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Node::Negate(inner) => {
+            let v = node_to_two_level_log_over_exp(inner, var, exp_arg, h)?;
+            Some(negate_two_level(&v))
+        }
+        Node::Add(l, r) => {
+            let left = node_to_two_level_log_over_exp(l, var, exp_arg, h)?;
+            let right = node_to_two_level_log_over_exp(r, var, exp_arg, h)?;
+            Some(add_two_level(&left, &right, var))
+        }
+        Node::Subtract(l, r) => {
+            let left = node_to_two_level_log_over_exp(l, var, exp_arg, h)?;
+            let right = node_to_two_level_log_over_exp(r, var, exp_arg, h)?;
+            Some(sub_two_level(&left, &right, var))
+        }
+        Node::Multiply(l, r) => {
+            let left = node_to_two_level_log_over_exp(l, var, exp_arg, h)?;
+            let right = node_to_two_level_log_over_exp(r, var, exp_arg, h)?;
+            Some(mul_two_level(&left, &right, var))
+        }
+        Node::Divide(num, den) => {
+            // Only handle x-polynomial denominators
+            let den_poly = Polynomial::from_node(den, var).ok()?;
+            if den_poly.is_zero() {
+                return None;
+            }
+            let num_v = node_to_two_level_log_over_exp(num, var, exp_arg, h)?;
+            let inv = RationalFunction::new(Polynomial::one(var), den_poly);
+            let inv_ep = ExtPoly::from_rf(inv);
+            Some(scalar_mul_two_level(&num_v, &inv_ep))
+        }
+        _ => None,
+    }
+}
+
 fn negate_two_level(v: &[ExtPoly]) -> Vec<ExtPoly> {
     v.iter().map(|c| -c).collect()
 }
@@ -4598,5 +4731,63 @@ mod tests {
         // ln(x) → None (the arg has no exp)
         let expr = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
         assert!(find_ln_of_exp_argument(&expr, "x").is_none());
+    }
+
+    // === Log-over-exp parser tests ===
+
+    #[test]
+    fn test_log_over_exp_parse_bare_ln() {
+        // ln(1+exp(x)) → [0, 1] (= θ₂)
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "exp".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )],
+        );
+        let exp_arg = poly(&[0, 1], "x");
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let result = node_to_two_level_log_over_exp(&expr, "x", &exp_arg, &h).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        assert_eq!(result[1], ExtPoly::one("x"));
+    }
+
+    #[test]
+    fn test_log_over_exp_parse_exp_times_ln() {
+        // exp(x) * ln(1+exp(x)) → [0, θ₁] (= θ₁·θ₂)
+        let ln_part = Node::Function(
+            "ln".to_string(),
+            vec![Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "exp".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )],
+        );
+        let exp_part = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(Box::new(exp_part), Box::new(ln_part));
+        let exp_arg = poly(&[0, 1], "x");
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let result = node_to_two_level_log_over_exp(&expr, "x", &exp_arg, &h).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        let theta1 = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        assert_eq!(result[1], theta1);
+    }
+
+    #[test]
+    fn test_log_over_exp_parse_constant() {
+        // 3 → [3] (constant)
+        let expr = Node::Num(ExactNum::integer(3));
+        let exp_arg = poly(&[0, 1], "x");
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let result = node_to_two_level_log_over_exp(&expr, "x", &exp_arg, &h).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], ExtPoly::from_rf(rf_const(3)));
     }
 }
