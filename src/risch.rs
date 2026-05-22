@@ -2622,23 +2622,32 @@ fn integrate_rational_two_level(
                 }
 
                 // For exp extensions: compute and integrate residual
-                let mut log_deriv_num =
-                    vec![ExtPoly::zero(var); hr.h_num.len().max(dd.degree().unwrap_or(0) + 1)];
-                for c in &roots {
+                // residual_num = h_num - Σ cᵢ · (h_den/vᵢ) · D(vᵢ)  (over common den h_den)
+                let max_len = hr.h_num.len().max(dd.degree().map_or(1, |d| d + 1));
+                let mut log_deriv_num = vec![ExtPoly::zero(var); max_len];
+
+                for (c, v) in &log_terms {
+                    let (w, rem) = hr.h_den.div_rem(v).unwrap();
+                    debug_assert!(rem.is_zero(), "v should divide h_den");
+                    let dv = outer_ext.differentiate(v);
+                    let w_dv = &w * &dv;
                     let c_rf = RationalFunction::from_constant(c.clone(), var);
-                    // v = h_den for degree-1 case, D(v) = dd
-                    for (i, ldn_i) in log_deriv_num.iter_mut().enumerate() {
-                        let dd_coeff = dd.coeff(i);
-                        if !dd_coeff.is_zero() {
-                            let term = ExtPoly::from_rf(&dd_coeff * &c_rf);
-                            *ldn_i = &*ldn_i + &term;
+                    let scaled = w_dv.scalar_mul(&c_rf);
+                    for i in 0..=scaled.degree().unwrap_or(0) {
+                        let coeff = scaled.coeff(i);
+                        if !coeff.is_zero() {
+                            if i >= log_deriv_num.len() {
+                                log_deriv_num.resize(i + 1, ExtPoly::zero(var));
+                            }
+                            let term = ExtPoly::from_rf(coeff);
+                            log_deriv_num[i] = &log_deriv_num[i] + &term;
                         }
                     }
                 }
+
                 let residual = sub_two_level(&hr.h_num, &log_deriv_num, var);
 
                 if !residual.iter().all(|ep| ep.is_zero()) {
-                    // Divide residual by h_den to get polynomial
                     let (poly_residual, rem) =
                         div_rem_two_level_by_extpoly(&residual, &hr.h_den, var)?;
                     if !rem.iter().all(|ep| ep.is_zero()) {
@@ -4467,6 +4476,33 @@ mod tests {
         match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x") {
             Some(RischResult::NonElementary(_)) => {}
             other => panic!("Expected non-elementary, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_two_level_degree2_no_theta1_elementary() {
+        // Route 1/(θ₂²-1) through two-level pipeline (no θ₁).
+        // ∫1/(exp(2x)-1)dx. d=θ₂²-1, D(d)=2θ₂².
+        // R(z) = (1-2z)² → root z=1/2.
+        // g_c = 1-(1/2)·2θ₂² = 1-θ₂²
+        // gcd(θ₂²-1, 1-θ₂²) = θ₂²-1 → v = d.
+        // Result should be elementary.
+        let num = vec![ExtPoly::from_rf(rf_const(1))];
+        let den = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x") {
+            Some(RischResult::Elementary(_)) => {}
+            Some(RischResult::NonElementary(msg)) => {
+                panic!("Expected elementary, got non-elementary: {}", msg)
+            }
+            None => panic!("Expected elementary, got None"),
         }
     }
 }
