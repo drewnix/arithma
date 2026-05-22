@@ -1955,6 +1955,42 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
         _ => return None,
     };
 
+    // Try rational case first: expression has Divide with θ₂ in denominator
+    if let Some((num_tl, den_tl)) = extract_two_level_rational(expr, var, &exp_poly) {
+        if let Some(den_ep) = two_level_to_extpoly(&den_tl, var) {
+            let inner_ext = DifferentialExtension::logarithmic(
+                RationalFunction::from_poly(Polynomial::x(var)),
+                var,
+            );
+            let outer_ext = DifferentialExtension::exponential(
+                RationalFunction::from_poly(exp_poly.clone()),
+                var,
+            );
+            return integrate_rational_two_level(&num_tl, &den_ep, &inner_ext, &outer_ext, var);
+        }
+    }
+
+    // Try after simplification for rational case
+    {
+        let env = crate::environment::Environment::new();
+        let simplified =
+            crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+        if let Some((num_tl, den_tl)) = extract_two_level_rational(&simplified, var, &exp_poly) {
+            if let Some(den_ep) = two_level_to_extpoly(&den_tl, var) {
+                let inner_ext = DifferentialExtension::logarithmic(
+                    RationalFunction::from_poly(Polynomial::x(var)),
+                    var,
+                );
+                let outer_ext = DifferentialExtension::exponential(
+                    RationalFunction::from_poly(exp_poly.clone()),
+                    var,
+                );
+                return integrate_rational_two_level(&num_tl, &den_ep, &inner_ext, &outer_ext, var);
+            }
+        }
+    }
+
+    // Polynomial case (existing code)
     let build_result = node_to_two_level(expr, var, &exp_poly);
 
     let outer_coeffs = match build_result {
@@ -1980,7 +2016,6 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
 /// Returns Some((num, den)) where both are Vec<ExtPoly>, or None if the
 /// expression is not a recognizable rational function in θ₂ with a
 /// non-trivial denominator.
-#[allow(dead_code)]
 fn extract_two_level_rational(
     expr: &Node,
     var: &str,
@@ -2020,14 +2055,12 @@ fn extract_two_level_rational(
     }
 }
 
-#[allow(dead_code)]
 fn sub_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     let neg_b = negate_two_level(b);
     add_two_level(a, &neg_b, var)
 }
 
 /// Result of two-level Hermite reduction.
-#[allow(dead_code)]
 struct HermiteResultTwoLevel {
     /// Numerator of rational part (θ₁-structured, indexed by θ₂ degree)
     g_num: Vec<ExtPoly>,
@@ -2044,7 +2077,6 @@ struct HermiteResultTwoLevel {
 ///
 /// Exploits linearity: runs existing `hermite_reduce` on each θ₁-degree
 /// independently, then combines. The h_den is identical for all θ₁-degrees.
-#[allow(dead_code)]
 fn hermite_reduce_two_level(
     num: &[ExtPoly],
     den: &ExtPoly,
@@ -2156,7 +2188,6 @@ fn hermite_reduce_two_level(
 ///
 /// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), D(d) ∈ Q(x)[θ₂].
 /// Returns R(z) as Vec<ExtPoly> — polynomial in z with ExtPoly-in-θ₁ coefficients.
-#[allow(dead_code)]
 fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &str) -> Vec<ExtPoly> {
     let m = d.degree().unwrap_or(0);
     let n = {
@@ -2214,7 +2245,6 @@ fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &st
 
 /// Determinant of a square matrix whose entries are Vec<ExtPoly>
 /// (polynomials in z with ExtPoly coefficients).
-#[allow(dead_code)]
 fn two_level_det(m: &[Vec<Vec<ExtPoly>>], var: &str) -> Vec<ExtPoly> {
     let n = m.len();
     if n == 0 {
@@ -2256,7 +2286,6 @@ fn two_level_det(m: &[Vec<Vec<ExtPoly>>], var: &str) -> Vec<ExtPoly> {
 ///
 /// Strategy: specialize x, evaluate θ₁-degree-0 coefficients to get Q[z],
 /// find rational roots, verify as ExtPoly identities.
-#[allow(dead_code)]
 fn find_constant_roots_two_level(rz: &[ExtPoly], var: &str) -> Vec<BigRational> {
     let deg = match rz.len().checked_sub(1) {
         Some(d) if d > 0 => d,
@@ -2319,6 +2348,311 @@ fn find_constant_roots_two_level(rz: &[ExtPoly], var: &str) -> Vec<BigRational> 
     }
 
     verified
+}
+
+/// Polynomial long division: two-level numerator / standard ExtPoly denominator.
+/// Requires den's leading coefficient to be invertible in Q(x).
+fn div_rem_two_level_by_extpoly(
+    num: &[ExtPoly],
+    den: &ExtPoly,
+    var: &str,
+) -> Option<(Vec<ExtPoly>, Vec<ExtPoly>)> {
+    if den.is_zero() {
+        return None;
+    }
+    let den_deg = den.degree().unwrap();
+
+    // If numerator degree < denominator degree, quotient is 0
+    let num_effective_len = {
+        let mut l = num.len();
+        while l > 0 && num[l - 1].is_zero() {
+            l -= 1;
+        }
+        l
+    };
+    if num_effective_len == 0 || num_effective_len <= den_deg {
+        return Some((vec![ExtPoly::zero(var)], num.to_vec()));
+    }
+
+    let den_lc = den.leading_coeff().unwrap();
+    let den_lc_inv = RationalFunction::one(var).checked_div(den_lc).ok()?;
+
+    let mut remainder = num.to_vec();
+    let num_deg = num_effective_len - 1;
+    let mut quotient = vec![ExtPoly::zero(var); num_deg - den_deg + 1];
+
+    loop {
+        // Find effective degree of remainder
+        let rem_deg = {
+            let mut d = remainder.len();
+            while d > 0 && remainder[d - 1].is_zero() {
+                d -= 1;
+            }
+            if d == 0 || d - 1 < den_deg {
+                break;
+            }
+            d - 1
+        };
+
+        let rem_lc = remainder[rem_deg].clone();
+        let q_coeff = rem_lc.scalar_mul(&den_lc_inv);
+        let deg_diff = rem_deg - den_deg;
+        quotient[deg_diff] = q_coeff.clone();
+
+        // Subtract q_coeff * den (shifted by deg_diff) from remainder
+        for k in 0..=den_deg {
+            let den_k = den.coeff(k);
+            if den_k.is_zero() {
+                continue;
+            }
+            let sub = q_coeff.scalar_mul(&den_k);
+            let idx = deg_diff + k;
+            if idx < remainder.len() {
+                remainder[idx] = &remainder[idx] - &sub;
+            }
+        }
+    }
+
+    // Strip trailing zeros from remainder
+    while remainder.last().is_some_and(|c| c.is_zero()) {
+        remainder.pop();
+    }
+    if remainder.is_empty() {
+        remainder.push(ExtPoly::zero(var));
+    }
+
+    Some((quotient, remainder))
+}
+
+/// Convert a two-level polynomial to a standard ExtPoly, if all
+/// coefficients are in Q(x) (no θ₁ terms).
+fn two_level_to_extpoly(tl: &[ExtPoly], var: &str) -> Option<ExtPoly> {
+    let coeffs: Option<Vec<RationalFunction>> = tl
+        .iter()
+        .map(|ep| {
+            if ep.degree().unwrap_or(0) > 0 {
+                None
+            } else {
+                Some(ep.coeff(0))
+            }
+        })
+        .collect();
+    Some(ExtPoly::from_coeffs(coeffs?, var))
+}
+
+/// Convert a two-level polynomial to a Node expression.
+/// Produces: Σ cᵢ(θ₁) · θ₂ⁱ where cᵢ is rendered via extpoly_to_node.
+fn two_level_to_node(
+    coeffs: &[ExtPoly],
+    theta1_node: &Node,
+    theta2_node: &Node,
+    var: &str,
+) -> Node {
+    let mut terms: Vec<Node> = Vec::new();
+    for (i, ci) in coeffs.iter().enumerate() {
+        if ci.is_zero() {
+            continue;
+        }
+        let ci_node = extpoly_to_node(ci, theta1_node, var);
+        let term = if i == 0 {
+            ci_node
+        } else {
+            let theta2_power = if i == 1 {
+                theta2_node.clone()
+            } else {
+                Node::Power(
+                    Box::new(theta2_node.clone()),
+                    Box::new(Node::Num(ExactNum::integer(i as i64))),
+                )
+            };
+            Node::Multiply(Box::new(ci_node), Box::new(theta2_power))
+        };
+        terms.push(term);
+    }
+    if terms.is_empty() {
+        return Node::Num(ExactNum::zero());
+    }
+    let mut result = terms.remove(0);
+    for t in terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    result
+}
+
+/// Integrate a rational function in θ₂ = exp(g(x)) with θ₁ = ln(x) coefficients.
+///
+/// num is Vec<ExtPoly> (polynomial in θ₂ with θ₁ coefficients).
+/// den is ExtPoly ∈ Q(x)[θ₂] (no θ₁ in denominator).
+///
+/// Pipeline: polynomial division → Hermite reduce → RT → result assembly.
+fn integrate_rational_two_level(
+    num: &[ExtPoly],
+    den: &ExtPoly,
+    inner_ext: &DifferentialExtension,
+    outer_ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    if den.is_zero() {
+        return None;
+    }
+
+    // Polynomial long division
+    let (quotient, remainder) = div_rem_two_level_by_extpoly(num, den, var)?;
+
+    let ln_x = Node::Function("ln".to_string(), vec![Node::Variable(var.to_string())]);
+    let g_node = outer_ext.argument().numerator().to_node();
+    let exp_g = Node::Function("exp".to_string(), vec![g_node]);
+    let mut result_terms: Vec<Node> = Vec::new();
+
+    // Integrate the polynomial quotient
+    if !quotient.iter().all(|ep| ep.is_zero()) {
+        match integrate_two_level_exp_log(&quotient, inner_ext, outer_ext, var) {
+            Some(RischResult::Elementary(n)) => result_terms.push(n),
+            Some(RischResult::NonElementary(r)) => return Some(RischResult::NonElementary(r)),
+            None => return None,
+        }
+    }
+
+    // Handle proper rational remainder
+    if !remainder.iter().all(|ep| ep.is_zero()) {
+        // Hermite reduce
+        let hr = hermite_reduce_two_level(&remainder, den, var).ok()?;
+
+        // Rational part from Hermite reduction
+        if !hr.g_num.iter().all(|ep| ep.is_zero()) {
+            let g_num_node = two_level_to_node(&hr.g_num, &ln_x, &exp_g, var);
+            let g_den_node = extpoly_to_node(&hr.g_den, &exp_g, var);
+            result_terms.push(Node::Divide(Box::new(g_num_node), Box::new(g_den_node)));
+        }
+
+        // Squarefree remainder
+        if !hr.h_num.iter().all(|ep| ep.is_zero()) {
+            if hr.h_den.is_constant() {
+                // Polynomial remainder
+                match integrate_two_level_exp_log(&hr.h_num, inner_ext, outer_ext, var) {
+                    Some(RischResult::Elementary(n)) => result_terms.push(n),
+                    Some(RischResult::NonElementary(r)) => {
+                        return Some(RischResult::NonElementary(r))
+                    }
+                    None => return None,
+                }
+            } else {
+                // Rothstein-Trager on squarefree remainder
+                let dd = outer_ext.differentiate(&hr.h_den);
+                let rz = rothstein_trager_two_level(&hr.h_den, &hr.h_num, &dd, var);
+                let roots = find_constant_roots_two_level(&rz, var);
+
+                if roots.is_empty() {
+                    return Some(RischResult::NonElementary(
+                        "No elementary antiderivative exists. \
+                         The two-level Rothstein-Trager resultant has no constant roots, \
+                         so the integral cannot be expressed in terms of elementary functions."
+                            .into(),
+                    ));
+                }
+
+                // Build log terms for degree-1 denominators
+                let h_den_deg = hr.h_den.degree().unwrap_or(0);
+                let mut gcd_deg_sum = 0;
+
+                for c in &roots {
+                    let c_rf = RationalFunction::from_constant(c.clone(), var);
+                    // g_c = h_num − c·D(d) as two-level
+                    let mut g_c = hr.h_num.clone();
+                    for (i, g_c_i) in g_c.iter_mut().enumerate() {
+                        let dd_coeff = dd.coeff(i);
+                        if !dd_coeff.is_zero() {
+                            let sub = ExtPoly::from_rf(&dd_coeff * &c_rf);
+                            *g_c_i = &*g_c_i - &sub;
+                        }
+                    }
+
+                    if h_den_deg == 1 {
+                        // For degree-1 denominator: check divisibility by evaluation
+                        let d0 = hr.h_den.coeff(0);
+                        let d1 = hr.h_den.coeff(1);
+                        let neg_d0_over_d1 = -&d0.checked_div(&d1).ok()?;
+
+                        // Evaluate g_c at θ₂ = -d₀/d₁
+                        let mut val = ExtPoly::zero(var);
+                        let mut pt_power = RationalFunction::one(var);
+                        for gc_i in &g_c {
+                            val = &val + &gc_i.scalar_mul(&pt_power);
+                            pt_power = &pt_power * &neg_d0_over_d1;
+                        }
+
+                        if val.is_zero() {
+                            gcd_deg_sum += h_den_deg;
+                            let v_node = extpoly_to_node(&hr.h_den, &exp_g, var);
+                            let ln_v = Node::Function("ln".to_string(), vec![v_node]);
+                            let term = if *c == BigRational::one() {
+                                ln_v
+                            } else {
+                                Node::Multiply(Box::new(bigrat_to_node(c)), Box::new(ln_v))
+                            };
+                            result_terms.push(term);
+                        }
+                    } else {
+                        // Higher-degree denominators not yet supported
+                        return None;
+                    }
+                }
+
+                if gcd_deg_sum != h_den_deg {
+                    return Some(RischResult::NonElementary(format!(
+                        "No elementary antiderivative exists. \
+                         Rational residues cover degree {} but denominator has degree {}.",
+                        gcd_deg_sum, h_den_deg
+                    )));
+                }
+
+                // For exp extensions: compute and integrate residual
+                let mut log_deriv_num =
+                    vec![ExtPoly::zero(var); hr.h_num.len().max(dd.degree().unwrap_or(0) + 1)];
+                for c in &roots {
+                    let c_rf = RationalFunction::from_constant(c.clone(), var);
+                    // v = h_den for degree-1 case, D(v) = dd
+                    for (i, ldn_i) in log_deriv_num.iter_mut().enumerate() {
+                        let dd_coeff = dd.coeff(i);
+                        if !dd_coeff.is_zero() {
+                            let term = ExtPoly::from_rf(&dd_coeff * &c_rf);
+                            *ldn_i = &*ldn_i + &term;
+                        }
+                    }
+                }
+                let residual = sub_two_level(&hr.h_num, &log_deriv_num, var);
+
+                if !residual.iter().all(|ep| ep.is_zero()) {
+                    // Divide residual by h_den to get polynomial
+                    let (poly_residual, rem) =
+                        div_rem_two_level_by_extpoly(&residual, &hr.h_den, var)?;
+                    if !rem.iter().all(|ep| ep.is_zero()) {
+                        return Some(RischResult::NonElementary(
+                            "No elementary antiderivative. \
+                             Residual after two-level Rothstein-Trager is not polynomial."
+                                .into(),
+                        ));
+                    }
+                    match integrate_two_level_exp_log(&poly_residual, inner_ext, outer_ext, var) {
+                        Some(RischResult::Elementary(n)) => result_terms.push(n),
+                        Some(RischResult::NonElementary(r)) => {
+                            return Some(RischResult::NonElementary(r))
+                        }
+                        None => return None,
+                    }
+                }
+            }
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = result_terms.remove(0);
+    for t in result_terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
 }
 
 #[cfg(test)]
@@ -3989,5 +4323,47 @@ mod tests {
         let rz = rothstein_trager_two_level(&d, &a, &dd, "x");
         let roots = find_constant_roots_two_level(&rz, "x");
         assert_eq!(roots, vec![int(-1)]);
+    }
+
+    // === Two-level rational integration pipeline tests ===
+
+    #[test]
+    fn test_integrate_rational_two_level_ln_over_1_plus_exp() {
+        // ∫ln(x)/(1+exp(x)) dx → non-elementary
+        let num = vec![ExtPoly::theta("x")];
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::NonElementary(_) => {}
+            r => panic!("Expected non-elementary, got {:?}", r),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_two_level_exp_ln_over_1_plus_exp() {
+        // ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary
+        // After poly division: quotient = θ₁ (polynomial, non-elementary by itself)
+        // OR: remainder has θ₁ terms → RT non-elementary
+        let num = vec![ExtPoly::zero("x"), ExtPoly::theta("x")]; // θ₁·θ₂
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₂
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x").unwrap() {
+            RischResult::NonElementary(_) => {}
+            r => panic!("Expected non-elementary, got {:?}", r),
+        }
     }
 }
