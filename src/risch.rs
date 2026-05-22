@@ -1115,6 +1115,31 @@ fn find_exp_argument(expr: &Node, var: &str) -> Option<Polynomial> {
     }
 }
 
+/// Find ln(f(exp(g(x)))) in the expression tree.
+/// Returns (g, h) where g is the exp argument polynomial and h is the ln argument
+/// parsed as an ExtPoly in θ₁ = exp(g(x)).
+/// Returns None if no ln-of-exp pattern is found.
+#[allow(dead_code)] // wired in by subsequent tower-builder tasks
+fn find_ln_of_exp_argument(expr: &Node, var: &str) -> Option<(Polynomial, ExtPoly)> {
+    match expr {
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            let exp_arg = find_exp_argument(&args[0], var)?;
+            let kind = ExtensionKind::Exponential(exp_arg.clone());
+            let h = node_to_extpoly_general(&args[0], var, &kind)?;
+            if h.degree().unwrap_or(0) == 0 {
+                return None;
+            }
+            Some((exp_arg, h))
+        }
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
+            find_ln_of_exp_argument(l, var).or_else(|| find_ln_of_exp_argument(r, var))
+        }
+        Node::Negate(inner) => find_ln_of_exp_argument(inner, var),
+        Node::Power(base, _) => find_ln_of_exp_argument(base, var),
+        _ => None,
+    }
+}
+
 /// Generalized conversion from AST node to `ExtPoly` that handles both
 /// logarithmic (θ = ln(x)) and exponential (θ = exp(g(x))) extensions.
 #[allow(dead_code)] // wired in by subsequent tower-builder tasks
@@ -4526,5 +4551,52 @@ mod tests {
             "GCD should be 1, got degree {:?}",
             v.degree()
         );
+    }
+
+    // === Log-over-exp detection tests ===
+
+    #[test]
+    fn test_find_ln_of_exp_basic() {
+        // ln(1+exp(x)) → Some(g=[0,1], h=[1,1])
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "exp".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )],
+        );
+        let (g, h) = find_ln_of_exp_argument(&expr, "x").unwrap();
+        assert_eq!(g, poly(&[0, 1], "x"));
+        assert_eq!(h, ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"));
+    }
+
+    #[test]
+    fn test_find_ln_of_exp_nested() {
+        // exp(x) * ln(1+exp(x)) → finds the ln pattern in the subexpression
+        let ln_part = Node::Function(
+            "ln".to_string(),
+            vec![Node::Add(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Function(
+                    "exp".to_string(),
+                    vec![Node::Variable("x".to_string())],
+                )),
+            )],
+        );
+        let exp_part = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(Box::new(exp_part), Box::new(ln_part));
+        let (g, h) = find_ln_of_exp_argument(&expr, "x").unwrap();
+        assert_eq!(g, poly(&[0, 1], "x"));
+        assert_eq!(h, ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"));
+    }
+
+    #[test]
+    fn test_find_ln_of_exp_none_for_ln_x() {
+        // ln(x) → None (the arg has no exp)
+        let expr = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        assert!(find_ln_of_exp_argument(&expr, "x").is_none());
     }
 }
