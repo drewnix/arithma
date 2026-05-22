@@ -2060,6 +2060,28 @@ fn sub_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     add_two_level(a, &neg_b, var)
 }
 
+/// Compute gcd(d, g_c) where d ∈ Q(x)[θ₂] and g_c ∈ Q(x)[θ₁][θ₂].
+///
+/// Since θ₁ is transcendental over Q(x), the GCD equals gcd(d, r₀, r₁, ...)
+/// where rⱼ is the coefficient of θ₁ʲ in g_c, extracted as a standard ExtPoly.
+#[allow(dead_code)]
+fn gcd_extpoly_with_two_level(d: &ExtPoly, g_c: &[ExtPoly], var: &str) -> ExtPoly {
+    let max_theta1_deg = g_c.iter().filter_map(|ep| ep.degree()).max().unwrap_or(0);
+
+    let mut result = d.clone();
+    for j in 0..=max_theta1_deg {
+        let rj_coeffs: Vec<RationalFunction> = g_c.iter().map(|ep| ep.coeff(j)).collect();
+        let rj = ExtPoly::from_coeffs(rj_coeffs, var);
+        if !rj.is_zero() {
+            result = result.gcd(&rj);
+            if result.is_constant() {
+                break;
+            }
+        }
+    }
+    result
+}
+
 /// Result of two-level Hermite reduction.
 struct HermiteResultTwoLevel {
     /// Numerator of rational part (θ₁-structured, indexed by θ₂ degree)
@@ -4365,5 +4387,72 @@ mod tests {
             RischResult::NonElementary(_) => {}
             r => panic!("Expected non-elementary, got {:?}", r),
         }
+    }
+
+    // === Two-level GCD tests ===
+
+    #[test]
+    fn test_gcd_two_level_full_divisor() {
+        // d = θ₂² - 1, g_c = (θ₁-1)(1-θ₂²) = -(θ₁-1)(θ₂²-1)
+        // g_c as Vec<ExtPoly>: [(1-θ₁), 0, (θ₁-1)]
+        // gcd should be θ₂²-1
+        let d = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let one_minus_theta1 = {
+            let ep = ExtPoly::theta("x");
+            &ExtPoly::from_rf(rf_const(1)) - &ep
+        };
+        let theta1_minus_one = -&one_minus_theta1;
+        let g_c = vec![one_minus_theta1, ExtPoly::zero("x"), theta1_minus_one];
+        let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
+        assert_eq!(
+            v.make_monic(),
+            d.make_monic(),
+            "GCD should be θ₂²-1 (monic)"
+        );
+    }
+
+    #[test]
+    fn test_gcd_two_level_partial_factor() {
+        // d = θ₂²-1 = (θ₂-1)(θ₂+1)
+        // g_c = [0, θ₁, θ₁] = θ₁·θ₂·(1+θ₂)
+        // θ₁-component j=0: [0, 0, 0] → 0
+        // θ₁-component j=1: [0, 1, 1] → θ₂ + θ₂²
+        // gcd(θ₂²-1, θ₂+θ₂²) = gcd((θ₂-1)(θ₂+1), θ₂(θ₂+1)) = θ₂+1
+        let d = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let g_c = vec![ExtPoly::zero("x"), ExtPoly::theta("x"), ExtPoly::theta("x")];
+        let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
+        let expected = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        assert_eq!(v.make_monic(), expected.make_monic());
+    }
+
+    #[test]
+    fn test_gcd_two_level_coprime() {
+        // d = θ₂²+1, g_c = [θ₁, 1] (= θ₁ + θ₂)
+        // θ₁-component j=0: [0, 1] → θ₂
+        // θ₁-component j=1: [1, 0] → 1
+        // gcd(θ₂²+1, θ₂, 1) = 1
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(0), rf_const(1)], "x");
+        let g_c = vec![ExtPoly::theta("x"), ExtPoly::from_rf(rf_const(1))];
+        let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
+        assert!(
+            v.is_constant(),
+            "GCD should be 1 (constant), got degree {:?}",
+            v.degree()
+        );
+    }
+
+    #[test]
+    fn test_gcd_two_level_no_theta1() {
+        // Pure Q(x) coefficients — should match single-level GCD.
+        // d = θ₂²-1, g_c = [1, 0, -1] = 1-θ₂² = -(θ₂²-1)
+        // gcd = θ₂²-1
+        let d = ExtPoly::from_coeffs(vec![rf_const(-1), rf_const(0), rf_const(1)], "x");
+        let g_c = vec![
+            ExtPoly::from_rf(rf_const(1)),
+            ExtPoly::zero("x"),
+            ExtPoly::from_rf(rf_const(-1)),
+        ];
+        let v = gcd_extpoly_with_two_level(&d, &g_c, "x");
+        assert_eq!(v.make_monic(), d.make_monic());
     }
 }
