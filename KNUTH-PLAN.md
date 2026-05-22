@@ -30,13 +30,13 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State (Post Session 24)
 
-**794 tests pass. 0 failures. 14 MCP tools. ~21K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**805 tests pass. 0 failures. 14 MCP tools. ~22K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers**: the unified tower builder handles logarithmic extensions, exponential extensions, AND **two-level exp-over-log towers** (integrands containing both exp(g(x)) and ln(x)). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), and **two-level tower integration** (inner Risch DE solver over Q(x)[ln(x)], triangular decomposition into standard DEs) — all with non-elementary detection.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** for both polynomial AND rational integrands: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log polynomial towers**, AND **two-level exp-over-log rational towers** (rational functions of exp(g(x)) with ln(x) coefficients). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), and **two-level rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant) — all with non-elementary detection.
 
-**Multi-extension towers (Session 24):** Two-level tower Q(x) ⊂ Q(x, ln(x)) ⊂ Q(x, ln(x), exp(g(x))). Node-to-two-level parser converts mixed exp+ln ASTs into Vec<ExtPoly> representation. Inner Risch DE solver (`solve_risch_de_in_log_ext`) solves q' + f·q = g where g ∈ Q(x)[ln(x)] via top-down triangular decomposition into standard Risch DEs. Falls through from `try_risch_tower` when single-extension tower detects both extensions.
+**Multi-extension towers (Session 24):** Two-level tower Q(x) ⊂ Q(x, ln(x)) ⊂ Q(x, ln(x), exp(g(x))). Polynomial integrands: inner Risch DE solver via triangular decomposition. Rational integrands: per-θ₁-degree Hermite reduction (exploiting linearity), two-level Rothstein-Trager with θ₁-structured Sylvester matrix. Non-elementarity detection: θ₁ terms in the resultant prevent constant roots — most rational integrals with mixed exp+ln are non-elementary, and the algorithm proves it.
 
-**Key results:** ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
+**Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (RT resultant has θ₁ term). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
 
 Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
@@ -112,8 +112,18 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 
 **Key results:** ∫exp(x)·ln(x) dx → non-elementary ✓. ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓.
 
-**Remaining (2-4 sessions):**
-- Rational functions in θ₂ with θ₁ coefficients (two-level Hermite + Rothstein-Trager)
+**Session 24b: Rational-in-θ₂ with θ₁ coefficients:**
+
+- **Rational parsing:** `extract_two_level_rational` for Divide/Multiply nodes with θ₂ denominator.
+- **Per-θ₁-degree Hermite reduction:** exploits linearity — runs existing single-level Hermite on each θ₁-degree independently.
+- **Two-level Rothstein-Trager:** Sylvester matrix with θ₁-structured entries, `two_level_det` via cofactor expansion, `find_constant_roots_two_level` with ExtPoly verification.
+- **Integration pipeline:** `integrate_rational_two_level` — poly division → Hermite → RT → residual. Degree-1 denominator GCD via polynomial evaluation.
+
+**Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓.
+
+**Remaining (1-3 sessions):**
+- Higher-degree denominators in two-level rational (degree ≥ 2 GCD verification)
+- θ₁ in denominator (requires mixed-coefficient GCD)
 - Log-on-top-of-exp tower ordering
 - Algebraic extensions (integration over Q(α) for algebraic α)
 
@@ -204,12 +214,14 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ## Completed Work
 
 ### Session 24 (2026-05-21)
-- Phase 9 Session 7: Multi-extension towers (exp + ln in same integrand)
-- Phase 9 Session 7: node_to_two_level parser (mixed exp+ln AST → Vec<ExtPoly>)
-- Phase 9 Session 7: solve_risch_de_in_log_ext (inner Risch DE over Q(x)[ln(x)])
-- Phase 9 Session 7: integrate_two_level_exp_log (two-level integration driver)
+- Phase 9 Session 7: Multi-extension polynomial towers (exp + ln in same integrand)
+- Phase 9 Session 7: node_to_two_level parser, solve_risch_de_in_log_ext, integrate_two_level_exp_log
 - Phase 9 Session 7: try_risch_two_level + try_risch_tower wiring
-- 22 new tests (772→794), 6 commits
+- Phase 9 Session 8: Multi-extension rational towers (rational-in-exp with ln coefficients)
+- Phase 9 Session 8: extract_two_level_rational, hermite_reduce_two_level (per-θ₁-degree linearity)
+- Phase 9 Session 8: rothstein_trager_two_level, two_level_det, find_constant_roots_two_level
+- Phase 9 Session 8: integrate_rational_two_level pipeline, div_rem_two_level_by_extpoly
+- 33 new tests (772→805), 12 commits
 
 ### Session 22 (2026-05-19/20)
 - Parser precedence fix: -x^2 → -(x^2), removed fixup_negated_power workaround

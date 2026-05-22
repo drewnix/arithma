@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**794 tests, zero failures.** Every algorithm is verified against known results.
+**805 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -206,6 +206,11 @@ $ arithma integrate "\exp(x) \cdot \ln(x)" x
 No elementary antiderivative exists. The Risch DE q' + (1)·q = θ
 has no solution in Q(x, ln(x)), so the integral cannot be expressed
 in terms of elementary functions.
+
+$ arithma integrate "\frac{\ln(x)}{1 + \exp(x)}" x
+No elementary antiderivative exists. The two-level Rothstein-Trager
+resultant has no constant roots, so the integral cannot be expressed
+in terms of elementary functions.
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -217,7 +222,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 794 tests
+cargo test                                # run all 805 tests
 ```
 
 ## Design principles
