@@ -1636,6 +1636,178 @@ pub fn try_risch_tower(expr: &Node, var: &str) -> Option<RischResult> {
     }
 }
 
+/// Convert a Node containing both exp(g(x)) and ln(x) into a two-level
+/// polynomial: Vec<ExtPoly> indexed by θ₂-degree, where each ExtPoly
+/// is a polynomial in θ₁ = ln(x) with Q(x) coefficients.
+#[allow(dead_code)]
+fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec<ExtPoly>> {
+    match expr {
+        Node::Num(n) => {
+            if let ExactNum::Rational(val) = n {
+                let rf = RationalFunction::from_constant(val.clone(), var);
+                Some(vec![ExtPoly::from_rf(rf)])
+            } else {
+                None
+            }
+        }
+        Node::Variable(v) if v == var => {
+            let rf = RationalFunction::from_poly(Polynomial::x(var));
+            Some(vec![ExtPoly::from_rf(rf)])
+        }
+        Node::Variable(_) => None,
+        Node::Function(name, args) if name == "exp" && args.len() == 1 => {
+            if let Ok(arg_poly) = Polynomial::from_node(&args[0], var) {
+                if arg_poly == *exp_arg {
+                    return Some(vec![ExtPoly::zero(var), ExtPoly::one(var)]);
+                }
+            }
+            None
+        }
+        Node::Function(name, args) if name == "ln" && args.len() == 1 => {
+            if let Node::Variable(v) = &args[0] {
+                if v == var {
+                    return Some(vec![ExtPoly::theta(var)]);
+                }
+            }
+            None
+        }
+        Node::Power(base, exp) => {
+            // Handle ln(x)^n
+            if let Node::Function(name, args) = base.as_ref() {
+                if name == "ln" && args.len() == 1 {
+                    if let Node::Variable(v) = &args[0] {
+                        if v == var {
+                            if let Node::Num(n) = exp.as_ref() {
+                                if let Some(e) = n.to_i64() {
+                                    if e >= 1 {
+                                        let mut r = ExtPoly::theta(var);
+                                        for _ in 1..e {
+                                            r = &r * &ExtPoly::theta(var);
+                                        }
+                                        return Some(vec![r]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Handle x^n
+            if let Node::Variable(v) = base.as_ref() {
+                if v == var {
+                    if let Node::Num(n) = exp.as_ref() {
+                        if let Some(e) = n.to_i64() {
+                            if e >= 1 {
+                                let p =
+                                    Polynomial::monomial(BigRational::one(), e as usize, var);
+                                return Some(vec![ExtPoly::from_rf(
+                                    RationalFunction::from_poly(p),
+                                )]);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Node::Negate(inner) => {
+            let v = node_to_two_level(inner, var, exp_arg)?;
+            Some(negate_two_level(&v))
+        }
+        Node::Add(l, r) => {
+            let left = node_to_two_level(l, var, exp_arg)?;
+            let right = node_to_two_level(r, var, exp_arg)?;
+            Some(add_two_level(&left, &right, var))
+        }
+        Node::Subtract(l, r) => {
+            let left = node_to_two_level(l, var, exp_arg)?;
+            let right = node_to_two_level(r, var, exp_arg)?;
+            let neg_right = negate_two_level(&right);
+            Some(add_two_level(&left, &neg_right, var))
+        }
+        Node::Multiply(l, r) => {
+            let left = node_to_two_level(l, var, exp_arg)?;
+            let right = node_to_two_level(r, var, exp_arg)?;
+            Some(mul_two_level(&left, &right, var))
+        }
+        Node::Divide(num, den) => {
+            let den_poly = Polynomial::from_node(den, var).ok()?;
+            if den_poly.is_zero() {
+                return None;
+            }
+            let num_v = node_to_two_level(num, var, exp_arg)?;
+            let inv = RationalFunction::new(Polynomial::one(var), den_poly);
+            let inv_ep = ExtPoly::from_rf(inv);
+            Some(scalar_mul_two_level(&num_v, &inv_ep))
+        }
+        _ => None,
+    }
+}
+
+#[allow(dead_code)]
+fn negate_two_level(v: &[ExtPoly]) -> Vec<ExtPoly> {
+    v.iter().map(|c| -c).collect()
+}
+
+#[allow(dead_code)]
+fn add_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
+    let len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let ai = a.get(i).cloned().unwrap_or_else(|| ExtPoly::zero(var));
+        let bi = b.get(i).cloned().unwrap_or_else(|| ExtPoly::zero(var));
+        result.push(&ai + &bi);
+    }
+    while result.last().is_some_and(|c| c.is_zero()) {
+        result.pop();
+    }
+    if result.is_empty() {
+        result.push(ExtPoly::zero(var));
+    }
+    result
+}
+
+#[allow(dead_code)]
+fn mul_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
+    if a.is_empty() || b.is_empty() {
+        return vec![ExtPoly::zero(var)];
+    }
+    let result_len = a.len() + b.len() - 1;
+    let mut result = vec![ExtPoly::zero(var); result_len];
+    for (i, ai) in a.iter().enumerate() {
+        if ai.is_zero() {
+            continue;
+        }
+        for (j, bj) in b.iter().enumerate() {
+            if bj.is_zero() {
+                continue;
+            }
+            let product = ai * bj;
+            result[i + j] = &result[i + j] + &product;
+        }
+    }
+    while result.last().is_some_and(|c| c.is_zero()) {
+        result.pop();
+    }
+    if result.is_empty() {
+        result.push(ExtPoly::zero(var));
+    }
+    result
+}
+
+#[allow(dead_code)]
+fn scalar_mul_two_level(v: &[ExtPoly], s: &ExtPoly) -> Vec<ExtPoly> {
+    let var = s.variable().to_string();
+    let mut r: Vec<ExtPoly> = v.iter().map(|c| c * s).collect();
+    while r.last().is_some_and(|c| c.is_zero()) {
+        r.pop();
+    }
+    if r.is_empty() {
+        r.push(ExtPoly::zero(&var));
+    }
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2930,5 +3102,82 @@ mod tests {
         let expected_rat = RationalFunction::new(poly(&[-1], "x"), poly(&[0, 1], "x"));
         assert_eq!(result.rational_part, expected_rat);
         assert_eq!(result.ln_x_coeff, int(1));
+    }
+
+    // === Two-level tower tests ===
+
+    #[test]
+    fn test_two_level_exp_times_ln() {
+        let expr = Node::Multiply(
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+            Box::new(Node::Function(
+                "ln".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        assert_eq!(result[1], ExtPoly::theta("x"));
+    }
+
+    #[test]
+    fn test_two_level_exp_times_ln_plus_exp_over_x() {
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let exp_ln = Node::Multiply(Box::new(exp_x.clone()), Box::new(ln_x));
+        let exp_over_x = Node::Divide(
+            Box::new(exp_x),
+            Box::new(Node::Variable("x".to_string())),
+        );
+        let expr = Node::Add(Box::new(exp_ln), Box::new(exp_over_x));
+        let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        let expected_coeff = ExtPoly::from_coeffs(
+            vec![
+                RationalFunction::new(poly(&[1], "x"), poly(&[0, 1], "x")),
+                RationalFunction::one("x"),
+            ],
+            "x",
+        );
+        assert_eq!(result[1], expected_coeff);
+    }
+
+    #[test]
+    fn test_two_level_exp_times_ln_squared() {
+        let exp_x = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x = Node::Function("ln".to_string(), vec![Node::Variable("x".to_string())]);
+        let ln_x_sq = Node::Power(
+            Box::new(ln_x),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        );
+        let expr = Node::Multiply(Box::new(exp_x), Box::new(ln_x_sq));
+        let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        let theta = ExtPoly::theta("x");
+        let theta_sq = &theta * &theta;
+        assert_eq!(result[1], theta_sq);
+    }
+
+    #[test]
+    fn test_two_level_just_exp() {
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result[0].is_zero());
+        assert_eq!(result[1], ExtPoly::from_rf(RationalFunction::one("x")));
+    }
+
+    #[test]
+    fn test_two_level_constant() {
+        let expr = Node::Num(ExactNum::integer(3));
+        let result = node_to_two_level(&expr, "x", &poly(&[0, 1], "x")).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], ExtPoly::from_rf(rf_const(3)));
     }
 }
