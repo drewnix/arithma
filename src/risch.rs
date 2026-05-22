@@ -1392,6 +1392,53 @@ fn integrate_poly_exp(
     Some(RischResult::Elementary(result))
 }
 
+/// Integrate an ExtPoly in the exponential extension, returning the result as an ExtPoly.
+///
+/// For p = Σ aᵢ·θ₁ⁱ, each degree decouples:
+///   i=0: b₀ = ∫a₀(x) dx (a₀ must be polynomial for the result to be RationalFunction)
+///   i≥1: solve b_i' + i·g'·b_i = a_i (rational Risch DE)
+///
+/// Returns None if any degree has no rational solution (non-elementary).
+#[allow(dead_code)]
+fn integrate_in_exp_ext_structured(
+    p: &ExtPoly,
+    ext: &DifferentialExtension,
+    var: &str,
+) -> Option<ExtPoly> {
+    let deg = p.degree().unwrap_or(0);
+    let g_prime_rf = ext.argument().derivative();
+    if *g_prime_rf.denominator() != Polynomial::one(var) {
+        return None;
+    }
+    let g_prime = g_prime_rf.numerator().clone();
+
+    let mut result_coeffs: Vec<RationalFunction> = vec![RationalFunction::zero(var); deg + 1];
+
+    for i in 0..=deg {
+        let a_i = p.coeff(i);
+        if a_i.is_zero() {
+            continue;
+        }
+
+        if i == 0 {
+            // Degree 0: ∫a₀(x) dx — a₀ must be polynomial for polynomial antiderivative
+            if *a_i.denominator() != Polynomial::one(var) {
+                return None;
+            }
+            result_coeffs[0] = RationalFunction::from_poly(a_i.numerator().clone().integral());
+        } else {
+            // Degree i≥1: solve q' + i·g'·q = aᵢ
+            let f = g_prime.scalar_mul(&BigRational::from_integer(BigInt::from(i as i64)));
+            match solve_risch_de_rational(&f, &a_i, var) {
+                Some(qi) => result_coeffs[i] = qi,
+                None => return None,
+            }
+        }
+    }
+
+    Some(ExtPoly::from_coeffs(result_coeffs, var))
+}
+
 /// Integrate a polynomial in θ = ln(x): Σ aᵢ(x)·θⁱ.
 /// Top-down: qₙ' = aₙ, then qₖ' = aₖ - (k+1)·q_{k+1}/x.
 ///
@@ -4789,5 +4836,51 @@ mod tests {
         let result = node_to_two_level_log_over_exp(&expr, "x", &exp_arg, &h).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], ExtPoly::from_rf(rf_const(3)));
+    }
+
+    // === Structured exp integration tests ===
+
+    #[test]
+    fn test_integrate_in_exp_structured_constant() {
+        // ∫1 dx in exp(x) extension → x
+        let p = ExtPoly::from_rf(rf_const(1));
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let result = integrate_in_exp_ext_structured(&p, &ext, "x").unwrap();
+        // x as RationalFunction at θ₁-degree 0
+        assert_eq!(result.coeff(0), rf_poly(&[0, 1]));
+        assert_eq!(result.degree(), Some(0));
+    }
+
+    #[test]
+    fn test_integrate_in_exp_structured_theta1() {
+        // ∫exp(x) dx = exp(x). θ₁ = exp(x).
+        // D(b₁·θ₁) = (b₁' + b₁)·θ₁ = θ₁ → b₁' + b₁ = 1 → b₁ = 1 (constant)
+        let p = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let result = integrate_in_exp_ext_structured(&p, &ext, "x").unwrap();
+        // Result: 1·θ₁ = ExtPoly [0, 1]
+        assert_eq!(result.coeff(0), rf_const(0));
+        assert_eq!(result.coeff(1), rf_const(1));
+    }
+
+    #[test]
+    fn test_integrate_in_exp_structured_non_elementary() {
+        // ∫exp(x²) dx — non-elementary.
+        // g=x², g'=2x. DE at degree 1: q' + 2x·q = 1 → no polynomial solution.
+        let p = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 0, 1], "x")),
+            "x",
+        );
+        assert!(
+            integrate_in_exp_ext_structured(&p, &ext, "x").is_none(),
+            "Should return None (non-elementary)"
+        );
     }
 }
