@@ -1119,7 +1119,6 @@ fn find_exp_argument(expr: &Node, var: &str) -> Option<Polynomial> {
 /// Returns (g, h) where g is the exp argument polynomial and h is the ln argument
 /// parsed as an ExtPoly in θ₁ = exp(g(x)).
 /// Returns None if no ln-of-exp pattern is found.
-#[allow(dead_code)] // wired in by subsequent tower-builder tasks
 fn find_ln_of_exp_argument(expr: &Node, var: &str) -> Option<(Polynomial, ExtPoly)> {
     match expr {
         Node::Function(name, args) if name == "ln" && args.len() == 1 => {
@@ -1399,7 +1398,6 @@ fn integrate_poly_exp(
 ///   i≥1: solve b_i' + i·g'·b_i = a_i (rational Risch DE)
 ///
 /// Returns None if any degree has no rational solution (non-elementary).
-#[allow(dead_code)]
 fn integrate_in_exp_ext_structured(
     p: &ExtPoly,
     ext: &DifferentialExtension,
@@ -1819,7 +1817,6 @@ fn node_to_two_level(expr: &Node, var: &str, exp_arg: &Polynomial) -> Option<Vec
 
 /// Parse an expression as polynomial in θ₂ = ln(h(x, θ₁)) with ExtPoly (θ₁=exp(g)) coefficients.
 /// Returns Vec<ExtPoly> where index i = coefficient of θ₂ⁱ.
-#[allow(dead_code)]
 fn node_to_two_level_log_over_exp(
     expr: &Node,
     var: &str,
@@ -2152,6 +2149,39 @@ fn integrate_two_level_exp_log(
 ///
 /// Called when `build_tower` returns None because both exp and ln are present.
 fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
+    // Try log-over-exp tower: ln(h(x, exp(g(x))))
+    if let Some((exp_poly_loe, h_loe)) = find_ln_of_exp_argument(expr, var) {
+        if let Some(outer_coeffs) = node_to_two_level_log_over_exp(expr, var, &exp_poly_loe, &h_loe)
+        {
+            let inner_ext = DifferentialExtension::exponential(
+                RationalFunction::from_poly(exp_poly_loe.clone()),
+                var,
+            );
+            if let Some(result) =
+                integrate_two_level_log_over_exp(&outer_coeffs, &inner_ext, &h_loe, var)
+            {
+                return Some(result);
+            }
+        }
+        // Try after simplification
+        let env = crate::environment::Environment::new();
+        let simplified =
+            crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
+        if let Some((exp_poly2, h2)) = find_ln_of_exp_argument(&simplified, var) {
+            if let Some(outer_coeffs) =
+                node_to_two_level_log_over_exp(&simplified, var, &exp_poly2, &h2)
+            {
+                let inner_ext =
+                    DifferentialExtension::exponential(RationalFunction::from_poly(exp_poly2), var);
+                if let Some(result) =
+                    integrate_two_level_log_over_exp(&outer_coeffs, &inner_ext, &h2, var)
+                {
+                    return Some(result);
+                }
+            }
+        }
+    }
+
     let has_ln = contains_ln(expr, var);
     let exp_arg = find_exp_argument(expr, var);
 
@@ -2869,6 +2899,159 @@ fn integrate_rational_two_level(
                         }
                         None => return None,
                     }
+                }
+            }
+        }
+    }
+
+    if result_terms.is_empty() {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+    let mut result = result_terms.remove(0);
+    for t in result_terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    Some(RischResult::Elementary(result))
+}
+
+fn make_ln_power(ln_node: &Node, k: usize) -> Node {
+    if k == 0 {
+        Node::Num(ExactNum::integer(1))
+    } else if k == 1 {
+        ln_node.clone()
+    } else {
+        Node::Power(
+            Box::new(ln_node.clone()),
+            Box::new(Node::Num(ExactNum::integer(k as i64))),
+        )
+    }
+}
+
+/// Integrate a polynomial in θ₂ = ln(h(x, θ₁)) with ExtPoly (θ₁=exp(g)) coefficients.
+///
+/// Uses top-down logarithmic polynomial integration:
+///   Degree n: D(bₙ) = aₙ (integrate in inner exp extension)
+///   Degree k < n: D(bₖ) = aₖ − (k+1)·bₖ₊₁·h'/h
+fn integrate_two_level_log_over_exp(
+    outer_coeffs: &[ExtPoly],
+    inner_ext: &DifferentialExtension,
+    h: &ExtPoly,
+    var: &str,
+) -> Option<RischResult> {
+    if outer_coeffs.is_empty() || outer_coeffs.iter().all(|c| c.is_zero()) {
+        return Some(RischResult::Elementary(Node::Num(ExactNum::zero())));
+    }
+
+    // Effective degree
+    let n = {
+        let mut d = outer_coeffs.len() - 1;
+        while d > 0 && outer_coeffs[d].is_zero() {
+            d -= 1;
+        }
+        d
+    };
+
+    if n == 0 {
+        // No θ₂ — just integrate in the inner exp extension
+        return integrate_poly_exp(&outer_coeffs[0], inner_ext, var);
+    }
+
+    // Compute h' = D(h) in the exp extension
+    let h_prime = inner_ext.differentiate(h);
+
+    let g_node = inner_ext.argument().numerator().to_node();
+    let exp_g = Node::Function("exp".to_string(), vec![g_node]);
+    let h_node = extpoly_to_node(h, &exp_g, var);
+    let ln_h = Node::Function("ln".to_string(), vec![h_node]);
+
+    let mut result_terms: Vec<Node> = Vec::new();
+    let mut b_prev: Option<ExtPoly> = None;
+
+    for k in (0..=n).rev() {
+        let a_k = &outer_coeffs[k];
+
+        if k == n {
+            // Top degree: D(bₙ) = aₙ
+            match integrate_in_exp_ext_structured(a_k, inner_ext, var) {
+                Some(b_k) => {
+                    if !b_k.is_zero() {
+                        let b_node = extpoly_to_node(&b_k, &exp_g, var);
+                        let theta2_pow = make_ln_power(&ln_h, k);
+                        result_terms.push(Node::Multiply(Box::new(b_node), Box::new(theta2_pow)));
+                    }
+                    b_prev = Some(b_k);
+                }
+                None => {
+                    return Some(RischResult::NonElementary(format!(
+                        "No elementary antiderivative exists. \
+                         Cannot integrate the degree-{} coefficient in the inner exp extension.",
+                        k
+                    )));
+                }
+            }
+        } else {
+            // Lower degree: D(bₖ) = aₖ − (k+1)·bₖ₊₁·h'/h
+            // = (aₖ·h − (k+1)·bₖ₊₁·h') / h
+            let b_prev_ref = b_prev.as_ref().unwrap();
+            let scale = BigRational::from_integer(BigInt::from((k + 1) as i64));
+            let scale_rf = RationalFunction::from_constant(scale, var);
+            let correction = b_prev_ref.scalar_mul(&scale_rf);
+            let correction_times_h_prime = &correction * &h_prime;
+
+            let a_k_times_h = a_k * h;
+            let rhs_num = &a_k_times_h - &correction_times_h_prime;
+
+            // Try to simplify rhs_num / h by GCD
+            let g = rhs_num.gcd(h);
+            let (rhs_num_reduced, _) = rhs_num.div_rem(&g).unwrap();
+            let (rhs_den_reduced, _) = h.div_rem(&g).unwrap();
+
+            if rhs_den_reduced.is_constant() {
+                // Polynomial RHS — integrate structurally
+                let den_scalar = rhs_den_reduced.coeff(0);
+                let rhs_poly = if den_scalar == RationalFunction::one(var) {
+                    rhs_num_reduced
+                } else {
+                    let inv = RationalFunction::one(var).checked_div(&den_scalar).ok()?;
+                    rhs_num_reduced.scalar_mul(&inv)
+                };
+
+                match integrate_in_exp_ext_structured(&rhs_poly, inner_ext, var) {
+                    Some(b_k_ep) => {
+                        if !b_k_ep.is_zero() {
+                            let b_node = extpoly_to_node(&b_k_ep, &exp_g, var);
+                            if k == 0 {
+                                result_terms.push(b_node);
+                            } else {
+                                let theta2_pow = make_ln_power(&ln_h, k);
+                                result_terms
+                                    .push(Node::Multiply(Box::new(b_node), Box::new(theta2_pow)));
+                            }
+                        }
+                        b_prev = Some(b_k_ep);
+                    }
+                    None => {
+                        return Some(RischResult::NonElementary(format!(
+                            "No elementary antiderivative exists. \
+                             Cannot integrate the degree-{} correction in the inner exp extension.",
+                            k
+                        )));
+                    }
+                }
+            } else {
+                // Rational RHS — use integrate_rational_ext
+                match integrate_rational_ext(&rhs_num_reduced, &rhs_den_reduced, inner_ext, var) {
+                    Some(RischResult::NonElementary(reason)) => {
+                        return Some(RischResult::NonElementary(reason));
+                    }
+                    Some(RischResult::Elementary(node)) => {
+                        if k > 0 {
+                            // Need structured b_k for next step — can't extract from Node
+                            return None;
+                        }
+                        result_terms.push(node);
+                    }
+                    None => return None,
                 }
             }
         }
@@ -4882,5 +5065,39 @@ mod tests {
             integrate_in_exp_ext_structured(&p, &ext, "x").is_none(),
             "Should return None (non-elementary)"
         );
+    }
+
+    // === Log-over-exp integration tests ===
+
+    #[test]
+    fn test_integrate_two_level_log_over_exp_non_elementary() {
+        // ∫ln(1+exp(x)) dx → non-elementary
+        let outer_coeffs = vec![ExtPoly::zero("x"), ExtPoly::one("x")]; // θ₂
+        let inner_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₁
+        match integrate_two_level_log_over_exp(&outer_coeffs, &inner_ext, &h, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected non-elementary, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_two_level_log_over_exp_exp_times_ln_elementary() {
+        // ∫exp(x)·ln(1+exp(x)) dx → elementary
+        // D[exp(x)·ln(1+exp(x)) + ln(1+exp(x)) − exp(x)] = exp(x)·ln(1+exp(x))
+        let theta1 = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x");
+        let outer_coeffs = vec![ExtPoly::zero("x"), theta1]; // θ₁·θ₂
+        let inner_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        match integrate_two_level_log_over_exp(&outer_coeffs, &inner_ext, &h, "x") {
+            Some(RischResult::Elementary(_)) => {}
+            other => panic!("Expected elementary, got {:?}", other),
+        }
     }
 }
