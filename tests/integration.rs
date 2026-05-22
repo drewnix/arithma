@@ -521,4 +521,36 @@ mod integration_tests {
             val,
         );
     }
+
+    // ===== Two-level tower: rational exp + ln integration =====
+
+    #[test]
+    fn test_integrate_ln_x_over_1_plus_exp_non_elementary() {
+        // ∫ln(x)/(1+exp(x)) dx → non-elementary
+        let result = integrate_latex("\\frac{\\ln(x)}{1 + \\exp(x)}", "x");
+        assert!(
+            result.is_err(),
+            "∫ln(x)/(1+exp(x))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
+
+    #[test]
+    fn test_integrate_exp_ln_over_1_plus_exp_non_elementary() {
+        // ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary
+        let result = integrate_latex("\\frac{\\exp(x) \\cdot \\ln(x)}{1 + \\exp(x)}", "x");
+        assert!(
+            result.is_err(),
+            "∫exp(x)·ln(x)/(1+exp(x))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
 }
