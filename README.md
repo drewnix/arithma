@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**825 tests, zero failures.** Every algorithm is verified against known results.
+**843 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -222,7 +222,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 825 tests
+cargo test                                # run all 843 tests
 ```
 
 ## Design principles

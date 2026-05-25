@@ -1,7 +1,7 @@
 # Arithma — A Mathematical Truth Engine for AI Agents
 
 *Author: Knuth (QAI Head of Algorithmic Foundations)*
-*Last updated: 2026-05-21, Session 25*
+*Last updated: 2026-05-25, Session 26*
 
 ---
 
@@ -28,15 +28,15 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 25)
+## Current State (Post Session 26)
 
-**825 tests pass. 0 failures. 14 MCP tools. ~22K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**843 tests pass. 0 failures. 14 MCP tools. ~22K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
-Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** in both tower orderings: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log towers** (polynomial and rational), AND **two-level log-over-exp towers** (polynomial integrands in ln(h(x, exp(g)))). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level exp-over-log polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), **two-level exp-over-log rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, general GCD via θ₁-component decomposition), and **two-level log-over-exp polynomial tower integration** (top-down logarithmic descent with structured inner exp integration) — all with non-elementary detection.
+Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** in both tower orderings: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log towers** (polynomial and rational), AND **two-level log-over-exp towers** (polynomial integrands in ln(h(x, exp(g)))). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level exp-over-log polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), **two-level exp-over-log rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, general GCD via θ₁-component decomposition), **two-level log-over-exp polynomial tower integration** (top-down logarithmic descent with structured inner exp integration), and **θ₁-in-denominator detection** via content extraction (separable case: D₁(θ₁)·D₂(θ₂) factorization) — all with non-elementary detection.
 
 **Multi-extension towers (Sessions 24-25):** Two tower orderings supported. **Exp-over-log:** Q(x) ⊂ Q(x, ln(x)) ⊂ Q(x, ln(x), exp(g(x))). Polynomial integrands: inner Risch DE solver via triangular decomposition. Rational integrands: per-θ₁-degree Hermite reduction, two-level Rothstein-Trager, general denominator GCD via θ₁-component decomposition. **Log-over-exp:** Q(x) ⊂ Q(x, exp(g(x))) ⊂ Q(x, exp(g(x)), ln(h(x, exp(g(x))))). Polynomial integrands: top-down logarithmic coefficient solving with structured inner exp integration. Rational correction terms dispatched to inner Rothstein-Trager. Both orderings prove non-elementarity when antiderivatives don't exist in elementary terms.
 
-**Key results:** ∫ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp tower, degree-0 RT fails). ∫exp(x)·ln(1+exp(x)) dx = exp(x)·ln(1+exp(x)) + ln(1+exp(x)) − exp(x) ✓ (log-over-exp elementary). ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (exp-over-log, RT resultant has θ₁ term). ∫ln(x)/(1+exp(2x)) dx → non-elementary ✓ (degree-2 denominator). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
+**Key results:** ∫ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp tower, degree-0 RT fails). ∫exp(x)·ln(1+exp(x)) dx = exp(x)·ln(1+exp(x)) + ln(1+exp(x)) − exp(x) ✓ (log-over-exp elementary). ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (exp-over-log, RT resultant has θ₁ term). ∫ln(x)/(1+exp(2x)) dx → non-elementary ✓ (degree-2 denominator). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. ∫1/(ln(x)·(1+exp(x))) dx → non-elementary ✓ (content extraction, scaled RT). ∫exp(x)/(ln(x)·(1+exp(x))) dx → non-elementary ✓. ∫1/(ln(x)²·(1+exp(x))) dx → non-elementary ✓ (content = θ₁²). Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
 
 Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
@@ -122,7 +122,6 @@ Features that help an agent *trust* its mathematical reasoning — knowing the b
 **Key results:** ∫ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓.
 
 **Remaining (1 session):**
-- θ₁ in denominator (requires mixed-coefficient GCD)
 - Log-over-exp rational integrands (Hermite + RT for log extension)
 - Algebraic extensions (integration over Q(α) for algebraic α)
 
@@ -211,6 +210,14 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 26 (2026-05-25)
+- Phase 9: θ₁-in-denominator via content extraction for two-level exp-over-log tower
+- compute_theta1_content: iterative GCD of θ₂-coefficients
+- rothstein_trager_two_level: content parameter for scaled z-coefficients
+- integrate_rational_two_level: content threading through Hermite/RT/GCD pipeline
+- try_risch_two_level: content-extraction dispatch when denominator has θ₁
+- 18 new tests (825→843)
 
 ### Session 24 (2026-05-21)
 - Phase 9 Session 7: Multi-extension polynomial towers (exp + ln in same integrand)

@@ -602,4 +602,34 @@ mod integration_tests {
             err
         );
     }
+
+    #[test]
+    fn test_integrate_exp_over_ln_x_times_1_plus_exp_x_non_elementary() {
+        // ∫exp(x)/(ln(x)·(1+exp(x))) dx → non-elementary
+        let result = integrate_latex("\\frac{\\exp(x)}{\\ln(x) \\cdot (1 + \\exp(x))}", "x");
+        assert!(
+            result.is_err(),
+            "∫exp(x)/(ln(x)·(1+exp(x)))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
+
+    #[test]
+    fn test_integrate_1_over_ln_x_sq_times_1_plus_exp_x_non_elementary() {
+        // ∫1/(ln(x)²·(1+exp(x))) dx → non-elementary (content = θ₁²)
+        let result = integrate_latex("\\frac{1}{\\ln(x)^2 \\cdot (1 + \\exp(x))}", "x");
+        assert!(
+            result.is_err(),
+            "∫1/(ln²(x)·(1+exp(x)))dx should be non-elementary: {:?}",
+            result,
+        );
+        assert!(
+            result.unwrap_err().starts_with("NON_ELEMENTARY:"),
+            "Should be NON_ELEMENTARY"
+        );
+    }
 }
