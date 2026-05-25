@@ -2201,7 +2201,9 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
                 RationalFunction::from_poly(exp_poly.clone()),
                 var,
             );
-            return integrate_rational_two_level(&num_tl, &den_ep, &inner_ext, &outer_ext, var);
+            return integrate_rational_two_level(
+                &num_tl, &den_ep, None, &inner_ext, &outer_ext, var,
+            );
         }
     }
 
@@ -2220,7 +2222,9 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
                     RationalFunction::from_poly(exp_poly.clone()),
                     var,
                 );
-                return integrate_rational_two_level(&num_tl, &den_ep, &inner_ext, &outer_ext, var);
+                return integrate_rational_two_level(
+                    &num_tl, &den_ep, None, &inner_ext, &outer_ext, var,
+                );
             }
         }
     }
@@ -2784,6 +2788,7 @@ fn two_level_to_node(
 fn integrate_rational_two_level(
     num: &[ExtPoly],
     den: &ExtPoly,
+    content: Option<&ExtPoly>,
     inner_ext: &DifferentialExtension,
     outer_ext: &DifferentialExtension,
     var: &str,
@@ -2800,8 +2805,9 @@ fn integrate_rational_two_level(
     let exp_g = Node::Function("exp".to_string(), vec![g_node]);
     let mut result_terms: Vec<Node> = Vec::new();
 
-    // Integrate the polynomial quotient
-    if !quotient.iter().all(|ep| ep.is_zero()) {
+    // Integrate the polynomial quotient (deferred if content is Some)
+    let has_quotient = !quotient.iter().all(|ep| ep.is_zero());
+    if has_quotient && content.is_none() {
         match integrate_two_level_exp_log(&quotient, inner_ext, outer_ext, var) {
             Some(RischResult::Elementary(n)) => result_terms.push(n),
             Some(RischResult::NonElementary(r)) => return Some(RischResult::NonElementary(r)),
@@ -2817,7 +2823,14 @@ fn integrate_rational_two_level(
         // Rational part from Hermite reduction
         if !hr.g_num.iter().all(|ep| ep.is_zero()) {
             let g_num_node = two_level_to_node(&hr.g_num, &ln_x, &exp_g, var);
-            let g_den_node = extpoly_to_node(&hr.g_den, &exp_g, var);
+            let g_den_base = extpoly_to_node(&hr.g_den, &exp_g, var);
+            let g_den_node = match content {
+                Some(c) => {
+                    let c_node = extpoly_to_node(c, &ln_x, var);
+                    Node::Multiply(Box::new(c_node), Box::new(g_den_base))
+                }
+                None => g_den_base,
+            };
             result_terms.push(Node::Divide(Box::new(g_num_node), Box::new(g_den_node)));
         }
 
@@ -2835,7 +2848,7 @@ fn integrate_rational_two_level(
             } else {
                 // Rothstein-Trager on squarefree remainder
                 let dd = outer_ext.differentiate(&hr.h_den);
-                let rz = rothstein_trager_two_level(&hr.h_den, &hr.h_num, &dd, None, var);
+                let rz = rothstein_trager_two_level(&hr.h_den, &hr.h_num, &dd, content, var);
                 let roots = find_constant_roots_two_level(&rz, var);
 
                 if roots.is_empty() {
@@ -2863,7 +2876,10 @@ fn integrate_rational_two_level(
                     for (i, g_c_i) in g_c.iter_mut().enumerate() {
                         let dd_coeff = dd.coeff(i);
                         if !dd_coeff.is_zero() {
-                            let sub = ExtPoly::from_rf(&dd_coeff * &c_rf);
+                            let sub = match content {
+                                Some(ct) => ct.scalar_mul(&(&dd_coeff * &c_rf)),
+                                None => ExtPoly::from_rf(&dd_coeff * &c_rf),
+                            };
                             *g_c_i = &*g_c_i - &sub;
                         }
                     }
@@ -2923,6 +2939,10 @@ fn integrate_rational_two_level(
                 let residual = sub_two_level(&hr.h_num, &log_deriv_num, var);
 
                 if !residual.iter().all(|ep| ep.is_zero()) {
+                    if content.is_some() {
+                        // Residual/content requires C-valued polynomial integrator — not yet supported
+                        return None;
+                    }
                     let (poly_residual, rem) =
                         div_rem_two_level_by_extpoly(&residual, &hr.h_den, var)?;
                     if !rem.iter().all(|ep| ep.is_zero()) {
@@ -2942,6 +2962,12 @@ fn integrate_rational_two_level(
                 }
             }
         }
+    }
+
+    // If we deferred quotient integration because of content, handle it now
+    if has_quotient && content.is_some() {
+        // Quotient/content needs C-valued polynomial integrator — not yet supported
+        return None;
     }
 
     if result_terms.is_empty() {
@@ -4831,7 +4857,7 @@ mod tests {
             RationalFunction::from_poly(poly(&[0, 1], "x")),
             "x",
         );
-        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x").unwrap() {
+        match integrate_rational_two_level(&num, &den, None, &inner_ext, &outer_ext, "x").unwrap() {
             RischResult::NonElementary(_) => {}
             r => panic!("Expected non-elementary, got {:?}", r),
         }
@@ -4852,7 +4878,7 @@ mod tests {
             RationalFunction::from_poly(poly(&[0, 1], "x")),
             "x",
         );
-        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x").unwrap() {
+        match integrate_rational_two_level(&num, &den, None, &inner_ext, &outer_ext, "x").unwrap() {
             RischResult::NonElementary(_) => {}
             r => panic!("Expected non-elementary, got {:?}", r),
         }
@@ -4940,7 +4966,7 @@ mod tests {
             RationalFunction::from_poly(poly(&[0, 1], "x")),
             "x",
         );
-        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x") {
+        match integrate_rational_two_level(&num, &den, None, &inner_ext, &outer_ext, "x") {
             Some(RischResult::NonElementary(_)) => {}
             other => panic!("Expected non-elementary, got {:?}", other),
         }
@@ -4964,12 +4990,53 @@ mod tests {
             RationalFunction::from_poly(poly(&[0, 1], "x")),
             "x",
         );
-        match integrate_rational_two_level(&num, &den, &inner_ext, &outer_ext, "x") {
+        match integrate_rational_two_level(&num, &den, None, &inner_ext, &outer_ext, "x") {
             Some(RischResult::Elementary(_)) => {}
             Some(RischResult::NonElementary(msg)) => {
                 panic!("Expected elementary, got non-elementary: {}", msg)
             }
             None => panic!("Expected elementary, got None"),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_two_level_with_content_non_elementary() {
+        // ∫1/(ln(x)·(1+exp(x))) dx → non-elementary
+        // content=θ₁, prim_den=1+θ₂, num=[1]
+        let num = vec![ExtPoly::from_rf(rf_const(1))];
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let content = ExtPoly::theta("x");
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, Some(&content), &inner_ext, &outer_ext, "x")
+        {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected non-elementary, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_integrate_rational_two_level_content_none_regression() {
+        // Regression: content=None still works for ∫ln(x)/(1+exp(x))
+        let num = vec![ExtPoly::theta("x")];
+        let den = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let inner_ext = DifferentialExtension::logarithmic(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let outer_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        match integrate_rational_two_level(&num, &den, None, &inner_ext, &outer_ext, "x") {
+            Some(RischResult::NonElementary(_)) => {}
+            other => panic!("Expected non-elementary, got {:?}", other),
         }
     }
 
