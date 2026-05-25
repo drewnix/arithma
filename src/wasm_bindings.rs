@@ -1,14 +1,18 @@
 use crate::composition::compose_latex;
+use crate::derivative::differentiate_latex;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
+use crate::exact::ExactNum;
 use crate::expression::extract_variable;
 use crate::integration::{definite_integral_latex, integrate_latex};
 use crate::limits::limit_latex;
 use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
+use crate::ode::solve_ode_latex;
 use crate::parser::build_expression_tree;
 use crate::series::taylor_series_latex;
 use crate::simplify::Simplifiable;
+use crate::substitute::substitute_latex;
 use crate::tokenizer::Tokenizer;
 use wasm_bindgen::prelude::*;
 
@@ -396,5 +400,94 @@ pub fn solve_linear_system_js(
             "Error solving linear system: {}",
             e
         ))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn differentiate_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
+    match differentiate_latex(latex_expr, var_name) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error in differentiation: {}", e))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn substitute_js(latex_expr: &str, var_name: &str, value_latex: &str) -> Result<String, JsValue> {
+    let substitutions = vec![(var_name.to_string(), value_latex.to_string())];
+    match substitute_latex(latex_expr, &substitutions) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error in substitution: {}", e))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn solve_js(latex_equation: &str, var_name: &str) -> Result<String, JsValue> {
+    let mut tokenizer = Tokenizer::new(latex_equation);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing: {}", e)))?;
+    match crate::expression::solve_for_variable_exact(&expr, var_name) {
+        Ok(solutions) => {
+            let parts: Vec<String> = solutions.iter().map(|s| format!("{}", s)).collect();
+            Ok(parts.join(", "))
+        }
+        Err(e) => Err(JsValue::from_str(&format!("Error solving: {}", e))),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn partial_fractions_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
+    // Parse the expression and extract numerator/denominator from a Divide node
+    let mut tokenizer = Tokenizer::new(latex_expr);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)
+        .map_err(|e| JsValue::from_str(&format!("Error parsing: {}", e)))?;
+    match expr {
+        Node::Divide(num, den) => {
+            let num_str = format!("{}", num);
+            let den_str = format!("{}", den);
+            match crate::partial_fractions_latex(&num_str, &den_str, var_name) {
+                Ok(result) => Ok(result),
+                Err(e) => Err(JsValue::from_str(&format!("Error in partial fractions: {}", e))),
+            }
+        }
+        _ => Err(JsValue::from_str("Expression must be a fraction (numerator/denominator)")),
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn equivalent_js(expr1: &str, expr2: &str) -> Result<String, JsValue> {
+    let env = Environment::new();
+    let mut t1 = Tokenizer::new(expr1);
+    let mut t2 = Tokenizer::new(expr2);
+    let e1 = build_expression_tree(t1.tokenize())
+        .map_err(|e| JsValue::from_str(&format!("Error parsing expr1: {}", e)))?;
+    let e2 = build_expression_tree(t2.tokenize())
+        .map_err(|e| JsValue::from_str(&format!("Error parsing expr2: {}", e)))?;
+    let s1 = e1.simplify(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error simplifying expr1: {}", e)))?;
+    let s2 = e2.simplify(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error simplifying expr2: {}", e)))?;
+    let diff = Node::Subtract(Box::new(s1), Box::new(s2));
+    let diff_simplified = diff.simplify(&env)
+        .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
+    if diff_simplified == Node::Num(ExactNum::zero()) {
+        Ok("true".to_string())
+    } else {
+        Ok("false".to_string())
+    }
+}
+
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn solve_ode_js(rhs_latex: &str, indep_var: &str, dep_var: &str) -> Result<String, JsValue> {
+    match solve_ode_latex(rhs_latex, indep_var, dep_var) {
+        Ok(result) => Ok(result),
+        Err(e) => Err(JsValue::from_str(&format!("Error solving ODE: {}", e))),
     }
 }
