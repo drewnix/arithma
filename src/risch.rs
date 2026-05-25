@@ -2530,34 +2530,27 @@ fn hermite_reduce_two_level(
     })
 }
 
-/// Two-level Rothstein-Trager resultant: R(z) = res_θ₂(d, a − z·D(d)).
+/// General two-level Rothstein-Trager resultant: R(z) = res_θ₂(d, a − z·dd_tl).
 ///
-/// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), D(d) ∈ Q(x)[θ₂].
+/// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), dd_tl provides the
+/// z-coefficients as Vec<ExtPoly> indexed by θ₂-degree.
 /// Returns R(z) as Vec<ExtPoly> — polynomial in z with ExtPoly-in-θ₁ coefficients.
-fn rothstein_trager_two_level(
+fn rothstein_trager_two_level_general(
     d: &ExtPoly,
     a: &[ExtPoly],
-    dd: &ExtPoly,
-    content: Option<&ExtPoly>,
+    dd_tl: &[ExtPoly],
     var: &str,
 ) -> Vec<ExtPoly> {
     let m = d.degree().unwrap_or(0);
     let n = {
         let da = if a.is_empty() { 0 } else { a.len() - 1 };
-        let ddd = dd.degree().unwrap_or(0);
+        let ddd = if dd_tl.is_empty() { 0 } else { dd_tl.len() - 1 };
         da.max(ddd)
     };
 
     if m == 0 && n == 0 {
         let c0 = a.first().cloned().unwrap_or_else(|| ExtPoly::zero(var));
-        let dd_c0 = dd.coeff(0);
-        let c1 = match content {
-            Some(c) => {
-                let scaled = c.scalar_mul(&dd_c0);
-                -&scaled
-            }
-            None => ExtPoly::from_rf(-&dd_c0),
-        };
+        let c1 = dd_tl.first().map_or_else(|| ExtPoly::zero(var), |ep| -ep);
         return vec![c0, c1];
     }
 
@@ -2581,25 +2574,21 @@ fn rothstein_trager_two_level(
         matrix.push(row);
     }
 
-    // Last m rows from g = a − z·dd (linear in z, θ₁ in constant term)
+    // Last m rows from g = a − z·dd_tl (linear in z, θ₁ in constant term)
     for i in 0..m {
         let mut row = vec![zero_z.clone(); size];
         for k in 0..=n {
             let col = i + k;
             if col < size {
                 let a_coeff = a.get(n - k).cloned().unwrap_or_else(|| ExtPoly::zero(var));
-                let dd_coeff = dd.coeff(n - k);
+                let dd_coeff = dd_tl
+                    .get(n - k)
+                    .cloned()
+                    .unwrap_or_else(|| ExtPoly::zero(var));
                 if dd_coeff.is_zero() {
                     row[col] = vec![a_coeff];
                 } else {
-                    let z_coeff = match content {
-                        Some(c) => {
-                            let scaled = c.scalar_mul(&dd_coeff);
-                            -&scaled
-                        }
-                        None => ExtPoly::from_rf(-&dd_coeff),
-                    };
-                    row[col] = vec![a_coeff, z_coeff];
+                    row[col] = vec![a_coeff, -&dd_coeff];
                 }
             }
         }
@@ -2607,6 +2596,33 @@ fn rothstein_trager_two_level(
     }
 
     two_level_det(&matrix, var)
+}
+
+/// Two-level Rothstein-Trager resultant: R(z) = res_θ₂(d, a − z·D(d)).
+///
+/// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), D(d) ∈ Q(x)[θ₂].
+/// Returns R(z) as Vec<ExtPoly> — polynomial in z with ExtPoly-in-θ₁ coefficients.
+fn rothstein_trager_two_level(
+    d: &ExtPoly,
+    a: &[ExtPoly],
+    dd: &ExtPoly,
+    content: Option<&ExtPoly>,
+    var: &str,
+) -> Vec<ExtPoly> {
+    let dd_tl: Vec<ExtPoly> = (0..=dd.degree().unwrap_or(0))
+        .map(|j| {
+            let c = dd.coeff(j);
+            if c.is_zero() {
+                ExtPoly::zero(var)
+            } else {
+                match content {
+                    Some(ct) => ct.scalar_mul(&c),
+                    None => ExtPoly::from_rf(c),
+                }
+            }
+        })
+        .collect();
+    rothstein_trager_two_level_general(d, a, &dd_tl, var)
 }
 
 /// Determinant of a square matrix whose entries are Vec<ExtPoly>
