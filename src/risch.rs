@@ -2464,7 +2464,13 @@ fn hermite_reduce_two_level(
 ///
 /// d ∈ Q(x)[θ₂], a has θ₁ coefficients (Vec<ExtPoly>), D(d) ∈ Q(x)[θ₂].
 /// Returns R(z) as Vec<ExtPoly> — polynomial in z with ExtPoly-in-θ₁ coefficients.
-fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &str) -> Vec<ExtPoly> {
+fn rothstein_trager_two_level(
+    d: &ExtPoly,
+    a: &[ExtPoly],
+    dd: &ExtPoly,
+    content: Option<&ExtPoly>,
+    var: &str,
+) -> Vec<ExtPoly> {
     let m = d.degree().unwrap_or(0);
     let n = {
         let da = if a.is_empty() { 0 } else { a.len() - 1 };
@@ -2474,7 +2480,14 @@ fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &st
 
     if m == 0 && n == 0 {
         let c0 = a.first().cloned().unwrap_or_else(|| ExtPoly::zero(var));
-        let c1 = ExtPoly::from_rf(-&dd.coeff(0));
+        let dd_c0 = dd.coeff(0);
+        let c1 = match content {
+            Some(c) => {
+                let scaled = c.scalar_mul(&dd_c0);
+                -&scaled
+            }
+            None => ExtPoly::from_rf(-&dd_c0),
+        };
         return vec![c0, c1];
     }
 
@@ -2509,7 +2522,14 @@ fn rothstein_trager_two_level(d: &ExtPoly, a: &[ExtPoly], dd: &ExtPoly, var: &st
                 if dd_coeff.is_zero() {
                     row[col] = vec![a_coeff];
                 } else {
-                    row[col] = vec![a_coeff, ExtPoly::from_rf(-&dd_coeff)];
+                    let z_coeff = match content {
+                        Some(c) => {
+                            let scaled = c.scalar_mul(&dd_coeff);
+                            -&scaled
+                        }
+                        None => ExtPoly::from_rf(-&dd_coeff),
+                    };
+                    row[col] = vec![a_coeff, z_coeff];
                 }
             }
         }
@@ -2815,7 +2835,7 @@ fn integrate_rational_two_level(
             } else {
                 // Rothstein-Trager on squarefree remainder
                 let dd = outer_ext.differentiate(&hr.h_den);
-                let rz = rothstein_trager_two_level(&hr.h_den, &hr.h_num, &dd, var);
+                let rz = rothstein_trager_two_level(&hr.h_den, &hr.h_num, &dd, None, var);
                 let roots = find_constant_roots_two_level(&rz, var);
 
                 if roots.is_empty() {
@@ -4733,7 +4753,7 @@ mod tests {
             "x",
         );
         let dd = ext.differentiate(&d);
-        let rz = rothstein_trager_two_level(&d, &a, &dd, "x");
+        let rz = rothstein_trager_two_level(&d, &a, &dd, None, "x");
         let roots = find_constant_roots_two_level(&rz, "x");
         assert!(
             roots.is_empty(),
@@ -4752,9 +4772,48 @@ mod tests {
             "x",
         );
         let dd = ext.differentiate(&d);
-        let rz = rothstein_trager_two_level(&d, &a, &dd, "x");
+        let rz = rothstein_trager_two_level(&d, &a, &dd, None, "x");
         let roots = find_constant_roots_two_level(&rz, "x");
         assert_eq!(roots, vec![int(-1)]);
+    }
+
+    #[test]
+    fn test_rt_two_level_with_content_no_roots() {
+        // ∫1/(θ₁·(1+θ₂)): content=θ₁, d=1+θ₂, a=[1], D(d)=θ₂
+        // R_scaled(z) = res(1+θ₂, 1 − z·θ₁·θ₂)
+        // det = 1·1 − 1·(−z·θ₁) = 1 + z·θ₁ → no constant roots
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let a = vec![ExtPoly::from_rf(rf_const(1))];
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let content = ExtPoly::theta("x"); // θ₁
+        let rz = rothstein_trager_two_level(&d, &a, &dd, Some(&content), "x");
+        let roots = find_constant_roots_two_level(&rz, "x");
+        assert!(
+            roots.is_empty(),
+            "Should have no constant roots, got {:?}",
+            roots
+        );
+    }
+
+    #[test]
+    fn test_rt_two_level_with_content_none_regression() {
+        // Regression: content=None gives same result as before
+        // ∫1/(1+exp(x)): d=1+θ₂, a=[1], D(d)=θ₂. Root at z=-1.
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let a = vec![ExtPoly::from_rf(rf_const(1))];
+        let ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let dd = ext.differentiate(&d);
+        let rz = rothstein_trager_two_level(&d, &a, &dd, None, "x");
+        let roots = find_constant_roots_two_level(&rz, "x");
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0], BigRational::from_integer(BigInt::from(-1)));
     }
 
     // === Two-level rational integration pipeline tests ===
