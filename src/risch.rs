@@ -2205,6 +2205,39 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
                 &num_tl, &den_ep, None, &inner_ext, &outer_ext, var,
             );
         }
+        // θ₁ in denominator: try content extraction
+        let content = compute_theta1_content(&den_tl, var);
+        if !content.is_constant() {
+            let prim_tl: Vec<ExtPoly> = den_tl
+                .iter()
+                .map(|ep| {
+                    if ep.is_zero() {
+                        ExtPoly::zero(var)
+                    } else {
+                        let (q, _) = ep.div_rem(&content).unwrap();
+                        q
+                    }
+                })
+                .collect();
+            if let Some(prim_den) = two_level_to_extpoly(&prim_tl, var) {
+                let inner_ext = DifferentialExtension::logarithmic(
+                    RationalFunction::from_poly(Polynomial::x(var)),
+                    var,
+                );
+                let outer_ext = DifferentialExtension::exponential(
+                    RationalFunction::from_poly(exp_poly.clone()),
+                    var,
+                );
+                return integrate_rational_two_level(
+                    &num_tl,
+                    &prim_den,
+                    Some(&content),
+                    &inner_ext,
+                    &outer_ext,
+                    var,
+                );
+            }
+        }
     }
 
     // Try after simplification for rational case
@@ -2225,6 +2258,39 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
                 return integrate_rational_two_level(
                     &num_tl, &den_ep, None, &inner_ext, &outer_ext, var,
                 );
+            }
+            // θ₁ in denominator: try content extraction
+            let content = compute_theta1_content(&den_tl, var);
+            if !content.is_constant() {
+                let prim_tl: Vec<ExtPoly> = den_tl
+                    .iter()
+                    .map(|ep| {
+                        if ep.is_zero() {
+                            ExtPoly::zero(var)
+                        } else {
+                            let (q, _) = ep.div_rem(&content).unwrap();
+                            q
+                        }
+                    })
+                    .collect();
+                if let Some(prim_den) = two_level_to_extpoly(&prim_tl, var) {
+                    let inner_ext = DifferentialExtension::logarithmic(
+                        RationalFunction::from_poly(Polynomial::x(var)),
+                        var,
+                    );
+                    let outer_ext = DifferentialExtension::exponential(
+                        RationalFunction::from_poly(exp_poly.clone()),
+                        var,
+                    );
+                    return integrate_rational_two_level(
+                        &num_tl,
+                        &prim_den,
+                        Some(&content),
+                        &inner_ext,
+                        &outer_ext,
+                        var,
+                    );
+                }
             }
         }
     }
