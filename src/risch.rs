@@ -2151,6 +2151,23 @@ fn integrate_two_level_exp_log(
 fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
     // Try log-over-exp tower: ln(h(x, exp(g(x))))
     if let Some((exp_poly_loe, h_loe)) = find_ln_of_exp_argument(expr, var) {
+        // Try rational-in-θ₂ case first
+        if let Some((num_tl, den_tl)) =
+            extract_rational_log_over_exp(expr, var, &exp_poly_loe, &h_loe)
+        {
+            if let Some(den_ep) = two_level_to_extpoly(&den_tl, var) {
+                let inner_ext = DifferentialExtension::exponential(
+                    RationalFunction::from_poly(exp_poly_loe.clone()),
+                    var,
+                );
+                if let Some(result) =
+                    integrate_rational_log_over_exp(&num_tl, &den_ep, &h_loe, &inner_ext, var)
+                {
+                    return Some(result);
+                }
+            }
+        }
+
         if let Some(outer_coeffs) = node_to_two_level_log_over_exp(expr, var, &exp_poly_loe, &h_loe)
         {
             let inner_ext = DifferentialExtension::exponential(
@@ -2168,6 +2185,23 @@ fn try_risch_two_level(expr: &Node, var: &str) -> Option<RischResult> {
         let simplified =
             crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
         if let Some((exp_poly2, h2)) = find_ln_of_exp_argument(&simplified, var) {
+            // Try rational-in-θ₂ case first (simplified)
+            if let Some((num_tl, den_tl)) =
+                extract_rational_log_over_exp(&simplified, var, &exp_poly2, &h2)
+            {
+                if let Some(den_ep) = two_level_to_extpoly(&den_tl, var) {
+                    let inner_ext = DifferentialExtension::exponential(
+                        RationalFunction::from_poly(exp_poly2.clone()),
+                        var,
+                    );
+                    if let Some(result) =
+                        integrate_rational_log_over_exp(&num_tl, &den_ep, &h2, &inner_ext, var)
+                    {
+                        return Some(result);
+                    }
+                }
+            }
+
             if let Some(outer_coeffs) =
                 node_to_two_level_log_over_exp(&simplified, var, &exp_poly2, &h2)
             {
@@ -3316,6 +3350,77 @@ fn integrate_two_level_log_over_exp(
         result = Node::Add(Box::new(result), Box::new(t));
     }
     Some(RischResult::Elementary(result))
+}
+
+/// Integrate a rational function in θ₂ = ln(h(x, θ₁)) with ExtPoly coefficients.
+///
+/// For non-elementarity detection: compute h-scaled RT resultant.
+/// Elementary results not yet supported (returns None).
+fn integrate_rational_log_over_exp(
+    num: &[ExtPoly],
+    den: &ExtPoly,
+    h: &ExtPoly,
+    inner_ext: &DifferentialExtension,
+    var: &str,
+) -> Option<RischResult> {
+    if den.is_zero() {
+        return None;
+    }
+
+    let h_prime = inner_ext.differentiate(h);
+
+    // Polynomial long division
+    let (quotient, remainder) = div_rem_two_level_by_extpoly(num, den, var)?;
+
+    // If there's a quotient, try polynomial integration
+    if !quotient.iter().all(|ep| ep.is_zero()) {
+        if let Some(RischResult::NonElementary(r)) =
+            integrate_two_level_log_over_exp(&quotient, inner_ext, h, var)
+        {
+            return Some(RischResult::NonElementary(r));
+        }
+    }
+
+    // Handle proper rational remainder
+    if remainder.iter().all(|ep| ep.is_zero()) {
+        // Pure polynomial (no remainder). If quotient was elementary, it was handled above.
+        // If we reached here, quotient integration returned None or Elementary.
+        return None; // Let the polynomial path handle it
+    }
+
+    // Hermite reduce
+    let hr = hermite_reduce_two_level(&remainder, den, var).ok()?;
+
+    // Squarefree remainder for RT
+    if hr.h_num.iter().all(|ep| ep.is_zero()) {
+        return None; // No squarefree part
+    }
+
+    if hr.h_den.is_constant() {
+        // Polynomial remainder after Hermite
+        return None;
+    }
+
+    // Compute h-scaled D(d) for the log extension
+    let dd_scaled = compute_log_ext_dd_scaled(&hr.h_den, h, &h_prime, var);
+
+    // Scale numerator by h: h·a (multiply each θ₂-coefficient by h)
+    let a_scaled: Vec<ExtPoly> = hr.h_num.iter().map(|ep| ep * h).collect();
+
+    // Rothstein-Trager with h-scaled entries
+    let rz = rothstein_trager_two_level_general(&hr.h_den, &a_scaled, &dd_scaled, var);
+    let roots = find_constant_roots_two_level(&rz, var);
+
+    if roots.is_empty() {
+        return Some(RischResult::NonElementary(
+            "No elementary antiderivative exists. \
+             The log-over-exp Rothstein-Trager resultant has no constant roots."
+                .into(),
+        ));
+    }
+
+    // Elementary case with roots — not yet implemented
+    None
 }
 
 #[cfg(test)]
