@@ -2316,6 +2316,26 @@ fn gcd_extpoly_with_two_level(d: &ExtPoly, g_c: &[ExtPoly], var: &str) -> ExtPol
     result
 }
 
+/// Compute the θ₁-content of a two-level polynomial: gcd of all θ₂-coefficients
+/// as ExtPolys in θ₁.
+///
+/// Returns the content (an ExtPoly in θ₁). Returns a constant (degree 0) ExtPoly
+/// if the coefficients have no common θ₁ factor.
+#[allow(dead_code)] // Used by two-level denominator factoring (upcoming)
+fn compute_theta1_content(tl: &[ExtPoly], var: &str) -> ExtPoly {
+    let mut result: Option<ExtPoly> = None;
+    for ep in tl {
+        if ep.is_zero() {
+            continue;
+        }
+        result = Some(match result {
+            None => ep.clone(),
+            Some(acc) => acc.gcd(ep),
+        });
+    }
+    result.unwrap_or_else(|| ExtPoly::one(var))
+}
+
 /// Result of two-level Hermite reduction.
 struct HermiteResultTwoLevel {
     /// Numerator of rational part (θ₁-structured, indexed by θ₂ degree)
@@ -5099,5 +5119,49 @@ mod tests {
             Some(RischResult::Elementary(_)) => {}
             other => panic!("Expected elementary, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_theta1_content_uniform() {
+        // [θ₁, θ₁] → content = θ₁
+        let tl = vec![ExtPoly::theta("x"), ExtPoly::theta("x")];
+        let content = compute_theta1_content(&tl, "x");
+        assert_eq!(content.make_monic(), ExtPoly::theta("x").make_monic());
+    }
+
+    #[test]
+    fn test_theta1_content_no_common_factor() {
+        // [1, θ₁] → content = 1 (coprime)
+        let tl = vec![ExtPoly::one("x"), ExtPoly::theta("x")];
+        let content = compute_theta1_content(&tl, "x");
+        assert!(content.is_constant());
+    }
+
+    #[test]
+    fn test_theta1_content_power() {
+        // [θ₁², θ₁²] → content = θ₁²
+        let theta1_sq = {
+            let t = ExtPoly::theta("x");
+            &t * &t
+        };
+        let tl = vec![theta1_sq.clone(), theta1_sq.clone()];
+        let content = compute_theta1_content(&tl, "x");
+        assert_eq!(content.degree(), Some(2));
+    }
+
+    #[test]
+    fn test_theta1_content_with_zero() {
+        // [0, θ₁] → content = θ₁ (skip zeros)
+        let tl = vec![ExtPoly::zero("x"), ExtPoly::theta("x")];
+        let content = compute_theta1_content(&tl, "x");
+        assert_eq!(content.make_monic(), ExtPoly::theta("x").make_monic());
+    }
+
+    #[test]
+    fn test_theta1_content_all_constant() {
+        // [rf(1), rf(2)] → content = 1 (Q(x) only, no θ₁)
+        let tl = vec![ExtPoly::from_rf(rf_const(1)), ExtPoly::from_rf(rf_const(2))];
+        let content = compute_theta1_content(&tl, "x");
+        assert!(content.is_constant());
     }
 }
