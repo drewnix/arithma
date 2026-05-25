@@ -2360,6 +2360,52 @@ fn extract_two_level_rational(
     }
 }
 
+/// Extract numerator and denominator as two-level polynomials from a
+/// Node that is a rational function in θ₂ = ln(h(x, exp(g(x)))) with θ₁ = exp(g) coefficients.
+///
+/// Returns Some((num, den)) where both are Vec<ExtPoly>, or None if not a recognizable
+/// rational function in θ₂ with a non-trivial denominator.
+#[allow(dead_code)]
+fn extract_rational_log_over_exp(
+    expr: &Node,
+    var: &str,
+    exp_arg: &Polynomial,
+    h: &ExtPoly,
+) -> Option<(Vec<ExtPoly>, Vec<ExtPoly>)> {
+    match expr {
+        Node::Divide(num_node, den_node) => {
+            let num = node_to_two_level_log_over_exp(num_node, var, exp_arg, h)?;
+            let den = node_to_two_level_log_over_exp(den_node, var, exp_arg, h)?;
+            if den.len() <= 1 {
+                return None;
+            }
+            Some((num, den))
+        }
+        Node::Multiply(left, right) => {
+            // a * (b/c) where c has θ₂
+            if let Node::Divide(n, d) = right.as_ref() {
+                let d_tl = node_to_two_level_log_over_exp(d, var, exp_arg, h)?;
+                if d_tl.len() > 1 {
+                    let l_tl = node_to_two_level_log_over_exp(left, var, exp_arg, h)?;
+                    let n_tl = node_to_two_level_log_over_exp(n, var, exp_arg, h)?;
+                    return Some((mul_two_level(&l_tl, &n_tl, var), d_tl));
+                }
+            }
+            // (a/b) * c where b has θ₂
+            if let Node::Divide(n, d) = left.as_ref() {
+                let d_tl = node_to_two_level_log_over_exp(d, var, exp_arg, h)?;
+                if d_tl.len() > 1 {
+                    let r_tl = node_to_two_level_log_over_exp(right, var, exp_arg, h)?;
+                    let n_tl = node_to_two_level_log_over_exp(n, var, exp_arg, h)?;
+                    return Some((mul_two_level(&r_tl, &n_tl, var), d_tl));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn sub_two_level(a: &[ExtPoly], b: &[ExtPoly], var: &str) -> Vec<ExtPoly> {
     let neg_b = negate_two_level(b);
     add_two_level(a, &neg_b, var)
@@ -2404,6 +2450,63 @@ fn compute_theta1_content(tl: &[ExtPoly], var: &str) -> ExtPoly {
         });
     }
     result.unwrap_or_else(|| ExtPoly::one(var))
+}
+
+/// Compute h-scaled derivative of a denominator d ∈ Q(x)[θ₂] in the log-over-exp tower.
+///
+/// Returns h·D(d) as a Vec<ExtPoly> (two-level polynomial in θ₂ with ExtPoly θ₁ coefficients).
+/// h·D(d)_k = h·dₖ' + (k+1)·d_{k+1}·h'
+///
+/// This avoids rational θ₁ coefficients: D(θ₂) = h'/h, but h·D(θ₂) = h' ∈ Q(x)[θ₁].
+#[allow(dead_code)]
+fn compute_log_ext_dd_scaled(
+    d: &ExtPoly,
+    h: &ExtPoly,
+    h_prime: &ExtPoly,
+    var: &str,
+) -> Vec<ExtPoly> {
+    let deg = d.degree().unwrap_or(0);
+    let mut result = Vec::with_capacity(deg + 1);
+
+    for k in 0..=deg {
+        let d_k = d.coeff(k);
+        let d_k_prime = d_k.derivative();
+
+        // h · dₖ' — ExtPoly scaled by a RationalFunction
+        let term1 = if d_k_prime.is_zero() {
+            ExtPoly::zero(var)
+        } else {
+            h.scalar_mul(&d_k_prime)
+        };
+
+        // (k+1) · d_{k+1} · h'
+        let term2 = if k < deg {
+            let d_k_plus_1 = d.coeff(k + 1);
+            if d_k_plus_1.is_zero() {
+                ExtPoly::zero(var)
+            } else {
+                let scalar = RationalFunction::from_constant(
+                    BigRational::from_integer(BigInt::from(k as i64 + 1)),
+                    var,
+                );
+                h_prime.scalar_mul(&(&scalar * &d_k_plus_1))
+            }
+        } else {
+            ExtPoly::zero(var)
+        };
+
+        result.push(&term1 + &term2);
+    }
+
+    // Strip trailing zeros
+    while result.last().is_some_and(|ep| ep.is_zero()) {
+        result.pop();
+    }
+    if result.is_empty() {
+        result.push(ExtPoly::zero(var));
+    }
+
+    result
 }
 
 /// Result of two-level Hermite reduction.
@@ -5371,5 +5474,89 @@ mod tests {
         let tl = vec![ExtPoly::from_rf(rf_const(1)), ExtPoly::from_rf(rf_const(2))];
         let content = compute_theta1_content(&tl, "x");
         assert!(content.is_constant());
+    }
+
+    #[test]
+    fn test_compute_log_ext_dd_scaled_degree1() {
+        // d = θ₂ (d₁=1, d₀=0), h = 1+θ₁, h' = θ₁
+        // h·D(d)_0 = h·D(0) + 1·1·h' = 0 + θ₁ = θ₁
+        // h·D(d)_1 = h·D(1) = 0
+        // Result should be [θ₁] (degree 0)
+        let d = ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x"); // θ₂
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₁
+        let inner_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let h_prime = inner_ext.differentiate(&h); // θ₁
+        let result = compute_log_ext_dd_scaled(&d, &h, &h_prime, "x");
+        // Should be [θ₁] — just θ₁ at degree 0
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0],
+            ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x")
+        );
+    }
+
+    #[test]
+    fn test_compute_log_ext_dd_scaled_constant_denom() {
+        // d = 1 + θ₂ (d₁=1, d₀=1), h = 1+θ₁, h' = θ₁
+        // h·D(d)_0 = h·D(1) + 1·1·h' = 0 + θ₁ = θ₁
+        // h·D(d)_1 = h·D(1) = 0
+        // Result should be [θ₁] (degree 0)
+        let d = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₂
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x"); // 1+θ₁
+        let inner_ext = DifferentialExtension::exponential(
+            RationalFunction::from_poly(poly(&[0, 1], "x")),
+            "x",
+        );
+        let h_prime = inner_ext.differentiate(&h);
+        let result = compute_log_ext_dd_scaled(&d, &h, &h_prime, "x");
+        assert_eq!(result.len(), 1);
+        // θ₁ at degree 0
+        assert_eq!(
+            result[0],
+            ExtPoly::from_coeffs(vec![rf_const(0), rf_const(1)], "x")
+        );
+    }
+
+    #[test]
+    fn test_extract_rational_log_over_exp_basic() {
+        // 1/ln(1+exp(x)) → num=[1], den=[0, 1] (= θ₂)
+        let inner = Node::Add(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let ln_part = Node::Function("ln".to_string(), vec![inner]);
+        let expr = Node::Divide(Box::new(Node::Num(ExactNum::integer(1))), Box::new(ln_part));
+        let exp_arg = poly(&[0, 1], "x");
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        let (num, den) = extract_rational_log_over_exp(&expr, "x", &exp_arg, &h).unwrap();
+        assert_eq!(num.len(), 1);
+        assert_eq!(num[0], ExtPoly::from_rf(rf_const(1)));
+        assert_eq!(den.len(), 2);
+        assert!(den[0].is_zero());
+        assert_eq!(den[1], ExtPoly::one("x"));
+    }
+
+    #[test]
+    fn test_extract_rational_log_over_exp_none_for_polynomial() {
+        // exp(x)*ln(1+exp(x)) has no θ₂ in denominator → None
+        let inner = Node::Add(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Function(
+                "exp".to_string(),
+                vec![Node::Variable("x".to_string())],
+            )),
+        );
+        let ln_part = Node::Function("ln".to_string(), vec![inner]);
+        let exp_part = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let expr = Node::Multiply(Box::new(exp_part), Box::new(ln_part));
+        let exp_arg = poly(&[0, 1], "x");
+        let h = ExtPoly::from_coeffs(vec![rf_const(1), rf_const(1)], "x");
+        assert!(extract_rational_log_over_exp(&expr, "x", &exp_arg, &h).is_none());
     }
 }
