@@ -408,13 +408,20 @@ pub fn solve_linear_system_js(
 pub fn differentiate_js(latex_expr: &str, var_name: &str) -> Result<String, JsValue> {
     match differentiate_latex(latex_expr, var_name) {
         Ok(result) => Ok(result),
-        Err(e) => Err(JsValue::from_str(&format!("Error in differentiation: {}", e))),
+        Err(e) => Err(JsValue::from_str(&format!(
+            "Error in differentiation: {}",
+            e
+        ))),
     }
 }
 
 #[allow(unexpected_cfgs)]
 #[wasm_bindgen]
-pub fn substitute_js(latex_expr: &str, var_name: &str, value_latex: &str) -> Result<String, JsValue> {
+pub fn substitute_js(
+    latex_expr: &str,
+    var_name: &str,
+    value_latex: &str,
+) -> Result<String, JsValue> {
     let substitutions = vec![(var_name.to_string(), value_latex.to_string())];
     match substitute_latex(latex_expr, &substitutions) {
         Ok(result) => Ok(result),
@@ -452,10 +459,15 @@ pub fn partial_fractions_js(latex_expr: &str, var_name: &str) -> Result<String, 
             let den_str = format!("{}", den);
             match crate::partial_fractions_latex(&num_str, &den_str, var_name) {
                 Ok(result) => Ok(result),
-                Err(e) => Err(JsValue::from_str(&format!("Error in partial fractions: {}", e))),
+                Err(e) => Err(JsValue::from_str(&format!(
+                    "Error in partial fractions: {}",
+                    e
+                ))),
             }
         }
-        _ => Err(JsValue::from_str("Expression must be a fraction (numerator/denominator)")),
+        _ => Err(JsValue::from_str(
+            "Expression must be a fraction (numerator/denominator)",
+        )),
     }
 }
 
@@ -469,12 +481,15 @@ pub fn equivalent_js(expr1: &str, expr2: &str) -> Result<String, JsValue> {
         .map_err(|e| JsValue::from_str(&format!("Error parsing expr1: {}", e)))?;
     let e2 = build_expression_tree(t2.tokenize())
         .map_err(|e| JsValue::from_str(&format!("Error parsing expr2: {}", e)))?;
-    let s1 = e1.simplify(&env)
+    let s1 = e1
+        .simplify(&env)
         .map_err(|e| JsValue::from_str(&format!("Error simplifying expr1: {}", e)))?;
-    let s2 = e2.simplify(&env)
+    let s2 = e2
+        .simplify(&env)
         .map_err(|e| JsValue::from_str(&format!("Error simplifying expr2: {}", e)))?;
     let diff = Node::Subtract(Box::new(s1), Box::new(s2));
-    let diff_simplified = diff.simplify(&env)
+    let diff_simplified = diff
+        .simplify(&env)
         .map_err(|e| JsValue::from_str(&format!("Error: {}", e)))?;
     if diff_simplified == Node::Num(ExactNum::zero()) {
         Ok("true".to_string())
