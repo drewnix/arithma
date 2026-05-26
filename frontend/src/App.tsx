@@ -34,7 +34,6 @@ export default function App() {
     initWasm().then(() => setWasmReady(true)).catch(console.error);
   }, []);
 
-  // Set default tool when category changes
   useEffect(() => {
     const ct = getToolsByCategory(activeCategory);
     if (ct.length > 0) {
@@ -54,7 +53,7 @@ export default function App() {
 
   const handleExecute = useCallback(async () => {
     if (!activeTool || !wasmReady) return;
-    const mf = document.querySelector("math-field") as MathfieldElement;
+    const mf = document.querySelector("math-field:not([read-only])") as MathfieldElement;
     const latex = mf?.getValue("latex-expanded") || input;
     if (!latex.trim()) return;
     await execute(activeTool, latex, params);
@@ -68,10 +67,13 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0C0C0E", color: "#E8E6E3", ...mono }}>
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "0 24px" }}>
+      <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 32px" }}>
 
         {/* Header */}
-        <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "32px 0 24px" }}>
+        <header style={{
+          display: "flex", alignItems: "baseline", justifyContent: "space-between",
+          padding: "32px 0 28px",
+        }}>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", color: "#E8E6E3" }}>
             arithma
           </h1>
@@ -80,8 +82,13 @@ export default function App() {
           </span>
         </header>
 
-        {/* Category tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {/* Navigation bar: categories + tools in one row */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 0", marginBottom: 20,
+          minHeight: 44,
+        }}>
+          {/* Category tabs */}
           {categories.map(cat => {
             const Icon = categoryIcons[cat.id];
             const active = activeCategory === cat.id;
@@ -91,22 +98,25 @@ export default function App() {
                 onClick={() => setActiveCategory(cat.id as Category)}
                 style={{
                   display: "flex", alignItems: "center", gap: 8,
-                  padding: "8px 16px", borderRadius: 8, fontSize: "0.8rem",
+                  padding: "8px 14px", borderRadius: 8, fontSize: "0.78rem",
                   fontWeight: 500, border: active ? "1px solid #2A2A2E" : "1px solid transparent",
                   background: active ? "#1A1A1E" : "transparent",
                   color: active ? "#E8B84C" : "#706D68",
-                  cursor: "pointer", transition: "all 0.15s", ...mono,
+                  cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
-                {Icon && <Icon size={15} />}
+                {Icon && <Icon size={14} />}
                 {cat.name}
               </button>
             );
           })}
-        </div>
 
-        {/* Tool pills */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 24 }}>
+          {/* Divider */}
+          <div style={{
+            width: 1, height: 20, background: "#2A2A2E", margin: "0 6px", flexShrink: 0,
+          }} />
+
+          {/* Tool pills for selected category */}
           {categoryTools.map(tool => {
             const active = activeTool?.id === tool.id;
             const Icon = iconMap[tool.icon];
@@ -115,66 +125,67 @@ export default function App() {
                 key={tool.id}
                 onClick={() => handleToolSelect(tool)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "6px 12px", borderRadius: 6, fontSize: "0.72rem",
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "5px 10px", borderRadius: 5, fontSize: "0.7rem",
                   border: active ? "1px solid rgba(232,184,76,0.3)" : "1px solid transparent",
                   background: active ? "rgba(232,184,76,0.1)" : "transparent",
-                  color: active ? "#E8B84C" : "#706D68",
-                  cursor: "pointer", transition: "all 0.15s", ...mono,
+                  color: active ? "#E8B84C" : "#585550",
+                  cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
-                {Icon && <Icon size={12} />}
+                {Icon && <Icon size={11} />}
                 {tool.name}
               </button>
             );
           })}
         </div>
 
-        {/* Input card */}
+        {/* Input area */}
         <div style={{
           background: "#141416", border: "1px solid #2A2A2E", borderRadius: 12,
-          padding: 20, marginBottom: 8, transition: "border-color 0.2s",
+          padding: "16px 20px", marginBottom: 8,
         }}>
-          {/* Tool description */}
-          {activeTool && (
-            <div style={{ fontSize: "0.72rem", color: "#706D68", marginBottom: 12 }}>
-              {activeTool.description}
-            </div>
-          )}
-
+          {/* Math input row */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <math-field
-              style={{
-                flex: 1, background: "transparent", color: "#E8E6E3",
-                border: "none", fontSize: "1.3rem", padding: "8px 4px",
-                caretColor: "#E8B84C", outline: "none",
-                fontFamily: "'JetBrains Mono', monospace",
-                // MathLive custom properties
-                '--selection-background-color': 'rgba(232,184,76,0.25)',
-                '--contains-highlight-background-color': 'transparent',
-              } as React.CSSProperties}
-              onInput={(evt: React.FormEvent<MathfieldElement>) => {
-                setInput((evt.target as MathfieldElement).getValue("latex-expanded"));
-              }}
-              onKeyDown={handleKeyDown}
-            >
-              {input}
-            </math-field>
+            {/* Input container — the visible "type here" area */}
+            <div style={{
+              flex: 1, background: "#0C0C0E", border: "1px solid #2A2A2E",
+              borderRadius: 8, padding: "4px 12px",
+              display: "flex", alignItems: "center",
+            }}>
+              <math-field
+                style={{
+                  flex: 1, background: "transparent", color: "#E8E6E3",
+                  border: "none", fontSize: "1.25rem", padding: "8px 0",
+                  caretColor: "#E8B84C", outline: "none", minHeight: "40px",
+                  fontFamily: "'JetBrains Mono', monospace",
+                  '--selection-background-color': 'rgba(232,184,76,0.25)',
+                  '--contains-highlight-background-color': 'transparent',
+                } as React.CSSProperties}
+                onInput={(evt: React.FormEvent<MathfieldElement>) => {
+                  setInput((evt.target as MathfieldElement).getValue("latex-expanded"));
+                }}
+                onKeyDown={handleKeyDown}
+              >
+                {input}
+              </math-field>
+            </div>
 
+            {/* Action button */}
             <button
               onClick={handleExecute}
               disabled={!wasmReady}
               style={{
                 display: "flex", alignItems: "center", gap: 8,
-                padding: "10px 20px", borderRadius: 8, fontSize: "0.8rem",
-                fontWeight: 500, border: "none",
+                padding: "12px 20px", borderRadius: 8, fontSize: "0.78rem",
+                fontWeight: 500, border: "none", flexShrink: 0,
                 background: "#E8B84C", color: "#0C0C0E",
                 cursor: wasmReady ? "pointer" : "not-allowed",
                 opacity: wasmReady ? 1 : 0.4,
                 transition: "all 0.15s", ...mono,
               }}
             >
-              <Play size={14} />
+              <Play size={13} />
               {activeTool?.name || "Evaluate"}
             </button>
           </div>
@@ -182,12 +193,12 @@ export default function App() {
           {/* Dynamic params */}
           {activeTool && activeTool.params.length > 0 && (
             <div style={{
-              display: "flex", gap: 16, marginTop: 14, paddingTop: 14,
-              borderTop: "1px solid #2A2A2E",
+              display: "flex", gap: 16, marginTop: 12, paddingTop: 12,
+              borderTop: "1px solid #1E1E22",
             }}>
               {activeTool.params.map(param => (
                 <div key={param.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ fontSize: "0.7rem", color: "#706D68" }}>
+                  <label style={{ fontSize: "0.68rem", color: "#706D68" }}>
                     {param.label}
                   </label>
                   <input
@@ -197,7 +208,7 @@ export default function App() {
                     placeholder={param.placeholder}
                     style={{
                       background: "#0C0C0E", border: "1px solid #2A2A2E", borderRadius: 4,
-                      padding: "4px 8px", fontSize: "0.75rem", width: 56,
+                      padding: "5px 8px", fontSize: "0.75rem", width: 56,
                       color: "#E8E6E3", outline: "none", ...mono,
                     }}
                   />
@@ -210,50 +221,54 @@ export default function App() {
         {/* History */}
         <div style={{ paddingTop: 16, paddingBottom: 48 }}>
           {history.length === 0 && (
-            <div style={{ textAlign: "center", color: "#706D68", fontSize: "0.8rem", marginTop: 48 }}>
-              Type an expression and press Enter
+            <div style={{ textAlign: "center", color: "#504D48", fontSize: "0.78rem", marginTop: 48 }}>
+              Type an expression above and press Enter
             </div>
           )}
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[...history].reverse().map((entry, i) => (
               <div key={i} style={{
                 background: "#141416", border: "1px solid #2A2A2E",
-                borderRadius: 10, padding: 16,
+                borderRadius: 10, padding: "14px 18px",
               }}>
                 {/* Tool badge + params */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span style={{
-                    fontSize: "0.6rem", padding: "2px 8px", borderRadius: 4,
-                    background: "rgba(232,184,76,0.1)", color: "#E8B84C",
+                    fontSize: "0.58rem", padding: "2px 7px", borderRadius: 3,
+                    background: "rgba(232,184,76,0.08)", color: "#C9A040",
+                    letterSpacing: "0.02em",
                   }}>
                     {entry.toolName}
                   </span>
                   {Object.keys(entry.params).length > 0 && (
-                    <span style={{ fontSize: "0.6rem", color: "#706D68" }}>
+                    <span style={{ fontSize: "0.58rem", color: "#504D48" }}>
                       {Object.entries(entry.params).map(([k, v]) => `${k}=${v}`).join(", ")}
                     </span>
                   )}
                 </div>
 
-                {/* Input (raw LaTeX) */}
-                <div style={{ fontSize: "0.85rem", color: "#A8A5A0", marginBottom: 4 }}>
+                {/* Input */}
+                <div style={{
+                  fontSize: "0.82rem", color: "#A8A5A0", marginBottom: 4,
+                  overflow: "hidden", textOverflow: "ellipsis",
+                }}>
                   {entry.input}
                 </div>
 
                 {/* Result */}
                 {entry.error ? (
-                  <div style={{ fontSize: "0.85rem", color: "#C75B5B" }}>
-                    Error: {entry.error}
+                  <div style={{ fontSize: "0.82rem", color: "#C75B5B" }}>
+                    {entry.error}
                   </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ color: "#706D68", fontSize: "1rem" }}>=</span>
+                    <span style={{ color: "#504D48", fontSize: "1rem" }}>=</span>
                     <math-field
-                      read-only
+                      read-only=""
                       style={{
                         background: "transparent", border: "none", color: "#E8E6E3",
-                        fontSize: "1.15rem", padding: 0, pointerEvents: "none",
+                        fontSize: "1.1rem", padding: 0, pointerEvents: "none",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}
                     >
