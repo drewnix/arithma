@@ -22,18 +22,18 @@ const categoryIcons: Record<string, LucideIcon> = {
   matrix: Grid3x3,
 };
 
-/* ── Design tokens ─────────────────────────────────────── */
+/* ── Design tokens ─────────────────────────────────── */
 const t = {
   ground:    "#0C0C0E",
   elevated:  "#141416",
-  surface:   "#1A1A1E",
+  surface:   "#1C1C20",
   border:    "#2A2A2E",
-  borderLt:  "#1E1E22",
-  text1:     "#E8E6E3",
-  text2:     "#A8A5A0",
-  text3:     "#706D68",
-  text4:     "#504D48",
-  accent:    "#6E9EF5",   // cool blue — mathematical, precise
+  borderLt:  "#222226",
+  text1:     "#F0EEEB",    // brighter primary
+  text2:     "#C0BDB8",    // brighter secondary
+  text3:     "#8A8780",    // brighter tertiary
+  text4:     "#605D58",    // brighter quaternary
+  accent:    "#6E9EF5",
   accentDim: "rgba(110,158,245,0.10)",
   accentMid: "rgba(110,158,245,0.25)",
   accentBrd: "rgba(110,158,245,0.30)",
@@ -84,14 +84,14 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: t.ground, color: t.text1, ...mono }}>
-      <div style={{ width: "100%", maxWidth: 960, margin: "0 auto", padding: "0 32px" }}>
+      <div style={{ width: "100%", maxWidth: 1100, margin: "0 auto", padding: "0 40px" }}>
 
         {/* Header */}
         <header style={{
           display: "flex", alignItems: "baseline", justifyContent: "space-between",
           padding: "32px 0 24px",
         }}>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", color: t.text1 }}>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", color: t.accent }}>
             Arithma
           </h1>
           <span style={{ fontSize: "0.7rem", color: t.text3, fontWeight: 400 }}>
@@ -115,10 +115,9 @@ export default function App() {
                   display: "flex", alignItems: "center", gap: 8,
                   padding: "8px 16px", borderRadius: 6, fontSize: "0.78rem",
                   fontWeight: 500,
-                  border: "1px solid transparent",
                   background: active ? t.surface : "transparent",
                   color: active ? t.accent : t.text3,
-                  cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
+                  transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
                 {Icon && <Icon size={14} />}
@@ -147,7 +146,7 @@ export default function App() {
                   border: active ? `1px solid ${t.accentBrd}` : "1px solid transparent",
                   background: active ? t.accentDim : "transparent",
                   color: active ? t.accent : t.text4,
-                  cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
+                  transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
                 {Icon && <Icon size={11} />}
@@ -163,7 +162,7 @@ export default function App() {
           padding: "16px 20px", marginBottom: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Input container — visible "type here" */}
+            {/* Input container */}
             <div style={{
               flex: 1, background: t.ground, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: "4px 12px",
@@ -194,9 +193,8 @@ export default function App() {
               style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "12px 20px", borderRadius: 8, fontSize: "0.78rem",
-                fontWeight: 500, border: "none", flexShrink: 0,
+                fontWeight: 500, flexShrink: 0,
                 background: t.accent, color: t.ground,
-                cursor: wasmReady ? "pointer" : "not-allowed",
                 opacity: wasmReady ? 1 : 0.4,
                 transition: "all 0.15s", ...mono,
               }}
@@ -248,12 +246,10 @@ export default function App() {
                 background: t.elevated, border: `1px solid ${t.border}`,
                 borderRadius: 10, padding: "14px 18px",
               }}>
-                {/* Tool badge + params */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{
                     fontSize: "0.58rem", padding: "2px 7px", borderRadius: 3,
-                    background: t.accentDim, color: t.accent,
-                    letterSpacing: "0.02em",
+                    background: t.accentDim, color: t.accent, letterSpacing: "0.02em",
                   }}>
                     {entry.toolName}
                   </span>
