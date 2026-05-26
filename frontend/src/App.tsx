@@ -22,6 +22,23 @@ const categoryIcons: Record<string, LucideIcon> = {
   matrix: Grid3x3,
 };
 
+/* ── Design tokens ─────────────────────────────────────── */
+const t = {
+  ground:    "#0C0C0E",
+  elevated:  "#141416",
+  surface:   "#1A1A1E",
+  border:    "#2A2A2E",
+  borderLt:  "#1E1E22",
+  text1:     "#E8E6E3",
+  text2:     "#A8A5A0",
+  text3:     "#706D68",
+  text4:     "#504D48",
+  accent:    "#6E9EF5",   // cool blue — mathematical, precise
+  accentDim: "rgba(110,158,245,0.10)",
+  accentMid: "rgba(110,158,245,0.25)",
+  accentBrd: "rgba(110,158,245,0.30)",
+  error:     "#C75B5B",
+};
 const mono = { fontFamily: "'JetBrains Mono', monospace" };
 
 export default function App() {
@@ -66,29 +83,27 @@ export default function App() {
   const categoryTools = getToolsByCategory(activeCategory);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0C0C0E", color: "#E8E6E3", ...mono }}>
-      <div style={{ maxWidth: 960, margin: "0 auto", padding: "0 32px" }}>
+    <div style={{ minHeight: "100vh", background: t.ground, color: t.text1, ...mono }}>
+      <div style={{ width: "100%", maxWidth: 960, margin: "0 auto", padding: "0 32px" }}>
 
         {/* Header */}
         <header style={{
           display: "flex", alignItems: "baseline", justifyContent: "space-between",
-          padding: "32px 0 28px",
+          padding: "32px 0 24px",
         }}>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", color: "#E8E6E3" }}>
-            arithma
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em", color: t.text1 }}>
+            Arithma
           </h1>
-          <span style={{ fontSize: "0.7rem", color: "#706D68", fontWeight: 400 }}>
-            symbolic math engine
+          <span style={{ fontSize: "0.7rem", color: t.text3, fontWeight: 400 }}>
+            Symbolic Math Engine
           </span>
         </header>
 
-        {/* Navigation bar: categories + tools in one row */}
+        {/* Category tabs — row 1 */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 0", marginBottom: 20,
-          minHeight: 44,
+          display: "flex", gap: 4, marginBottom: 8,
+          borderBottom: `1px solid ${t.border}`, paddingBottom: 8,
         }}>
-          {/* Category tabs */}
           {categories.map(cat => {
             const Icon = categoryIcons[cat.id];
             const active = activeCategory === cat.id;
@@ -98,10 +113,11 @@ export default function App() {
                 onClick={() => setActiveCategory(cat.id as Category)}
                 style={{
                   display: "flex", alignItems: "center", gap: 8,
-                  padding: "8px 14px", borderRadius: 8, fontSize: "0.78rem",
-                  fontWeight: 500, border: active ? "1px solid #2A2A2E" : "1px solid transparent",
-                  background: active ? "#1A1A1E" : "transparent",
-                  color: active ? "#E8B84C" : "#706D68",
+                  padding: "8px 16px", borderRadius: 6, fontSize: "0.78rem",
+                  fontWeight: 500,
+                  border: "1px solid transparent",
+                  background: active ? t.surface : "transparent",
+                  color: active ? t.accent : t.text3,
                   cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
@@ -110,13 +126,14 @@ export default function App() {
               </button>
             );
           })}
+        </div>
 
-          {/* Divider */}
-          <div style={{
-            width: 1, height: 20, background: "#2A2A2E", margin: "0 6px", flexShrink: 0,
-          }} />
-
-          {/* Tool pills for selected category */}
+        {/* Tool pills — row 2, fixed height */}
+        <div style={{
+          display: "flex", gap: 4, flexWrap: "wrap",
+          minHeight: 36, alignItems: "center",
+          marginBottom: 20,
+        }}>
           {categoryTools.map(tool => {
             const active = activeTool?.id === tool.id;
             const Icon = iconMap[tool.icon];
@@ -126,10 +143,10 @@ export default function App() {
                 onClick={() => handleToolSelect(tool)}
                 style={{
                   display: "flex", alignItems: "center", gap: 5,
-                  padding: "5px 10px", borderRadius: 5, fontSize: "0.7rem",
-                  border: active ? "1px solid rgba(232,184,76,0.3)" : "1px solid transparent",
-                  background: active ? "rgba(232,184,76,0.1)" : "transparent",
-                  color: active ? "#E8B84C" : "#585550",
+                  padding: "5px 10px", borderRadius: 5, fontSize: "0.68rem",
+                  border: active ? `1px solid ${t.accentBrd}` : "1px solid transparent",
+                  background: active ? t.accentDim : "transparent",
+                  color: active ? t.accent : t.text4,
                   cursor: "pointer", transition: "all 0.15s", whiteSpace: "nowrap", ...mono,
                 }}
               >
@@ -142,24 +159,23 @@ export default function App() {
 
         {/* Input area */}
         <div style={{
-          background: "#141416", border: "1px solid #2A2A2E", borderRadius: 12,
+          background: t.elevated, border: `1px solid ${t.border}`, borderRadius: 12,
           padding: "16px 20px", marginBottom: 8,
         }}>
-          {/* Math input row */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Input container — the visible "type here" area */}
+            {/* Input container — visible "type here" */}
             <div style={{
-              flex: 1, background: "#0C0C0E", border: "1px solid #2A2A2E",
+              flex: 1, background: t.ground, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: "4px 12px",
               display: "flex", alignItems: "center",
             }}>
               <math-field
                 style={{
-                  flex: 1, background: "transparent", color: "#E8E6E3",
+                  flex: 1, background: "transparent", color: t.text1,
                   border: "none", fontSize: "1.25rem", padding: "8px 0",
-                  caretColor: "#E8B84C", outline: "none", minHeight: "40px",
+                  caretColor: t.accent, outline: "none", minHeight: "40px",
                   fontFamily: "'JetBrains Mono', monospace",
-                  '--selection-background-color': 'rgba(232,184,76,0.25)',
+                  '--selection-background-color': t.accentMid,
                   '--contains-highlight-background-color': 'transparent',
                 } as React.CSSProperties}
                 onInput={(evt: React.FormEvent<MathfieldElement>) => {
@@ -179,7 +195,7 @@ export default function App() {
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "12px 20px", borderRadius: 8, fontSize: "0.78rem",
                 fontWeight: 500, border: "none", flexShrink: 0,
-                background: "#E8B84C", color: "#0C0C0E",
+                background: t.accent, color: t.ground,
                 cursor: wasmReady ? "pointer" : "not-allowed",
                 opacity: wasmReady ? 1 : 0.4,
                 transition: "all 0.15s", ...mono,
@@ -194,11 +210,11 @@ export default function App() {
           {activeTool && activeTool.params.length > 0 && (
             <div style={{
               display: "flex", gap: 16, marginTop: 12, paddingTop: 12,
-              borderTop: "1px solid #1E1E22",
+              borderTop: `1px solid ${t.borderLt}`,
             }}>
               {activeTool.params.map(param => (
                 <div key={param.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <label style={{ fontSize: "0.68rem", color: "#706D68" }}>
+                  <label style={{ fontSize: "0.68rem", color: t.text3 }}>
                     {param.label}
                   </label>
                   <input
@@ -207,9 +223,9 @@ export default function App() {
                     onChange={e => setParams({ ...params, [param.name]: e.target.value })}
                     placeholder={param.placeholder}
                     style={{
-                      background: "#0C0C0E", border: "1px solid #2A2A2E", borderRadius: 4,
+                      background: t.ground, border: `1px solid ${t.border}`, borderRadius: 4,
                       padding: "5px 8px", fontSize: "0.75rem", width: 56,
-                      color: "#E8E6E3", outline: "none", ...mono,
+                      color: t.text1, outline: "none", ...mono,
                     }}
                   />
                 </div>
@@ -221,7 +237,7 @@ export default function App() {
         {/* History */}
         <div style={{ paddingTop: 16, paddingBottom: 48 }}>
           {history.length === 0 && (
-            <div style={{ textAlign: "center", color: "#504D48", fontSize: "0.78rem", marginTop: 48 }}>
+            <div style={{ textAlign: "center", color: t.text4, fontSize: "0.78rem", marginTop: 48 }}>
               Type an expression above and press Enter
             </div>
           )}
@@ -229,45 +245,51 @@ export default function App() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[...history].reverse().map((entry, i) => (
               <div key={i} style={{
-                background: "#141416", border: "1px solid #2A2A2E",
+                background: t.elevated, border: `1px solid ${t.border}`,
                 borderRadius: 10, padding: "14px 18px",
               }}>
                 {/* Tool badge + params */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{
                     fontSize: "0.58rem", padding: "2px 7px", borderRadius: 3,
-                    background: "rgba(232,184,76,0.08)", color: "#C9A040",
+                    background: t.accentDim, color: t.accent,
                     letterSpacing: "0.02em",
                   }}>
                     {entry.toolName}
                   </span>
                   {Object.keys(entry.params).length > 0 && (
-                    <span style={{ fontSize: "0.58rem", color: "#504D48" }}>
+                    <span style={{ fontSize: "0.58rem", color: t.text4 }}>
                       {Object.entries(entry.params).map(([k, v]) => `${k}=${v}`).join(", ")}
                     </span>
                   )}
                 </div>
 
-                {/* Input */}
-                <div style={{
-                  fontSize: "0.82rem", color: "#A8A5A0", marginBottom: 4,
-                  overflow: "hidden", textOverflow: "ellipsis",
-                }}>
-                  {entry.input}
+                {/* Input — rendered as math */}
+                <div style={{ marginBottom: 4 }}>
+                  <math-field
+                    read-only=""
+                    style={{
+                      background: "transparent", border: "none", color: t.text2,
+                      fontSize: "0.9rem", padding: 0, pointerEvents: "none",
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}
+                  >
+                    {entry.input}
+                  </math-field>
                 </div>
 
                 {/* Result */}
                 {entry.error ? (
-                  <div style={{ fontSize: "0.82rem", color: "#C75B5B" }}>
+                  <div style={{ fontSize: "0.82rem", color: t.error }}>
                     {entry.error}
                   </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                    <span style={{ color: "#504D48", fontSize: "1rem" }}>=</span>
+                    <span style={{ color: t.text4, fontSize: "1rem" }}>=</span>
                     <math-field
                       read-only=""
                       style={{
-                        background: "transparent", border: "none", color: "#E8E6E3",
+                        background: "transparent", border: "none", color: t.text1,
                         fontSize: "1.1rem", padding: 0, pointerEvents: "none",
                         fontFamily: "'JetBrains Mono', monospace",
                       }}
