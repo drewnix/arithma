@@ -1,13 +1,21 @@
 import { useState, useCallback } from 'react';
 import type { Tool } from '../tools';
 
-// These will be dynamically imported from the WASM module
-let wasmModule: Record<string, (...args: string[]) => string> | null = null;
+// WASM module functions, populated after init
+let wasmModule: Record<string, (...args: unknown[]) => unknown> | null = null;
 
 export async function initWasm(): Promise<void> {
   const module = await import('../../public/pkg/arithma');
   await module.default({ path: '/pkg/arithma_bg.wasm' });
-  wasmModule = module as unknown as Record<string, (...args: string[]) => string>;
+  // Spread the module into a plain object so bracket-notation lookup works
+  // (ES module namespace objects aren't always indexable in all bundlers)
+  const fns: Record<string, unknown> = {};
+  for (const key of Object.keys(module)) {
+    if (key !== 'default' && typeof module[key as keyof typeof module] === 'function') {
+      fns[key] = module[key as keyof typeof module];
+    }
+  }
+  wasmModule = fns as Record<string, (...args: unknown[]) => unknown>;
 }
 
 export interface ToolResult {

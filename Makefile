@@ -19,6 +19,9 @@ clippy: ## Run linter
 
 wasm: ## Build WebAssembly module
 	RUSTFLAGS="--allow=unexpected_cfgs" wasm-pack build --target web --release
+	@rm -f frontend/public/pkg/*
+	@cp pkg/* frontend/public/pkg/
+	@echo "Copied WASM to frontend/public/pkg/"
 
 mcp: ## Build the MCP server (release)
 	cargo build --release --bin arithma-mcp
