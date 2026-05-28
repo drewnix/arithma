@@ -36,67 +36,6 @@ export const tools: Tool[] = [
     wasmFn: 'evaluate_latex_expression_js',
   },
 
-  // === Calculus ===
-  {
-    id: 'differentiate',
-    name: 'Differentiate',
-    icon: 'TrendingUp',
-    description: 'Compute the derivative of an expression',
-    category: 'calculus',
-    params: [
-      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
-    ],
-    wasmFn: 'differentiate_js',
-  },
-  {
-    id: 'integrate',
-    name: 'Integrate',
-    icon: 'Activity',
-    description: 'Compute the indefinite integral',
-    category: 'calculus',
-    params: [
-      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
-    ],
-    wasmFn: 'integrate_expression_js',
-  },
-  {
-    id: 'limit',
-    name: 'Limit',
-    icon: 'ArrowRight',
-    description: 'Compute a limit',
-    category: 'calculus',
-    params: [
-      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
-      { name: 'point', label: 'Approaches', type: 'number', default: '0', placeholder: '0' },
-    ],
-    wasmFn: 'limit_js',
-  },
-  {
-    id: 'taylor',
-    name: 'Taylor Series',
-    icon: 'Waves',
-    description: 'Compute a Taylor series expansion',
-    category: 'calculus',
-    params: [
-      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
-      { name: 'center', label: 'Center', type: 'number', default: '0', placeholder: '0' },
-      { name: 'order', label: 'Order', type: 'number', default: '5', placeholder: '5' },
-    ],
-    wasmFn: 'taylor_series_js',
-  },
-  {
-    id: 'ode',
-    name: 'Solve ODE',
-    icon: 'GitBranch',
-    description: 'Solve an ordinary differential equation',
-    category: 'calculus',
-    params: [
-      { name: 'indep', label: 'Independent var', type: 'variable', default: 'x', placeholder: 'x' },
-      { name: 'dep', label: 'Dependent var', type: 'variable', default: 'y', placeholder: 'y' },
-    ],
-    wasmFn: 'solve_ode_js',
-  },
-
   // === Algebra ===
   {
     id: 'simplify',
@@ -181,13 +120,74 @@ export const tools: Tool[] = [
     params: [],
     wasmFn: 'matrix_eigenvalues_js',
   },
+
+  // === Calculus ===
+  {
+    id: 'differentiate',
+    name: 'Differentiate',
+    icon: 'TrendingUp',
+    description: 'Compute the derivative of an expression',
+    category: 'calculus',
+    params: [
+      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
+    ],
+    wasmFn: 'differentiate_js',
+  },
+  {
+    id: 'integrate',
+    name: 'Integrate',
+    icon: 'Activity',
+    description: 'Compute the indefinite integral',
+    category: 'calculus',
+    params: [
+      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
+    ],
+    wasmFn: 'integrate_expression_js',
+  },
+  {
+    id: 'limit',
+    name: 'Limit',
+    icon: 'ArrowRight',
+    description: 'Compute a limit',
+    category: 'calculus',
+    params: [
+      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
+      { name: 'point', label: 'Approaches', type: 'number', default: '0', placeholder: '0' },
+    ],
+    wasmFn: 'limit_js',
+  },
+  {
+    id: 'taylor',
+    name: 'Taylor Series',
+    icon: 'Waves',
+    description: 'Compute a Taylor series expansion',
+    category: 'calculus',
+    params: [
+      { name: 'variable', label: 'Variable', type: 'variable', default: 'x', placeholder: 'x' },
+      { name: 'center', label: 'Center', type: 'number', default: '0', placeholder: '0' },
+      { name: 'order', label: 'Order', type: 'number', default: '5', placeholder: '5' },
+    ],
+    wasmFn: 'taylor_series_js',
+  },
+  {
+    id: 'ode',
+    name: 'Solve ODE',
+    icon: 'GitBranch',
+    description: 'Solve an ordinary differential equation',
+    category: 'calculus',
+    params: [
+      { name: 'indep', label: 'Independent var', type: 'variable', default: 'x', placeholder: 'x' },
+      { name: 'dep', label: 'Dependent var', type: 'variable', default: 'y', placeholder: 'y' },
+    ],
+    wasmFn: 'solve_ode_js',
+  },
 ];
 
 export const categories = [
   { id: 'evaluate', name: 'Evaluate', icon: 'Calculator' },
-  { id: 'calculus', name: 'Calculus', icon: 'TrendingUp' },
   { id: 'algebra', name: 'Algebra', icon: 'Sigma' },
   { id: 'matrix', name: 'Matrix', icon: 'Grid3x3' },
+  { id: 'calculus', name: 'Calculus', icon: 'TrendingUp' },
 ] as const;
 
 export type Category = typeof categories[number]['id'];
