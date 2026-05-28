@@ -9,36 +9,3 @@ button { background: none; border: none; padding: 0; font: inherit; cursor: poin
 button:focus-visible { outline: 2px solid #6E9EF5; outline-offset: 2px; }
 
 a { color: #6E9EF5; text-decoration: none; }
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* ── shadcn CSS variables (kept for any remaining ui components) ── */
-@layer base {
-  :root {
-    --background: 0 0% 5%;
-    --foreground: 40 5% 90%;
-    --card: 0 0% 8%;
-    --card-foreground: 40 5% 90%;
-    --popover: 0 0% 8%;
-    --popover-foreground: 40 5% 90%;
-    --primary: 222 80% 70%;
-    --primary-foreground: 0 0% 5%;
-    --secondary: 220 10% 14%;
-    --secondary-foreground: 40 5% 90%;
-    --muted: 220 10% 14%;
-    --muted-foreground: 40 5% 55%;
-    --accent: 222 80% 70%;
-    --accent-foreground: 0 0% 5%;
-    --destructive: 0 60% 45%;
-    --destructive-foreground: 40 5% 90%;
-    --border: 220 10% 18%;
-    --input: 220 10% 18%;
-    --ring: 222 80% 70%;
-    --radius: 0.5rem;
-  }
-  * {
-    @apply border-border;
-  }
-}

@@ -29,10 +29,10 @@ const t = {
   surface:   "#1C1C20",
   border:    "#2A2A2E",
   borderLt:  "#222226",
-  text1:     "#F0EEEB",    // brighter primary
-  text2:     "#C0BDB8",    // brighter secondary
-  text3:     "#8A8780",    // brighter tertiary
-  text4:     "#605D58",    // brighter quaternary
+  text1:     "#F0EEEB",
+  text2:     "#C0BDB8",
+  text3:     "#8A8780",
+  text4:     "#605D58",
   accent:    "#6E9EF5",
   accentDim: "rgba(110,158,245,0.10)",
   accentMid: "rgba(110,158,245,0.25)",
@@ -159,18 +159,20 @@ export default function App() {
         {/* Input area */}
         <div style={{
           background: t.elevated, border: `1px solid ${t.border}`, borderRadius: 12,
-          padding: "16px 20px", marginBottom: 8,
+          padding: "16px 20px", marginBottom: 10,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {/* Input container */}
+            {/* Input container — minWidth 0 allows flex shrink below content size */}
             <div style={{
-              flex: 1, background: t.ground, border: `1px solid ${t.border}`,
+              flex: 1, minWidth: 0,
+              background: t.ground, border: `1px solid ${t.border}`,
               borderRadius: 8, padding: "4px 12px",
               display: "flex", alignItems: "center",
             }}>
               <math-field
                 style={{
-                  flex: 1, background: "transparent", color: t.text1,
+                  flex: 1, minWidth: 0,
+                  background: "transparent", color: t.text1,
                   border: "none", fontSize: "1.25rem", padding: "8px 0",
                   caretColor: t.accent, outline: "none", minHeight: "40px",
                   fontFamily: "'JetBrains Mono', monospace",
@@ -233,9 +235,9 @@ export default function App() {
         </div>
 
         {/* History */}
-        <div style={{ paddingTop: 16, paddingBottom: 48 }}>
+        <div style={{ paddingBottom: 48 }}>
           {history.length === 0 && (
-            <div style={{ textAlign: "center", color: t.text4, fontSize: "0.78rem", marginTop: 48 }}>
+            <div style={{ textAlign: "center", color: t.text4, fontSize: "0.78rem", marginTop: 32 }}>
               Type an expression above and press Enter
             </div>
           )}
