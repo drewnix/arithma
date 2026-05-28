@@ -41,6 +41,11 @@ const t = {
 };
 const mono = { fontFamily: "'JetBrains Mono', monospace" };
 
+/* ── Helper: get the active math-field ── */
+function getMathField(): MathfieldElement | null {
+  return document.querySelector("math-field:not([read-only])") as MathfieldElement | null;
+}
+
 export default function App() {
   const { activeTool, setActiveTool, history, params, setParams, execute } = useArithma();
   const [activeCategory, setActiveCategory] = useState<Category>("evaluate");
@@ -50,6 +55,15 @@ export default function App() {
   useEffect(() => {
     initWasm().then(() => setWasmReady(true)).catch(console.error);
   }, []);
+
+  /* Auto-focus the input when WASM is ready */
+  useEffect(() => {
+    if (wasmReady) {
+      // Small delay to let the math-field custom element finish rendering
+      const t = setTimeout(() => getMathField()?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [wasmReady]);
 
   useEffect(() => {
     const ct = getToolsByCategory(activeCategory);
@@ -66,14 +80,22 @@ export default function App() {
     const d: Record<string, string> = {};
     tool.params.forEach(p => { d[p.name] = p.default || ""; });
     setParams(d);
+    // Refocus input after tool switch
+    setTimeout(() => getMathField()?.focus(), 0);
   }, [setActiveTool, setParams]);
 
   const handleExecute = useCallback(async () => {
     if (!activeTool || !wasmReady) return;
-    const mf = document.querySelector("math-field:not([read-only])") as MathfieldElement;
+    const mf = getMathField();
     const latex = mf?.getValue("latex-expanded") || input;
     if (!latex.trim()) return;
     await execute(activeTool, latex, params);
+    // Clear and refocus — REPL feel: execute, see result, type next
+    if (mf) {
+      mf.setValue("");
+      mf.focus();
+    }
+    setInput("");
   }, [activeTool, wasmReady, input, params, execute]);
 
   const handleKeyDown = useCallback((evt: React.KeyboardEvent) => {
