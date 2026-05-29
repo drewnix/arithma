@@ -28,9 +28,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 28)
+## Current State (Post Session 29)
 
-**889 tests pass. 0 failures. 14 MCP tools. ~23K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**923 tests pass. 0 failures. 14 MCP tools. ~25K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
 Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** in both tower orderings: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log towers** (polynomial and rational), AND **two-level log-over-exp towers** (polynomial integrands in ln(h(x, exp(g)))). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level exp-over-log polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), **two-level exp-over-log rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, general GCD via θ₁-component decomposition), **two-level log-over-exp polynomial tower integration** (top-down logarithmic descent with structured inner exp integration), **θ₁-in-denominator detection** via content extraction (separable case: D₁(θ₁)·D₂(θ₂) factorization), and **two-level log-over-exp rational tower integration** (h-scaled Rothstein-Trager for non-elementarity detection) — all with non-elementary detection.
 
@@ -38,7 +38,7 @@ Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension t
 
 **Key results:** ∫ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp tower, degree-0 RT fails). ∫exp(x)·ln(1+exp(x)) dx = exp(x)·ln(1+exp(x)) + ln(1+exp(x)) − exp(x) ✓ (log-over-exp elementary). ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (exp-over-log, RT resultant has θ₁ term). ∫ln(x)/(1+exp(2x)) dx → non-elementary ✓ (degree-2 denominator). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. ∫1/(ln(x)·(1+exp(x))) dx → non-elementary ✓ (content extraction, scaled RT). ∫exp(x)/(ln(x)·(1+exp(x))) dx → non-elementary ✓. ∫1/(ln(x)²·(1+exp(x))) dx → non-elementary ✓ (content = θ₁²). ∫1/ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp rational, h-scaled RT). ∫exp(x)/ln(1+exp(x)) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
 
-Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Matrix eigenvalues computed via characteristic polynomial + solver for matrices up to 4×4, with algebraic multiplicity. Greek letter LaTeX parsing (`\alpha` → `α` internally, `\alpha` on output) with `normalize_var()` at all API boundaries. Simplifier performs **rational content GCD cancellation** on fractions: `(-32α+32)/(16α+8)` → `(-4α+4)/(2α+1)`. **Factored display** for denominators (and numerators) with repeated or multiple factors: `48/(16α³+24α²+12α+2)` → `24/(2α+1)³`. Both univariate and multivariate fractions supported. **Symbolic-center Taylor expansion:** `taylor_series_symbolic` expands `f(x)` around `x = a` where `a` is a symbolic expression, producing coefficients as exact symbolic expressions. MCP and CLI accept symbolic centers alongside numeric ones (e.g., `taylor "3/(1+2x)" x a 3` → `3/(2a+1) - 6/(2a+1)² · (x-a) + 12/(2a+1)³ · (x-a)²`). Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
+Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. **Rational equation solving** via automatic denominator clearing: `1/x = 2` → `x = 1/2`. Matrix eigenvalues computed via characteristic polynomial + solver for matrices up to 4×4, with algebraic multiplicity; **decimal matrix entries** now supported via float-to-rational conversion with numerical cubic fallback. Greek letter LaTeX parsing (`\alpha` → `α` internally, `\alpha` on output) with `normalize_var()` at all API boundaries. **Parser hardening (Session 29):** implicit multiplication for variable-paren patterns (`u(3-2u)`, `α(x+1)`), space-separated variable multiplication, sign normalization in fractions (`-3/(-2b-1)` → `3/(2b+1)`). Simplifier performs **rational content GCD cancellation** on fractions: `(-32α+32)/(16α+8)` → `(-4α+4)/(2α+1)`. **Factored display** for denominators (and numerators) with repeated or multiple factors: `48/(16α³+24α²+12α+2)` → `24/(2α+1)³`. Both univariate and multivariate fractions supported. **Parametric integration** for linear denominators: `∫1/(x+a)dx = ln|x+a|`, `∫3/(ax+b)dx = (3/a)·ln|ax+b|`. **Symbolic-center Taylor expansion:** `taylor_series_symbolic` expands `f(x)` around `x = a` where `a` is a symbolic expression, producing coefficients as exact symbolic expressions. MCP and CLI accept symbolic centers alongside numeric ones (e.g., `taylor "3/(1+2x)" x a 3` → `3/(2a+1) - 6/(2a+1)² · (x-a) + 12/(2a+1)³ · (x-a)²`). Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -210,6 +210,22 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 29 (2026-05-28)
+- Parser hardening: implicit multiplication for variable-paren (`u(3-2u)`, `α(x+1)`)
+- Parser hardening: space-separated variable multiplication (`x y` → `x * y`)
+- Simplifier: sign normalization in fractions (`-3/(-2b-1)` → `3/(2b+1)`)
+- Feature: Rational equation solving via denominator clearing (`1/x = 2` → `x = 1/2`)
+- Feature: Decimal matrix eigenvalues (float-to-rational + numerical cubic fallback)
+- Feature: Parametric integration for linear denominators (`∫1/(x+a)dx = ln|x+a|`)
+- 26 new tests (897→923), 4 commits, all from agent feedback (Carl + Ada)
+
+### Session 28 (2026-05-28)
+- Rational GCD simplification + factored display (877→889)
+- Display normalization: nested negations (889→891)
+- Symbolic-center Taylor expansion (891→896)
+- Non-monic polynomial factoring fix (896→897)
+- 20 new tests, 5 commits
 
 ### Session 27 (2026-05-28)
 - Fix: Partial fraction content factor for non-monic linear denominators (Ada MSG-016 bug)

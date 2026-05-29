@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**877 tests, zero failures.** Every algorithm is verified against known results.
+**923 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -38,9 +38,13 @@ The simplifier has a verified idempotency contract:
 **Algebra.** Polynomial factoring over Q via the Berlekamp-Zassenhaus algorithm
 (modular factoring, Hensel lifting, factor recombination). Multivariate
 polynomial GCD. Simplification with trigonometric identities, logarithmic
-properties, and power rules. Partial fraction decomposition. Expression
-equivalence checking. Assumption system for domain-aware simplification:
-declare `x > 0` and `sqrt(x^2)` simplifies to `x` instead of `|x|`.
+properties, power rules, rational content GCD cancellation, and sign
+normalization. Factored display for expressions with repeated polynomial
+factors. Partial fraction decomposition. Expression equivalence checking.
+Greek letter LaTeX parsing (`\alpha` through `\omega`). Implicit
+multiplication (`u(3-2u)`, `α(x+1)`). Assumption system for domain-aware
+simplification: declare `x > 0` and `sqrt(x^2)` simplifies to `x`
+instead of `|x|`.
 
 **Calculus.** Differentiation with full chain rule. Integration via heuristic
 methods (polynomial rules, transcendental table, integration by parts, u-sub,
@@ -56,11 +60,16 @@ towers with inner DE solving over Q(x)[ln(x)], and **biquadratic
 integration** (∫1/(ax⁴+bx²+c)dx via quadratic-in-x² factoring with
 exact radical coefficients). All via Hermite reduction and the
 Rothstein-Trager resultant method.
-Taylor/Maclaurin series with exact rational coefficients. Symbolic limits via
-direct substitution, GCD cancellation, and L'Hopital's rule.
+Parametric integration for linear denominators (`∫1/(x+a)dx = ln|x+a|`).
+Taylor/Maclaurin series with exact rational coefficients, including
+symbolic-center expansion (`f(x)` around `x=a` with symbolic `a`).
+Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's
+rule.
 
 **Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
 Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
+Rational equations with the variable in a denominator (`1/x = 2` → `x = 1/2`)
+via automatic denominator clearing.
 
 **ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
 (`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
@@ -68,9 +77,9 @@ constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
 complex roots). Returns general solutions with arbitrary constants.
 
 **Linear algebra.** Determinant, inverse, eigenvalues (numerical up to
-4×4 via characteristic polynomial + Cardano/Ferrari; symbolic for 2×2
-and 3×3 matrices with variable entries), rank, transpose, multiplication,
-Ax = b, and RREF.
+4×4 via characteristic polynomial + Cardano/Ferrari, including matrices
+with decimal entries; symbolic for 2×2 and 3×3 matrices with variable
+entries), rank, transpose, multiplication, Ax = b, and RREF.
 
 ## MCP server
 
@@ -229,7 +238,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 877 tests
+cargo test                                # run all 923 tests
 ```
 
 ## Design principles
@@ -274,7 +283,7 @@ src/
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-~20K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~25K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
