@@ -154,6 +154,28 @@ mod parser_hardening_tests {
         assert_eq!(eigenvalues.len(), 3, "Should find 3 eigenvalues");
     }
 
+    // --- Parametric integration ---
+
+    #[test]
+    fn test_integrate_parametric_linear() {
+        // ∫1/(x+a) dx = ln|x+a|
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{x + a}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(result.is_ok(), "Should integrate 1/(x+a): {:?}", result);
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("ln"), "Should contain ln: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_parametric_scaled() {
+        // ∫1/(2x+b) dx = (1/2)·ln|2x+b|
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{2x + b}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(result.is_ok(), "Should integrate 1/(2x+b): {:?}", result);
+    }
+
     fn mcp_eigenvalues(matrix_body: &str) -> Result<Vec<f64>, String> {
         let env = Environment::new();
         let latex = format!("\\begin{{pmatrix}} {} \\end{{pmatrix}}", matrix_body);

@@ -250,6 +250,35 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // ∫c/(ax+b) dx with symbolic coefficients — parametric linear denominator
+            if !contains_var(left, var_name) {
+                if let Some((a_coeff, b_const)) = try_decompose_linear(right, var_name) {
+                    let ln_term = Node::Function(
+                        "ln".to_string(),
+                        vec![Node::Abs(Box::new(right.as_ref().clone()))],
+                    );
+                    let coeff = Node::Divide(left.clone(), Box::new(a_coeff));
+                    let env = crate::environment::Environment::new();
+                    let simplified =
+                        crate::simplify::Simplifiable::simplify(&coeff, &env).unwrap_or(coeff);
+                    return Ok(
+                        crate::simplify::Simplifiable::simplify(
+                            &Node::Multiply(Box::new(simplified), Box::new(ln_term)),
+                            &env,
+                        )
+                        .unwrap_or_else(|_| {
+                            Node::Multiply(
+                                Box::new(Node::Divide(left.clone(), Box::new(b_const))),
+                                Box::new(Node::Function(
+                                    "ln".to_string(),
+                                    vec![Node::Abs(Box::new(right.as_ref().clone()))],
+                                )),
+                            )
+                        }),
+                    );
+                }
+            }
+
             // ∫1/(1+x²) dx = arctan(x), ∫1/√(1-x²) dx = arcsin(x)
             if let Node::Num(ref n) = **left {
                 if n.is_one() {
@@ -517,6 +546,61 @@ fn contains_var(expr: &Node, var: &str) -> bool {
         Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
         Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
         _ => false,
+    }
+}
+
+fn try_decompose_linear(expr: &Node, var: &str) -> Option<(Node, Node)> {
+    match expr {
+        Node::Variable(v) if v == var => Some((Node::Num(ExactNum::one()), Node::Num(ExactNum::zero()))),
+        Node::Multiply(a, b) => {
+            if let Node::Variable(v) = b.as_ref() {
+                if v == var && !contains_var(a, var) {
+                    return Some((*a.clone(), Node::Num(ExactNum::zero())));
+                }
+            }
+            if let Node::Variable(v) = a.as_ref() {
+                if v == var && !contains_var(b, var) {
+                    return Some((*b.clone(), Node::Num(ExactNum::zero())));
+                }
+            }
+            None
+        }
+        Node::Add(a, b) => {
+            if let Some((coeff, const_a)) = try_decompose_linear(a, var) {
+                if !contains_var(b, var) {
+                    let constant = Node::Add(Box::new(const_a), b.clone());
+                    return Some((coeff, constant));
+                }
+            }
+            if let Some((coeff, const_b)) = try_decompose_linear(b, var) {
+                if !contains_var(a, var) {
+                    let constant = Node::Add(a.clone(), Box::new(const_b));
+                    return Some((coeff, constant));
+                }
+            }
+            None
+        }
+        Node::Subtract(a, b) => {
+            if let Some((coeff, const_a)) = try_decompose_linear(a, var) {
+                if !contains_var(b, var) {
+                    let constant = Node::Subtract(Box::new(const_a), b.clone());
+                    return Some((coeff, constant));
+                }
+            }
+            if let Some((coeff, const_b)) = try_decompose_linear(b, var) {
+                if !contains_var(a, var) {
+                    let neg_coeff = Node::Negate(Box::new(coeff));
+                    let constant = Node::Subtract(a.clone(), Box::new(const_b));
+                    return Some((neg_coeff, constant));
+                }
+            }
+            None
+        }
+        Node::Negate(inner) => {
+            let (coeff, constant) = try_decompose_linear(inner, var)?;
+            Some((Node::Negate(Box::new(coeff)), Node::Negate(Box::new(constant))))
+        }
+        _ => None,
     }
 }
 
