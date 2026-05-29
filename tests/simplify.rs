@@ -1431,4 +1431,38 @@ mod test_simplify {
             val
         );
     }
+
+    #[test]
+    fn test_no_nested_negations_in_determinant() {
+        let env = Environment::new();
+        // det([[1,a,b],[c,1,a],[b,a,1]]) should have no nested negations
+        let expr = arithma::parse_latex(
+            "\\frac{(b - 1) \\cdot a^{2} + (c \\cdot b - c) \\cdot a - -(-b^{2} + 1)}{1}",
+            &env,
+        )
+        .unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("- -"),
+            "Should not have nested negations '- -', got: {}",
+            display
+        );
+    }
+
+    #[test]
+    fn test_subtract_negate_simplifies() {
+        let env = Environment::new();
+        // x - (-y) → x + y
+        let x = Node::Variable("x".to_string());
+        let y = Node::Variable("y".to_string());
+        let expr = Node::Subtract(Box::new(x), Box::new(Node::Negate(Box::new(y))));
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            display.contains("x + y") || display.contains("y + x"),
+            "x - (-y) should simplify to x + y, got: {}",
+            display
+        );
+    }
 }

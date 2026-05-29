@@ -822,6 +822,8 @@ fn negate_node(node: Node) -> Node {
     match node {
         Node::Negate(inner) => *inner,
         Node::Num(n) => Node::Num(-n),
+        Node::Add(a, b) => Node::Subtract(Box::new(negate_node(*a)), b),
+        Node::Subtract(a, b) => Node::Subtract(b, a),
         _ => Node::Negate(Box::new(node)),
     }
 }
