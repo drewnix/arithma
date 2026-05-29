@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State (Post Session 27)
 
-**866 tests pass. 0 failures. 14 MCP tools. ~23K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**874 tests pass. 0 failures. 14 MCP tools. ~23K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
 Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** in both tower orderings: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log towers** (polynomial and rational), AND **two-level log-over-exp towers** (polynomial integrands in ln(h(x, exp(g)))). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level exp-over-log polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), **two-level exp-over-log rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, general GCD via θ₁-component decomposition), **two-level log-over-exp polynomial tower integration** (top-down logarithmic descent with structured inner exp integration), **θ₁-in-denominator detection** via content extraction (separable case: D₁(θ₁)·D₂(θ₂) factorization), and **two-level log-over-exp rational tower integration** (h-scaled Rothstein-Trager for non-elementarity detection) — all with non-elementary detection.
 
@@ -161,6 +161,7 @@ Features that extend what arithma can compute. Each earns its place by demonstra
 
 Filling remaining gaps in the integration engine as they arise from agent usage.
 
+- ~~Biquadratic integration: 1/(ax⁴+bx²+c) via quadratic-in-x² factoring~~ ✅ Done (Session 27)
 - Higher-power irreducible quadratic: (Ax+B)/(x²+bx+c)^k for k ≥ 2 (reduction formula)
 - Hyperbolic substitution variants
 - Integration of expressions with absolute values
@@ -216,7 +217,8 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 - Feature: normalize_var() at MCP and CLI boundaries for Greek variable names
 - Feature: Eigenvalue computation for 3×3 and 4×4 matrices via characteristic polynomial
 - Feature: characteristic_polynomial() method on Matrix
-- 17 new tests (849→866), 3 features
+- Feature: Biquadratic integration (1/(ax⁴+bx²+c) via quadratic-in-x² factoring, exact √2/√3 coefficients)
+- 25 new tests (849→874), 4 features
 
 ### Session 26 (2026-05-25)
 - Phase 9: θ₁-in-denominator via content extraction for two-level exp-over-log tower

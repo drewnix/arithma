@@ -720,4 +720,37 @@ mod integration_tests {
             val
         );
     }
+
+    #[test]
+    fn test_e2e_biquadratic_x4_plus_1() {
+        let result = integrate_latex("\\frac{1}{x^4 + 1}", "x").unwrap();
+        assert!(result.contains("\\sqrt{2}"), "Should have exact √2: {}", result);
+        assert!(result.contains("arctan"), "Should have arctan: {}", result);
+        assert!(result.contains("ln"), "Should have ln: {}", result);
+    }
+
+    #[test]
+    fn test_e2e_biquadratic_x4_minus_x2_plus_1() {
+        let result = integrate_latex("\\frac{1}{x^4 - x^2 + 1}", "x").unwrap();
+        assert!(result.contains("\\sqrt{3}"), "Should have exact √3: {}", result);
+        assert!(result.contains("arctan"), "Should have arctan: {}", result);
+    }
+
+    #[test]
+    fn test_e2e_biquadratic_x2_over_x4_plus_1() {
+        let result = integrate_latex("\\frac{x^2}{x^4 + 1}", "x").unwrap();
+        assert!(result.contains("arctan"), "Should have arctan: {}", result);
+    }
+
+    #[test]
+    fn test_e2e_biquadratic_numerical() {
+        // ∫₁² 1/(x⁴+1)dx ≈ 0.20315
+        let result = definite_integral_latex("\\frac{1}{x^4 + 1}", "x", 1.0, 2.0).unwrap();
+        let val: f64 = result.parse().unwrap();
+        assert!(
+            (val - 0.20315).abs() < 0.01,
+            "∫₁² 1/(x⁴+1)dx ≈ 0.20315, got {}",
+            val
+        );
+    }
 }

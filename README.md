@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**866 tests, zero failures.** Every algorithm is verified against known results.
+**874 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -50,10 +50,12 @@ that can prove an integral has no elementary closed form. Handles both
 exponential extensions (∫r(x)·e^{g(x)}dx, including rational-coefficient
 integrands like ∫((1-x)/x²)·e^x dx), logarithmic extensions
 (∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption),
-and **multi-extension towers** (integrands with both exp and ln, like
+**multi-extension towers** (integrands with both exp and ln, like
 ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)) via two-level Risch
-towers with inner DE solving over Q(x)[ln(x)]. All via Hermite reduction
-and the Rothstein-Trager resultant method.
+towers with inner DE solving over Q(x)[ln(x)], and **biquadratic
+integration** (∫1/(ax⁴+bx²+c)dx via quadratic-in-x² factoring with
+exact radical coefficients). All via Hermite reduction and the
+Rothstein-Trager resultant method.
 Taylor/Maclaurin series with exact rational coefficients. Symbolic limits via
 direct substitution, GCD cancellation, and L'Hopital's rule.
 
@@ -212,6 +214,9 @@ $ arithma integrate "\frac{\ln(x)}{1 + \exp(x)}" x
 No elementary antiderivative exists. The two-level Rothstein-Trager
 resultant has no constant roots, so the integral cannot be expressed
 in terms of elementary functions.
+
+$ arithma integrate "\frac{1}{x^4 + 1}" x
+\frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} + \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x + \sqrt{2}}{\sqrt{2}}) + -\frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} - \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x - \sqrt{2}}{\sqrt{2}}) + C
 ```
 
 All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
@@ -223,7 +228,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 866 tests
+cargo test                                # run all 874 tests
 ```
 
 ## Design principles
