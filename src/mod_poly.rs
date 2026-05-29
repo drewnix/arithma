@@ -749,8 +749,26 @@ fn factor_square_free(f: &crate::polynomial::Polynomial) -> Vec<crate::polynomia
         return vec![f_int.make_monic()];
     }
 
+    // factor_mod_p returns monic factors (factors of f/lc mod p).
+    // Hensel lifting requires product of factors ≡ f mod p.
+    // Adjust the first factor by the leading coefficient to match.
+    let lc_int = f_int
+        .leading_coeff()
+        .unwrap()
+        .to_integer()
+        .to_i64()
+        .unwrap_or(1);
+    let lc_mod = mod_reduce(lc_int, p);
+    let adjusted_factors: Vec<ModPoly> = if lc_mod != 1 {
+        let mut af = mod_factors.clone();
+        af[0] = af[0].scalar_mul(lc_mod);
+        af
+    } else {
+        mod_factors.clone()
+    };
+
     let k = lifting_target(&f_int, p);
-    let lifted = hensel_lift_factors(&f_int, &mod_factors, p, k);
+    let lifted = hensel_lift_factors(&f_int, &adjusted_factors, p, k);
 
     let mut pk = BigInt::from(p);
     for _ in 1..k {
@@ -1608,5 +1626,30 @@ mod tests {
         // (2x+3)(3x-5) = 6x² - x - 15
         let f = poly(&[-15, -1, 6], "x");
         verify_factorization(&f);
+    }
+
+    #[test]
+    fn test_factor_non_monic_quadratic() {
+        // 2x²-x-1 = (2x+1)(x-1) — Ada bug report
+        let f = poly(&[-1, -1, 2], "x");
+        let (_content, factors) = factor_over_q(&f);
+        assert!(
+            factors.len() == 2,
+            "Should have 2 factors, got {}: {:?}",
+            factors.len(),
+            factors
+        );
+        verify_factorization(&f);
+
+        // 6x²+x-1 = (2x+1)(3x-1)
+        let f2 = poly(&[-1, 1, 6], "x");
+        let (_content2, factors2) = factor_over_q(&f2);
+        assert!(
+            factors2.len() == 2,
+            "Should have 2 factors, got {}: {:?}",
+            factors2.len(),
+            factors2
+        );
+        verify_factorization(&f2);
     }
 }
