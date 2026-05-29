@@ -343,19 +343,29 @@ fn cmd_taylor(args: &[String]) {
         .get(1)
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".to_string());
-    let center = args
-        .get(2)
-        .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(0.0);
     let order = args
         .get(3)
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(5);
-    match arithma::series::taylor_series_latex(expr, &var, center, order) {
-        Ok(result) => println!("{}", result),
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
+
+    let center_str = args.get(2).map(|s| s.as_str()).unwrap_or("0");
+
+    if let Ok(center_f64) = center_str.parse::<f64>() {
+        match arithma::series::taylor_series_latex(expr, &var, center_f64, order) {
+            Ok(result) => println!("{}", result),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        let center_normalized = normalize_var(center_str);
+        match arithma::series::taylor_series_latex_symbolic(expr, &var, &center_normalized, order) {
+            Ok(result) => println!("{}", result),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
         }
     }
 }

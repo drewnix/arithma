@@ -77,7 +77,9 @@ pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
 
 pub mod series;
-pub use crate::series::{taylor_series, taylor_series_latex};
+pub use crate::series::{
+    taylor_series, taylor_series_latex, taylor_series_latex_symbolic, taylor_series_symbolic,
+};
 
 pub mod limits;
 pub use crate::limits::{compute_limit, limit_latex};

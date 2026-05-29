@@ -1465,4 +1465,32 @@ mod test_simplify {
             display
         );
     }
+
+    #[test]
+    fn test_e2e_taylor_symbolic_center() {
+        let result =
+            arithma::series::taylor_series_latex_symbolic("\\frac{3}{1+2x}", "x", "\\alpha", 1)
+                .unwrap();
+        assert!(result.contains("\\alpha"), "Should contain α: {}", result);
+        let env = Environment::new();
+        let expr = arithma::parse_latex(&result, &env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 0.6);
+        test_env.set("α", 0.5);
+        let val = Evaluator::evaluate(&expr, &test_env).unwrap();
+        let exact = 3.0 / (1.0 + 2.0 * 0.6);
+        assert!(
+            (val - exact).abs() < 0.1,
+            "Taylor approx should be close: {} vs {}",
+            val,
+            exact
+        );
+    }
+
+    #[test]
+    fn test_e2e_taylor_numeric_center_unchanged() {
+        let result = arithma::series::taylor_series_latex("\\sin(x)", "x", 0.0, 3).unwrap();
+        assert!(!result.is_empty());
+        assert!(!result.contains("NaN"));
+    }
 }

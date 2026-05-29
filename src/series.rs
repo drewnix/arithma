@@ -193,6 +193,111 @@ fn build_taylor_node(coeffs: &[ExactNum], var: &str, center: &ExactNum) -> Resul
     Ok(result)
 }
 
+/// Compute the Taylor series of expr around a symbolic center to the given order.
+///
+/// Unlike `taylor_series`, the center can be any `Node` (e.g. a variable like `a`),
+/// not just a numeric `ExactNum`. Coefficients are computed by substituting the
+/// symbolic center and simplifying, so the result is a symbolic expression.
+pub fn taylor_series_symbolic(
+    expr: &Node,
+    var: &str,
+    center: &Node,
+    order: usize,
+) -> Result<Node, String> {
+    use crate::substitute::substitute_variable;
+
+    let env = Environment::new();
+    let mut current = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+    let mut coeffs: Vec<Node> = Vec::with_capacity(order + 1);
+
+    for k in 0..=order {
+        let substituted = substitute_variable(&current, var, center)?;
+        let value = substituted.simplify(&env).unwrap_or(substituted);
+        let fact = factorial_exact(k);
+        let coeff = if fact.is_one() {
+            value
+        } else {
+            Node::Divide(Box::new(value), Box::new(Node::Num(fact)))
+                .simplify(&env)
+                .unwrap_or_else(|_| Node::Num(ExactNum::zero()))
+        };
+        coeffs.push(coeff);
+
+        if k < order {
+            current = differentiate(&current, var)?;
+            current = current.simplify(&env).unwrap_or_else(|_| current.clone());
+        }
+    }
+
+    build_taylor_node_symbolic(&coeffs, var, center)
+}
+
+fn build_taylor_node_symbolic(coeffs: &[Node], var: &str, center: &Node) -> Result<Node, String> {
+    let shifted = Node::Subtract(
+        Box::new(Node::Variable(var.to_string())),
+        Box::new(center.clone()),
+    );
+
+    let mut terms: Vec<Node> = Vec::new();
+
+    for (k, coeff) in coeffs.iter().enumerate() {
+        if matches!(coeff, Node::Num(n) if n.is_zero()) {
+            continue;
+        }
+
+        let term = if k == 0 {
+            coeff.clone()
+        } else {
+            let power_node = if k == 1 {
+                shifted.clone()
+            } else {
+                Node::Power(
+                    Box::new(shifted.clone()),
+                    Box::new(Node::Num(ExactNum::integer(k as i64))),
+                )
+            };
+
+            if matches!(coeff, Node::Num(n) if n.is_one()) {
+                power_node
+            } else {
+                Node::Multiply(Box::new(coeff.clone()), Box::new(power_node))
+            }
+        };
+
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Ok(result)
+}
+
+/// Taylor series with symbolic center from LaTeX input.
+pub fn taylor_series_latex_symbolic(
+    latex_expr: &str,
+    var: &str,
+    center_latex: &str,
+    order: usize,
+) -> Result<String, String> {
+    let mut tokenizer = Tokenizer::new(latex_expr);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)?;
+
+    let mut center_tokenizer = Tokenizer::new(center_latex);
+    let center_tokens = center_tokenizer.tokenize();
+    let center = build_expression_tree(center_tokens)?;
+
+    let result = taylor_series_symbolic(&expr, var, &center, order)?;
+    Ok(format!("{}", result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +409,58 @@ mod tests {
         assert_eq!(factorial_exact(0), ExactNum::integer(1));
         assert_eq!(factorial_exact(1), ExactNum::integer(1));
         assert_eq!(factorial_exact(5), ExactNum::integer(120));
+    }
+
+    #[test]
+    fn test_taylor_symbolic_center_linear() {
+        // Taylor series of x^2 around x=a, order 2
+        // f(x) = x^2, f(a)=a^2, f'(a)=2a, f''(a)=2
+        // T(x) = a^2 + 2a(x-a) + (x-a)^2
+        let x = Node::Variable("x".to_string());
+        let expr = Node::Power(Box::new(x), Box::new(Node::Num(ExactNum::integer(2))));
+        let center = Node::Variable("a".to_string());
+        let result = taylor_series_symbolic(&expr, "x", &center, 2).unwrap();
+
+        // Evaluate at x=5, a=2: should get 25.0 (exact for polynomials at matching degree)
+        let mut env = Environment::new();
+        env.set("x", 5.0);
+        env.set("a", 2.0);
+        let val = Evaluator::evaluate(&result, &env).unwrap();
+        assert!((val - 25.0).abs() < 1e-10, "Expected 25.0, got {}", val);
+    }
+
+    #[test]
+    fn test_taylor_symbolic_center_rational() {
+        // Taylor of 3/(1+2x) around x=a, order 2
+        let env = Environment::new();
+        let expr = crate::parse_latex("\\frac{3}{1+2x}", &env).unwrap();
+        let center = Node::Variable("a".to_string());
+        let result = taylor_series_symbolic(&expr, "x", &center, 2).unwrap();
+
+        // Evaluate at x=0.6, a=0.5
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 0.6);
+        eval_env.set("a", 0.5);
+        let val = Evaluator::evaluate(&result, &eval_env).unwrap();
+        let exact = 3.0 / (1.0 + 2.0 * 0.6); // 1.3636...
+        assert!(
+            (val - exact).abs() < 0.01,
+            "Expected ~{}, got {} (diff={})",
+            exact,
+            val,
+            (val - exact).abs()
+        );
+    }
+
+    #[test]
+    fn test_taylor_symbolic_center_latex_interface() {
+        // Test the LaTeX interface for symbolic centers
+        let result = taylor_series_latex_symbolic("x^2", "x", "a", 2).unwrap();
+        assert!(!result.is_empty(), "Result should be non-empty");
+        assert!(
+            result.contains('a'),
+            "Result should contain symbolic center 'a', got: {}",
+            result
+        );
     }
 }

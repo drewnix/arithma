@@ -339,6 +339,19 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(l / r));
                 }
 
+                // (n/expr) / m → (n/m) / expr — collapse nested numeric divisions
+                if let Node::Num(ref r) = right_simplified {
+                    if let Node::Divide(ref inner_num, ref inner_den) = left_simplified {
+                        if let Node::Num(ref l) = **inner_num {
+                            let combined = l / r;
+                            return Ok(Node::Divide(
+                                Box::new(Node::Num(combined)),
+                                inner_den.clone(),
+                            ));
+                        }
+                    }
+                }
+
                 // x / x → 1
                 if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
                     return Ok(Node::Num(ExactNum::one()));

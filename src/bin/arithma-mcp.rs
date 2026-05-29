@@ -8,7 +8,7 @@ use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_latex, integrate_latex};
 use arithma::limits::limit_latex;
 use arithma::matrix::parse_latex_matrix;
-use arithma::series::taylor_series_latex;
+use arithma::series::{taylor_series_latex, taylor_series_latex_symbolic};
 use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
@@ -306,8 +306,7 @@ fn tools_schema() -> Value {
                         "default": "x"
                     },
                     "center": {
-                        "type": "number",
-                        "description": "Center point of the expansion (0 for Maclaurin)",
+                        "description": "Center of the expansion. Use a number (0 for Maclaurin) or a LaTeX expression for symbolic centers (e.g. \"a\" or \"\\\\alpha\").",
                         "default": 0
                     },
                     "order": {
@@ -628,11 +627,26 @@ fn tool_limit(args: &Value) -> Result<String, String> {
 fn tool_taylor_series(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_var(args, "x");
-    let center = args.get("center").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-    let result = taylor_series_latex(expr, &var, center, order)?;
     let env = env_from_args(args)?;
-    parse_and_simplify_with_env(&result, &env)
+
+    let center_val = args.get("center");
+    let is_numeric = center_val
+        .map(|v| v.is_number() || v.is_null())
+        .unwrap_or(true);
+
+    if is_numeric {
+        let center = center_val.and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let result = taylor_series_latex(expr, &var, center, order)?;
+        parse_and_simplify_with_env(&result, &env)
+    } else {
+        let center_str = center_val
+            .and_then(|v| v.as_str())
+            .ok_or("center must be a number or LaTeX expression")?;
+        let center_str = &normalize_var(center_str);
+        let result = taylor_series_latex_symbolic(expr, &var, center_str, order)?;
+        parse_and_simplify_with_env(&result, &env)
+    }
 }
 
 fn tool_evaluate(args: &Value) -> Result<String, String> {
