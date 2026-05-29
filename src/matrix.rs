@@ -495,9 +495,7 @@ impl Matrix {
             for factor in &factors {
                 let expr = factor.to_node();
                 let eq = Node::Equation(Box::new(expr), Box::new(Node::Num(ExactNum::zero())));
-                if let Ok(roots) =
-                    crate::expression::solve_for_variable_exact(&eq, "__lambda__")
-                {
+                if let Ok(roots) = crate::expression::solve_for_variable_exact(&eq, "__lambda__") {
                     for root in roots {
                         eigenvalues.push(Node::Num(root));
                     }
@@ -541,13 +539,9 @@ impl Matrix {
             Box::new(Node::Num(ExactNum::integer(2))),
         )
         .simplify(env)?;
-        let four_det = Node::Multiply(
-            Box::new(Node::Num(ExactNum::integer(4))),
-            Box::new(det),
-        )
-        .simplify(env)?;
-        let discriminant =
-            Node::Subtract(Box::new(trace_sq), Box::new(four_det)).simplify(env)?;
+        let four_det = Node::Multiply(Box::new(Node::Num(ExactNum::integer(4))), Box::new(det))
+            .simplify(env)?;
+        let discriminant = Node::Subtract(Box::new(trace_sq), Box::new(four_det)).simplify(env)?;
         let sqrt_disc = Node::Sqrt(Box::new(discriminant)).simplify(env)?;
 
         let two = Node::Num(ExactNum::integer(2));
@@ -579,8 +573,7 @@ impl Matrix {
         let mut shifted = self.elements.clone();
         for i in 0..self.rows {
             let idx = i * self.cols + i;
-            shifted[idx] =
-                Node::Subtract(Box::new(shifted[idx].clone()), Box::new(lambda.clone()));
+            shifted[idx] = Node::Subtract(Box::new(shifted[idx].clone()), Box::new(lambda.clone()));
         }
         let shifted_matrix = Matrix {
             rows: self.rows,
@@ -675,8 +668,7 @@ impl Matrix {
 
         let cs0_str = format!("{}", col_sums[0]);
         if col_sums[1..].iter().all(|cs| format!("{}", cs) == cs0_str)
-            && (cs0_str != rs0_str
-                || !row_sums[1..].iter().all(|rs| format!("{}", rs) == rs0_str))
+            && (cs0_str != rs0_str || !row_sums[1..].iter().all(|rs| format!("{}", rs) == rs0_str))
         {
             candidates.push(col_sums[0].clone());
         }
@@ -701,15 +693,15 @@ impl Matrix {
                 let r = candidate;
 
                 // Quadratic: λ² + (r - s₁)λ + (s₂ + r² - s₁·r) = 0
-                let a_coeff = Node::Subtract(Box::new(r.clone()), Box::new(s1.clone()))
-                    .simplify(env)?;
+                let a_coeff =
+                    Node::Subtract(Box::new(r.clone()), Box::new(s1.clone())).simplify(env)?;
                 let r_sq = Node::Power(
                     Box::new(r.clone()),
                     Box::new(Node::Num(ExactNum::integer(2))),
                 )
                 .simplify(env)?;
-                let s1_r = Node::Multiply(Box::new(s1.clone()), Box::new(r.clone()))
-                    .simplify(env)?;
+                let s1_r =
+                    Node::Multiply(Box::new(s1.clone()), Box::new(r.clone())).simplify(env)?;
                 let b_coeff = Node::Add(
                     Box::new(Node::Subtract(
                         Box::new(Node::Add(Box::new(s2.clone()), Box::new(r_sq))),
@@ -725,22 +717,17 @@ impl Matrix {
                     Box::new(Node::Num(ExactNum::integer(2))),
                 )
                 .simplify(env)?;
-                let four_b = Node::Multiply(
-                    Box::new(Node::Num(ExactNum::integer(4))),
-                    Box::new(b_coeff),
-                )
-                .simplify(env)?;
-                let disc =
-                    Node::Subtract(Box::new(a_sq), Box::new(four_b)).simplify(env)?;
+                let four_b =
+                    Node::Multiply(Box::new(Node::Num(ExactNum::integer(4))), Box::new(b_coeff))
+                        .simplify(env)?;
+                let disc = Node::Subtract(Box::new(a_sq), Box::new(four_b)).simplify(env)?;
 
                 if is_zero_node(&disc) {
                     // Double root
                     let neg_a = Node::Negate(Box::new(a_coeff)).simplify(env)?;
-                    let double_root = Node::Divide(
-                        Box::new(neg_a),
-                        Box::new(Node::Num(ExactNum::integer(2))),
-                    )
-                    .simplify(env)?;
+                    let double_root =
+                        Node::Divide(Box::new(neg_a), Box::new(Node::Num(ExactNum::integer(2))))
+                            .simplify(env)?;
                     return Ok(vec![r.clone(), double_root.clone(), double_root]);
                 }
 
@@ -766,9 +753,7 @@ impl Matrix {
             }
         }
 
-        Err(
-            "Could not find symbolic eigenvalues: no candidate root verified".to_string(),
-        )
+        Err("Could not find symbolic eigenvalues: no candidate root verified".to_string())
     }
 }
 
@@ -1482,12 +1467,7 @@ mod tests {
         let env = Environment::new();
         let a = Node::Variable("a".to_string());
         let b = Node::Variable("b".to_string());
-        let elements = vec![
-            a.clone(),
-            b.clone(),
-            Node::Num(ExactNum::zero()),
-            a.clone(),
-        ];
+        let elements = vec![a.clone(), b.clone(), Node::Num(ExactNum::zero()), a.clone()];
         let matrix = Matrix::new(2, 2, elements).unwrap();
         let eigenvalues = matrix.eigenvalues(&env).unwrap();
         assert_eq!(
