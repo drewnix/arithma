@@ -122,4 +122,24 @@ mod parser_hardening_tests {
         let r = parse("\\frac{-3}{-2b - 1}");
         assert_eq!(r, "\\frac{3}{2b + 1}");
     }
+
+    // --- Rational equation solving ---
+
+    #[test]
+    fn test_solve_rational_simple() {
+        // 1/x = 2  →  x = 1/2
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{x} = 2", &env).unwrap();
+        let solutions = arithma::solve_for_variable_exact(&expr, "x").unwrap();
+        assert!(!solutions.is_empty(), "Should find x = 1/2");
+    }
+
+    #[test]
+    fn test_solve_rational_linear() {
+        // 3/(1+2x) = 2  →  1+2x = 3/2 → 2x = 1/2 → x = 1/4
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{3}{1 + 2x} = 2", &env).unwrap();
+        let solutions = arithma::solve_for_variable_exact(&expr, "x").unwrap();
+        assert!(!solutions.is_empty(), "Should find x = 1/4");
+    }
 }

@@ -37,8 +37,22 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
     let simplified =
         crate::simplify::Simplifiable::simplify(&equation_expr, &env).unwrap_or(equation_expr);
 
-    let poly = Polynomial::from_node(&simplified, target_var)
-        .map_err(|e| format!("Cannot convert to polynomial: {}", e))?;
+    let poly = match Polynomial::from_node(&simplified, target_var) {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
+                let cleared_simplified =
+                    crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
+                Polynomial::from_node(&cleared_simplified, target_var).map_err(|e| {
+                    format!("Cannot convert to polynomial: {}", e)
+                })?
+            } else {
+                return Err(
+                    "Cannot convert to polynomial: variable in denominator".to_string(),
+                );
+            }
+        }
+    };
 
     match poly.degree() {
         None => return Err("Equation is trivially true for all values".to_string()),
@@ -333,6 +347,81 @@ fn exact_rational_sqrt(r: &BigRational) -> Option<BigRational> {
     let sd = (du as f64).sqrt() as u64;
     if sn * sn == nu && sd * sd == du {
         Some(BigRational::new(BigInt::from(sn), BigInt::from(sd)))
+    } else {
+        None
+    }
+}
+
+fn contains_var(node: &Node, var: &str) -> bool {
+    match node {
+        Node::Variable(v) => v == var,
+        Node::Num(_) => false,
+        Node::Add(a, b)
+        | Node::Subtract(a, b)
+        | Node::Multiply(a, b)
+        | Node::Divide(a, b)
+        | Node::Power(a, b) => contains_var(a, var) || contains_var(b, var),
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
+        Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
+        Node::Equation(a, b)
+        | Node::Greater(a, b)
+        | Node::Less(a, b)
+        | Node::GreaterEqual(a, b)
+        | Node::LessEqual(a, b)
+        | Node::Equal(a, b) => contains_var(a, var) || contains_var(b, var),
+        Node::Summation(_, start, end, body) => {
+            contains_var(start, var) || contains_var(end, var) || contains_var(body, var)
+        }
+        Node::Piecewise(cases) => cases
+            .iter()
+            .any(|(val, cond)| contains_var(val, var) || contains_var(cond, var)),
+    }
+}
+
+fn to_rational_form(node: &Node) -> Option<(Node, Node)> {
+    match node {
+        Node::Num(_) | Node::Variable(_) => Some((node.clone(), Node::Num(ExactNum::one()))),
+        Node::Divide(a, b) => Some((*a.clone(), *b.clone())),
+        Node::Add(a, b) => {
+            let (an, ad) = to_rational_form(a)?;
+            let (bn, bd) = to_rational_form(b)?;
+            let num = Node::Add(
+                Box::new(Node::Multiply(Box::new(an), Box::new(bd.clone()))),
+                Box::new(Node::Multiply(Box::new(bn), Box::new(ad.clone()))),
+            );
+            let den = Node::Multiply(Box::new(ad), Box::new(bd));
+            Some((num, den))
+        }
+        Node::Subtract(a, b) => {
+            let (an, ad) = to_rational_form(a)?;
+            let (bn, bd) = to_rational_form(b)?;
+            let num = Node::Subtract(
+                Box::new(Node::Multiply(Box::new(an), Box::new(bd.clone()))),
+                Box::new(Node::Multiply(Box::new(bn), Box::new(ad.clone()))),
+            );
+            let den = Node::Multiply(Box::new(ad), Box::new(bd));
+            Some((num, den))
+        }
+        Node::Negate(inner) => {
+            let (n, d) = to_rational_form(inner)?;
+            Some((Node::Negate(Box::new(n)), d))
+        }
+        Node::Multiply(a, b) => {
+            let (an, ad) = to_rational_form(a)?;
+            let (bn, bd) = to_rational_form(b)?;
+            Some((
+                Node::Multiply(Box::new(an), Box::new(bn)),
+                Node::Multiply(Box::new(ad), Box::new(bd)),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn try_clear_denominators(expr: &Node, var: &str) -> Option<Node> {
+    let (num, den) = to_rational_form(expr)?;
+    if contains_var(&den, var) {
+        Some(num)
     } else {
         None
     }
