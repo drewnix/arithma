@@ -1232,11 +1232,12 @@ fn node_sqrt_rat(r: &num_rational::BigRational) -> Node {
     use num_traits::ToPrimitive;
     let n: i64 = r.numer().to_i64().unwrap_or(1);
     let d: i64 = r.denom().to_i64().unwrap_or(1);
-    if d == 1 {
-        Node::Function("sqrt".to_string(), vec![Node::Num(ExactNum::integer(n))])
+    let inner = if d == 1 {
+        Node::Num(ExactNum::integer(n))
     } else {
-        Node::Function("sqrt".to_string(), vec![Node::Num(ExactNum::rational(n, d))])
-    }
+        Node::Num(ExactNum::rational(n, d))
+    };
+    Node::Sqrt(Box::new(inner))
 }
 
 /// Build a + b·√d as a Node. Simplifies when a=0 or b=0.
@@ -1422,8 +1423,10 @@ fn integrate_biquadratic_rational(
 
     if !ln1_rat.is_zero() || !ln1_surd.is_zero() {
         let ln_coeff = node_quad_surd(&ln1_rat, &ln1_surd, d);
-        let ln_term =
-            Node::Function("ln".to_string(), vec![Node::Abs(Box::new(quad_plus.clone()))]);
+        let ln_term = Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(quad_plus.clone()))],
+        );
         terms.push(Node::Multiply(Box::new(ln_coeff), Box::new(ln_term)));
     }
 
@@ -1446,10 +1449,7 @@ fn integrate_biquadratic_rational(
         let arctan_arg = if let Some(ref sid) = sqrt_inner_disc_exact {
             Node::Divide(Box::new(two_x_plus_a), Box::new(rat_to_node_exact(sid)))
         } else {
-            Node::Divide(
-                Box::new(two_x_plus_a),
-                Box::new(node_sqrt_rat(&inner_disc)),
-            )
+            Node::Divide(Box::new(two_x_plus_a), Box::new(node_sqrt_rat(&inner_disc)))
         };
         let arctan1 = Node::Function("arctan".to_string(), vec![arctan_arg]);
 
@@ -1457,11 +1457,7 @@ fn integrate_biquadratic_rational(
         // If inner_disc is a perfect square s², divide rationals by s.
         // Otherwise multiply surd component: (a + b√d)/√(inner_disc) stays symbolic.
         let atan1_coeff = if let Some(ref sid) = sqrt_inner_disc_exact {
-            node_quad_surd(
-                &(&atan1_num_rat / sid),
-                &(&atan1_num_surd / sid),
-                d,
-            )
+            node_quad_surd(&(&atan1_num_rat / sid), &(&atan1_num_surd / sid), d)
         } else {
             // (a + b√d)/√(inner_disc) → a/√(inner_disc) + b·√d/√(inner_disc)
             // = a/√(inner_disc) + b·√(d/inner_disc)
@@ -1528,11 +1524,7 @@ fn integrate_biquadratic_rational(
         let arctan2 = Node::Function("arctan".to_string(), vec![arctan_arg]);
 
         let atan2_coeff = if let Some(ref sid) = sqrt_inner_disc_exact {
-            node_quad_surd(
-                &(&atan2_num_rat / sid),
-                &(&atan2_num_surd / sid),
-                d,
-            )
+            node_quad_surd(&(&atan2_num_rat / sid), &(&atan2_num_surd / sid), d)
         } else {
             let num_node = node_quad_surd(&atan2_num_rat, &atan2_num_surd, d);
             Node::Divide(Box::new(num_node), Box::new(node_sqrt_rat(&inner_disc)))
@@ -1691,9 +1683,7 @@ fn integrate_pf_term(
             let q_coeff = q.coeff(0);
             integrate_biquadratic_rational(n, &p_coeff, &q_coeff, &bval, &dval, var)
         } else {
-            Err(
-                "Integration of non-biquadratic degree-4 factor not yet implemented".to_string()
-            )
+            Err("Integration of non-biquadratic degree-4 factor not yet implemented".to_string())
         }
     } else {
         // Higher degree or higher power — not yet implemented
@@ -2576,7 +2566,11 @@ mod tests {
         // Known: ∫₁² 1/(x⁴+1)dx ≈ 0.20315
         let expr = parse_expression("\\frac{1}{x^4 + 1}").unwrap();
         let result = super::definite_integral(&expr, "x", 1.0, 2.0);
-        assert!(result.is_ok(), "Definite integration should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Definite integration should succeed: {:?}",
+            result
+        );
         let val = result.unwrap();
         assert!(
             (val - 0.20315).abs() < 0.01,

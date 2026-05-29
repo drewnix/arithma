@@ -514,7 +514,11 @@ impl Simplifiable for Node {
             Node::Sqrt(operand) => {
                 let simplified = operand.simplify(env)?;
                 if let Node::Num(ref n) = simplified {
-                    return Ok(Node::Num(n.sqrt()));
+                    let s = n.sqrt();
+                    if matches!(s, ExactNum::Rational(_)) {
+                        return Ok(Node::Num(s));
+                    }
+                    // Non-perfect-square: preserve symbolic sqrt
                 }
                 // sqrt(x²) → x when x positive, |x| otherwise
                 if let Node::Power(ref base, ref exp) = simplified {
