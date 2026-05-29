@@ -55,10 +55,8 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 }
                 output_queue.push(top);
             }
-            if let Some(top) = operator_stack.last() {
-                if FUNCTION_REGISTRY.get(top).is_some() {
-                    output_queue.push(operator_stack.pop().unwrap());
-                }
+            if let Some(top) = operator_stack.pop_if(|top| FUNCTION_REGISTRY.get(top).is_some()) {
+                output_queue.push(top);
             }
         } else if let Some(_function) = FUNCTION_REGISTRY.get(&token) {
             log::debug!("Function detected: {}", token);
