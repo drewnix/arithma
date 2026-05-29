@@ -328,6 +328,15 @@ impl Simplifiable for Node {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
 
+                // Cancel common leading negative signs in fractions
+                if has_leading_negative(&left_simplified)
+                    && has_leading_negative(&right_simplified)
+                {
+                    let pos_num = negate_leading(&left_simplified);
+                    let pos_den = negate_leading(&right_simplified);
+                    return Node::Divide(Box::new(pos_num), Box::new(pos_den)).simplify(env);
+                }
+
                 if let Node::Num(ref n) = right_simplified {
                     if n.is_one() {
                         return Ok(left_simplified);
@@ -656,6 +665,26 @@ impl Simplifiable for Node {
             }
             _ => Ok(self.clone()),
         }
+    }
+}
+
+fn has_leading_negative(node: &Node) -> bool {
+    match node {
+        Node::Negate(_) => true,
+        Node::Num(n) => n.is_negative(),
+        Node::Multiply(a, _) => has_leading_negative(a),
+        Node::Add(a, _) | Node::Subtract(a, _) => has_leading_negative(a),
+        _ => false,
+    }
+}
+
+fn negate_leading(node: &Node) -> Node {
+    match node {
+        Node::Negate(inner) => *inner.clone(),
+        Node::Num(n) => Node::Num(-n.clone()),
+        Node::Multiply(a, b) => Node::Multiply(Box::new(negate_leading(a)), b.clone()),
+        Node::Subtract(a, b) => Node::Subtract(b.clone(), a.clone()),
+        _ => Node::Negate(Box::new(node.clone())),
     }
 }
 

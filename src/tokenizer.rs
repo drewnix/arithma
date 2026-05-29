@@ -1,6 +1,16 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::functions::FUNCTION_REGISTRY;
+
+fn is_variable_token(token: &str) -> bool {
+    !token.is_empty()
+        && token.chars().all(|c| c.is_alphabetic())
+        && FUNCTION_REGISTRY.get(token).is_none()
+        && token != "NEG"
+        && token != "sum"
+}
+
 fn greek_letter(name: &str) -> Option<char> {
     match name {
         "alpha" => Some('α'),
@@ -127,7 +137,10 @@ impl<'a> Tokenizer<'a> {
             else if "+*/(){}".contains(c) {
                 if c == '(' {
                     if let Some(last) = last_token.as_ref() {
-                        if last == ")" || last.chars().all(char::is_numeric) {
+                        if last == ")"
+                            || last.chars().all(char::is_numeric)
+                            || is_variable_token(last)
+                        {
                             tokens.push("*".to_string());
                         }
                     }
@@ -157,7 +170,10 @@ impl<'a> Tokenizer<'a> {
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
                 if let Some(last) = last_token.as_ref() {
-                    if last.chars().all(char::is_numeric) || last == ")" {
+                    if last.chars().all(char::is_numeric)
+                        || last == ")"
+                        || is_variable_token(last)
+                    {
                         tokens.push("*".to_string());
                     }
                 }
@@ -724,5 +740,72 @@ mod tests {
         assert_eq!(normalize_var("alpha"), "α");
         assert_eq!(normalize_var("x"), "x");
         assert_eq!(normalize_var("\\lambda"), "λ");
+    }
+
+    // --- Parser hardening: implicit multiplication for variable-paren ---
+
+    #[test]
+    fn test_tokenize_var_paren_implicit_mul() {
+        // u(3-2u) → u * (3 - 2*u), NOT function call
+        let mut tokenizer = Tokenizer::new("u(3-2u)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["u", "*", "(", "3", "-", "2", "*", "u", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_var_paren_chain() {
+        // x(x+1)(x-1) → x*(x+1)*(x-1)
+        let mut tokenizer = Tokenizer::new("x(x+1)(x-1)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["x", "*", "(", "x", "+", "1", ")", "*", "(", "x", "-", "1", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_greek_paren_implicit_mul() {
+        // α(x+1) → α * (x + 1)
+        let mut tokenizer = Tokenizer::new("\\alpha(x+1)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["α", "*", "(", "x", "+", "1", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_known_function_no_implicit_mul() {
+        // sin(x) must NOT get implicit multiplication
+        let mut tokenizer = Tokenizer::new("sin(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["sin", "(", "x", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_var_var_implicit_mul() {
+        // x y → x * y (space-separated variables)
+        let mut tokenizer = Tokenizer::new("x y");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["x", "*", "y"]);
+    }
+
+    #[test]
+    fn test_tokenize_greek_var_implicit_mul() {
+        // α b → α * b
+        let mut tokenizer = Tokenizer::new("\\alpha b");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["α", "*", "b"]);
+    }
+
+    #[test]
+    fn test_tokenize_multichar_var_preserved() {
+        // xy stays as single token (multi-char variable name)
+        let mut tokenizer = Tokenizer::new("xy");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["xy"]);
     }
 }

@@ -1,0 +1,125 @@
+#[cfg(test)]
+mod parser_hardening_tests {
+    use arithma::{parse_latex, Environment, Tokenizer};
+
+    fn parse(latex: &str) -> String {
+        let env = Environment::new();
+        let node = parse_latex(latex, &env).unwrap();
+        format!("{}", node)
+    }
+
+    fn parse_ok(latex: &str) -> bool {
+        let env = Environment::new();
+        parse_latex(latex, &env).is_ok()
+    }
+
+    // --- Implicit multiplication: variable followed by parenthesized expression ---
+
+    #[test]
+    fn test_var_paren_basic() {
+        // u(3-2u) should parse as u*(3-2u) = -2u² + 3u
+        assert!(parse_ok("u(3-2u)"));
+        let r = parse("u(3-2u)");
+        assert!(
+            r.contains("u") && !r.contains("Error"),
+            "u(3-2u) should parse: {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_var_paren_chained() {
+        // x(x+1)(x-1) = x³ - x
+        let r = parse("x(x+1)(x-1)");
+        assert_eq!(r, "x^{3} - x");
+    }
+
+    #[test]
+    fn test_var_paren_in_subtraction() {
+        // a(b+1) - c(d-1) should parse without error
+        assert!(parse_ok("a(b+1) - c(d-1)"));
+    }
+
+    #[test]
+    fn test_greek_paren() {
+        // α(x+1) = αx + α
+        assert!(parse_ok("\\alpha(x+1)"));
+    }
+
+    // --- Known functions still work as function calls ---
+
+    #[test]
+    fn test_sin_not_multiplication() {
+        let r = parse("\\sin(x)");
+        assert!(r.contains("\\sin"), "sin(x) should remain a function call: {}", r);
+    }
+
+    #[test]
+    fn test_exp_not_multiplication() {
+        // \exp(-x^2) must remain a function call
+        assert!(parse_ok("\\exp(-x^2)"));
+    }
+
+    #[test]
+    fn test_ln_not_multiplication() {
+        assert!(parse_ok("\\ln(x+1)"));
+    }
+
+    // --- Space-separated variables are multiplication ---
+
+    #[test]
+    fn test_space_separated_vars() {
+        // x y should parse as x*y
+        assert!(parse_ok("x y"));
+    }
+
+    // --- Multi-character variable names are preserved ---
+
+    #[test]
+    fn test_multichar_variable() {
+        // "xy" (no space) stays as single variable
+        let mut tok = Tokenizer::new("xy");
+        let tokens = tok.tokenize();
+        assert_eq!(tokens, vec!["xy"]);
+    }
+
+    // --- Complex expressions that agents actually write ---
+
+    #[test]
+    fn test_compound_fraction_subtraction() {
+        // \frac{a}{b} - \frac{c}{d} should parse
+        assert!(parse_ok("\\frac{a}{b} - \\frac{c}{d}"));
+    }
+
+    #[test]
+    fn test_nested_multivariate_fraction() {
+        assert!(parse_ok("\\frac{a - 4\\alpha + 3}{a - 2\\alpha^2 + 1}"));
+    }
+
+    // --- Sign normalization in fractions ---
+
+    #[test]
+    fn test_sign_normalization_neg_over_neg() {
+        // -3/(-2b-1) should simplify to 3/(2b+1)
+        let r = parse("\\frac{-3}{-(2b + 1)}");
+        assert!(
+            !r.contains("--") && !r.contains("\\frac{-"),
+            "-3/-(2b+1) should normalize signs: {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_sign_normalization_negate_negate() {
+        // -a / -b should simplify to a/b
+        let r = parse("\\frac{-a}{-b}");
+        assert_eq!(r, "\\frac{a}{b}");
+    }
+
+    #[test]
+    fn test_sign_normalization_negative_denom_expression() {
+        // -3/(-2b-1) should also normalize (the denominator isn't Negate-wrapped after simplification)
+        let r = parse("\\frac{-3}{-2b - 1}");
+        assert_eq!(r, "\\frac{3}{2b + 1}");
+    }
+}
