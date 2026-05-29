@@ -1214,9 +1214,58 @@ fn try_partial_fraction_integration(
     Some(Ok(result))
 }
 
+/// Convert a BigRational to a Node (integer or fraction).
+fn rat_to_node_exact(r: &num_rational::BigRational) -> Node {
+    use num_traits::ToPrimitive;
+    if r.is_integer() {
+        Node::Num(ExactNum::integer(r.numer().to_i64().unwrap_or(0)))
+    } else {
+        Node::Num(ExactNum::rational(
+            r.numer().to_i64().unwrap_or(0),
+            r.denom().to_i64().unwrap_or(1),
+        ))
+    }
+}
+
+/// Build a sqrt(r) Node for a BigRational r.
+fn node_sqrt_rat(r: &num_rational::BigRational) -> Node {
+    use num_traits::ToPrimitive;
+    let n: i64 = r.numer().to_i64().unwrap_or(1);
+    let d: i64 = r.denom().to_i64().unwrap_or(1);
+    if d == 1 {
+        Node::Function("sqrt".to_string(), vec![Node::Num(ExactNum::integer(n))])
+    } else {
+        Node::Function("sqrt".to_string(), vec![Node::Num(ExactNum::rational(n, d))])
+    }
+}
+
+/// Build a + b·√d as a Node. Simplifies when a=0 or b=0.
+fn node_quad_surd(
+    a: &num_rational::BigRational,
+    b: &num_rational::BigRational,
+    d: &num_rational::BigRational,
+) -> Node {
+    let a_node = rat_to_node_exact(a);
+    if b.is_zero() {
+        return a_node;
+    }
+    let sqrt_d = node_sqrt_rat(d);
+    let b_sqrt = if b.is_one() {
+        sqrt_d
+    } else if *b == -num_rational::BigRational::one() {
+        Node::Negate(Box::new(sqrt_d))
+    } else {
+        Node::Multiply(Box::new(rat_to_node_exact(b)), Box::new(sqrt_d))
+    };
+    if a.is_zero() {
+        b_sqrt
+    } else {
+        Node::Add(Box::new(a_node), Box::new(b_sqrt))
+    }
+}
+
 /// Compute the exact square root of a non-negative rational number, if it exists.
 /// Works directly with BigInt (no i64 conversion) to avoid overflow.
-#[allow(dead_code)]
 fn exact_rational_sqrt_bigrat(r: &num_rational::BigRational) -> Option<num_rational::BigRational> {
     use num_traits::Signed;
     if r.is_negative() {
@@ -1238,7 +1287,6 @@ fn exact_rational_sqrt_bigrat(r: &num_rational::BigRational) -> Option<num_ratio
 
 /// Detect if a monic degree-4 polynomial is biquadratic and factorable over Q(sqrt(d)).
 /// Returns Some((b, d)) where b^2=q, d=2b-p, if factorable.
-#[allow(dead_code)]
 fn try_factor_biquadratic(
     poly: &crate::polynomial::Polynomial,
 ) -> Option<(num_rational::BigRational, num_rational::BigRational)> {
@@ -1275,6 +1323,234 @@ fn try_factor_biquadratic(
     }
 
     Some((b, d))
+}
+
+/// Integrate N(x)/(x⁴+px²+q) dx where the denominator factors as (x²+√d·x+b)(x²-√d·x+b).
+/// b and d are from `try_factor_biquadratic`. The numerator has degree < 4.
+///
+/// Partial-fraction decomposition over Q(√d):
+///   N(x) / ((x²+ax+b)(x²-ax+b)) = (Ex+F)/(x²+ax+b) + (Gx+H)/(x²-ax+b)
+/// where a = √d, and E,F,G,H ∈ Q(√d) are represented as (rational, surd) pairs.
+///
+/// Each sub-integral yields a ln term and an arctan term with coefficients in Q(√d).
+fn integrate_biquadratic_rational(
+    numerator: &crate::polynomial::Polynomial,
+    p: &num_rational::BigRational,
+    _q: &num_rational::BigRational,
+    b: &num_rational::BigRational,
+    d: &num_rational::BigRational,
+    var: &str,
+) -> Result<Node, String> {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+
+    let zero = BigRational::zero();
+    let two = BigRational::from_integer(BigInt::from(2));
+
+    // Extract numerator coefficients c₀..c₃
+    let c0 = numerator.coeff(0);
+    let c1 = numerator.coeff(1);
+    let c2 = numerator.coeff(2);
+    let c3 = numerator.coeff(3);
+
+    // Partial fraction coefficients in Q(√d), each as (rational_part, surd_part)
+    // where value = rational_part + surd_part·√d
+    //
+    // For the decomposition N/(Q₊·Q₋) = (Ex+F)/Q₊ + (Gx+H)/Q₋
+    // where Q₊ = x²+√d·x+b, Q₋ = x²-√d·x+b:
+    //
+    // E = c₃/2 - (c₂ - c₀/b)/(2√d)
+    // F = c₀/(2b) - (c₁ - b·c₃)/(2√d)
+    // G = c₃/2 + (c₂ - c₀/b)/(2√d)
+    // H = c₀/(2b) + (c₁ - b·c₃)/(2√d)
+
+    // Numerator helper quantities
+    let c2_minus_c0_over_b = &c2 - &(&c0 / b);
+    let c1_minus_bc3 = &c1 - &(b * &c3);
+
+    // Dividing by √d: r/√d = r·√d/d, so (0, r/d) in Q(√d) representation.
+    // Dividing by 2√d: (0, r/(2d))
+
+    // E = (c₃/2, -(c₂-c₀/b)/(2d))
+    let e_rat = &c3 / &two;
+    let e_surd = -&c2_minus_c0_over_b / (&two * d);
+
+    // F = (c₀/(2b), -(c₁-b·c₃)/(2d))
+    let f_rat = &c0 / (&two * b);
+    let f_surd = -&c1_minus_bc3 / (&two * d);
+
+    // G = (c₃/2, (c₂-c₀/b)/(2d))
+    let g_rat = &c3 / &two;
+    let g_surd = &c2_minus_c0_over_b / (&two * d);
+
+    // H = (c₀/(2b), (c₁-b·c₃)/(2d))
+    let h_rat = &c0 / (&two * b);
+    let h_surd = &c1_minus_bc3 / (&two * d);
+
+    // Inner discriminant: 4b - d = 4b - (2b - p) = 2b + p
+    let inner_disc = &two * b + p;
+    if inner_disc <= zero {
+        return Err("Biquadratic inner discriminant non-positive".to_string());
+    }
+
+    let env = crate::environment::Environment::new();
+    let x = Node::Variable(var.to_string());
+    let mut terms: Vec<Node> = Vec::new();
+
+    // Check if inner_disc is a perfect square
+    let sqrt_inner_disc_exact = exact_rational_sqrt_bigrat(&inner_disc);
+
+    // ---- First factor: (x² + √d·x + b) ----
+    // ln coefficient = E/2 = (e_rat/2, e_surd/2)
+    let ln1_rat = &e_rat / &two;
+    let ln1_surd = &e_surd / &two;
+
+    // Build x² + √d·x + b as a Node
+    let quad_plus = Node::Add(
+        Box::new(Node::Add(
+            Box::new(Node::Power(
+                Box::new(x.clone()),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(node_sqrt_rat(d)),
+                Box::new(x.clone()),
+            )),
+        )),
+        Box::new(rat_to_node_exact(b)),
+    );
+
+    if !ln1_rat.is_zero() || !ln1_surd.is_zero() {
+        let ln_coeff = node_quad_surd(&ln1_rat, &ln1_surd, d);
+        let ln_term =
+            Node::Function("ln".to_string(), vec![Node::Abs(Box::new(quad_plus.clone()))]);
+        terms.push(Node::Multiply(Box::new(ln_coeff), Box::new(ln_term)));
+    }
+
+    // Arctan residual for first factor: (2F - E·a) / √(inner_disc)
+    // E·a: if E = (e_r, e_s), then E·√d = (e_s·d, e_r)
+    // 2F - E·a: rat = 2f_r - e_s·d, surd = 2f_s - e_r
+    let atan1_num_rat = &two * &f_rat - &e_surd * d;
+    let atan1_num_surd = &two * &f_surd - &e_rat;
+
+    if !atan1_num_rat.is_zero() || !atan1_num_surd.is_zero() {
+        // arctan argument: (2x + √d) / √(inner_disc)
+        let two_x_plus_a = Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(x.clone()),
+            )),
+            Box::new(node_sqrt_rat(d)),
+        );
+
+        let arctan_arg = if let Some(ref sid) = sqrt_inner_disc_exact {
+            Node::Divide(Box::new(two_x_plus_a), Box::new(rat_to_node_exact(sid)))
+        } else {
+            Node::Divide(
+                Box::new(two_x_plus_a),
+                Box::new(node_sqrt_rat(&inner_disc)),
+            )
+        };
+        let arctan1 = Node::Function("arctan".to_string(), vec![arctan_arg]);
+
+        // Divide the residual by √(inner_disc):
+        // If inner_disc is a perfect square s², divide rationals by s.
+        // Otherwise multiply surd component: (a + b√d)/√(inner_disc) stays symbolic.
+        let atan1_coeff = if let Some(ref sid) = sqrt_inner_disc_exact {
+            node_quad_surd(
+                &(&atan1_num_rat / sid),
+                &(&atan1_num_surd / sid),
+                d,
+            )
+        } else {
+            // (a + b√d)/√(inner_disc) → a/√(inner_disc) + b·√d/√(inner_disc)
+            // = a/√(inner_disc) + b·√(d/inner_disc)
+            // Build as: (a + b·√d) / √(inner_disc) using a Divide node
+            let num_node = node_quad_surd(&atan1_num_rat, &atan1_num_surd, d);
+            Node::Divide(Box::new(num_node), Box::new(node_sqrt_rat(&inner_disc)))
+        };
+        terms.push(Node::Multiply(Box::new(atan1_coeff), Box::new(arctan1)));
+    }
+
+    // ---- Second factor: (x² - √d·x + b) ----
+    // ln coefficient = G/2 = (g_rat/2, g_surd/2)
+    let ln2_rat = &g_rat / &two;
+    let ln2_surd = &g_surd / &two;
+
+    // Build x² - √d·x + b as a Node
+    let quad_minus = Node::Add(
+        Box::new(Node::Subtract(
+            Box::new(Node::Power(
+                Box::new(x.clone()),
+                Box::new(Node::Num(ExactNum::integer(2))),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(node_sqrt_rat(d)),
+                Box::new(x.clone()),
+            )),
+        )),
+        Box::new(rat_to_node_exact(b)),
+    );
+
+    if !ln2_rat.is_zero() || !ln2_surd.is_zero() {
+        let ln_coeff = node_quad_surd(&ln2_rat, &ln2_surd, d);
+        let ln_term = Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(quad_minus.clone()))],
+        );
+        terms.push(Node::Multiply(Box::new(ln_coeff), Box::new(ln_term)));
+    }
+
+    // Arctan residual for second factor: (2H + G·a) / √(inner_disc)
+    // G·a: if G = (g_r, g_s), then G·√d = (g_s·d, g_r)
+    // 2H + G·a: rat = 2h_r + g_s·d, surd = 2h_s + g_r
+    let atan2_num_rat = &two * &h_rat + &g_surd * d;
+    let atan2_num_surd = &two * &h_surd + &g_rat;
+
+    if !atan2_num_rat.is_zero() || !atan2_num_surd.is_zero() {
+        // arctan argument: (2x - √d) / √(inner_disc)
+        let two_x_minus_a = Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(x.clone()),
+            )),
+            Box::new(node_sqrt_rat(d)),
+        );
+
+        let arctan_arg = if let Some(ref sid) = sqrt_inner_disc_exact {
+            Node::Divide(Box::new(two_x_minus_a), Box::new(rat_to_node_exact(sid)))
+        } else {
+            Node::Divide(
+                Box::new(two_x_minus_a),
+                Box::new(node_sqrt_rat(&inner_disc)),
+            )
+        };
+        let arctan2 = Node::Function("arctan".to_string(), vec![arctan_arg]);
+
+        let atan2_coeff = if let Some(ref sid) = sqrt_inner_disc_exact {
+            node_quad_surd(
+                &(&atan2_num_rat / sid),
+                &(&atan2_num_surd / sid),
+                d,
+            )
+        } else {
+            let num_node = node_quad_surd(&atan2_num_rat, &atan2_num_surd, d);
+            Node::Divide(Box::new(num_node), Box::new(node_sqrt_rat(&inner_disc)))
+        };
+        terms.push(Node::Multiply(Box::new(atan2_coeff), Box::new(arctan2)));
+    }
+
+    if terms.is_empty() {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+
+    let mut result = terms.remove(0);
+    for t in terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+
+    let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+    Ok(result)
 }
 
 /// Integrate a single partial fraction term: N(x) / q(x)^k.
@@ -1409,6 +1685,16 @@ fn integrate_pf_term(
         }
         let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
         Ok(result)
+    } else if q_deg == 4 && k == 1 {
+        if let Some((bval, dval)) = try_factor_biquadratic(q) {
+            let p_coeff = q.coeff(2);
+            let q_coeff = q.coeff(0);
+            integrate_biquadratic_rational(n, &p_coeff, &q_coeff, &bval, &dval, var)
+        } else {
+            Err(
+                "Integration of non-biquadratic degree-4 factor not yet implemented".to_string()
+            )
+        }
     } else {
         // Higher degree or higher power — not yet implemented
         Err(format!(
@@ -2264,5 +2550,38 @@ mod tests {
         // x⁴+3x²+1: d = 2-3 = -1 < 0 → None
         let p5 = test_poly(&[1, 0, 3, 0, 1], "x");
         assert!(try_factor_biquadratic(&p5).is_none());
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_1() {
+        // ∫1/(x⁴+1)dx should produce arctan + ln terms with √2
+        let result = integrate_latex("\\frac{1}{x^4 + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        let r = result.unwrap();
+        assert!(r.contains("arctan"), "Result should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_x4_minus_x2_plus_1() {
+        // ∫1/(x⁴-x²+1)dx — factors over Q(√3)
+        let result = integrate_latex("\\frac{1}{x^4 - x^2 + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        let r = result.unwrap();
+        assert!(r.contains("arctan"), "Result should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_1_numerical() {
+        // Verify: antiderivative at x=2 minus antiderivative at x=1
+        // Known: ∫₁² 1/(x⁴+1)dx ≈ 0.20315
+        let expr = parse_expression("\\frac{1}{x^4 + 1}").unwrap();
+        let result = super::definite_integral(&expr, "x", 1.0, 2.0);
+        assert!(result.is_ok(), "Definite integration should succeed: {:?}", result);
+        let val = result.unwrap();
+        assert!(
+            (val - 0.20315).abs() < 0.01,
+            "∫₁² 1/(x⁴+1)dx ≈ 0.20315, got {}",
+            val
+        );
     }
 }
