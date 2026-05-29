@@ -1493,4 +1493,52 @@ mod test_simplify {
         assert!(!result.is_empty());
         assert!(!result.contains("NaN"));
     }
+
+    #[test]
+    fn test_rational_distribution_ada_identity() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("2 \\cdot (\\frac{3}{2x+1} - 1)", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let result = format!("{}", simplified);
+        assert!(
+            result.contains("-4x + 4") || result.contains("4 - 4x"),
+            "Should simplify to (-4x+4)/(2x+1), got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_fraction_minus_constant() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\frac{3}{2x+1} - 1", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let result = format!("{}", simplified);
+        assert!(
+            result.contains("\\frac"),
+            "Should combine into single fraction, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_different_denominator_combination() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\frac{1}{x+1} + \\frac{1}{x-1}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let result = format!("{}", simplified);
+        assert!(
+            result.contains("2x"),
+            "Should combine to 2x/(...), got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_scalar_times_fraction() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("x \\cdot \\frac{1}{x+1}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let result = format!("{}", simplified);
+        assert_eq!(result, "\\frac{x}{x + 1}");
+    }
 }

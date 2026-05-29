@@ -704,8 +704,7 @@ pub fn factor_over_q(
     }
 
     if n == 1 {
-        let lc = prim.leading_coeff().unwrap().clone();
-        return (&content * &lc, vec![prim.make_monic()]);
+        return (content, vec![prim.clone()]);
     }
 
     // SFD produces monic factors (divides by leading coefficient).
@@ -723,7 +722,22 @@ pub fn factor_over_q(
         }
     }
 
-    (adjusted_content, all_factors)
+    // Convert monic rational-coefficient factors to primitive integer-coefficient
+    // factors. E.g. (x + 1/2) → content 1/2, primitive (2x + 1).
+    // Absorb the content multipliers into adjusted_content so the product is preserved.
+    let mut final_content = adjusted_content;
+    let mut int_factors = Vec::with_capacity(all_factors.len());
+    for f in &all_factors {
+        let c = f.content();
+        if !c.is_one() {
+            final_content = &final_content * &c;
+            int_factors.push(f.primitive_part());
+        } else {
+            int_factors.push(f.clone());
+        }
+    }
+
+    (final_content, int_factors)
 }
 
 /// Factor a square-free polynomial over Q.
@@ -1632,24 +1646,23 @@ mod tests {
     fn test_factor_non_monic_quadratic() {
         // 2x²-x-1 = (2x+1)(x-1) — Ada bug report
         let f = poly(&[-1, -1, 2], "x");
-        let (_content, factors) = factor_over_q(&f);
-        assert!(
-            factors.len() == 2,
-            "Should have 2 factors, got {}: {:?}",
-            factors.len(),
-            factors
-        );
+        let (content, factors) = factor_over_q(&f);
+        assert_eq!(factors.len(), 2);
+        assert!(content.is_one(), "Content should be 1, got {}", content);
         verify_factorization(&f);
 
         // 6x²+x-1 = (2x+1)(3x-1)
         let f2 = poly(&[-1, 1, 6], "x");
-        let (_content2, factors2) = factor_over_q(&f2);
-        assert!(
-            factors2.len() == 2,
-            "Should have 2 factors, got {}: {:?}",
-            factors2.len(),
-            factors2
-        );
+        let (content2, factors2) = factor_over_q(&f2);
+        assert_eq!(factors2.len(), 2);
+        assert!(content2.is_one(), "Content should be 1, got {}", content2);
         verify_factorization(&f2);
+
+        // 6x²+x-2 = (3x+2)(2x-1)
+        let f3 = poly(&[-2, 1, 6], "x");
+        let (content3, factors3) = factor_over_q(&f3);
+        assert_eq!(factors3.len(), 2);
+        assert!(content3.is_one(), "Content should be 1, got {}", content3);
+        verify_factorization(&f3);
     }
 }

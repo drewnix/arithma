@@ -51,7 +51,11 @@ mod parser_hardening_tests {
     #[test]
     fn test_sin_not_multiplication() {
         let r = parse("\\sin(x)");
-        assert!(r.contains("\\sin"), "sin(x) should remain a function call: {}", r);
+        assert!(
+            r.contains("\\sin"),
+            "sin(x) should remain a function call: {}",
+            r
+        );
     }
 
     #[test]
@@ -148,8 +152,14 @@ mod parser_hardening_tests {
     #[test]
     fn test_eigenvalues_decimal_3x3() {
         // 3×3 matrix with decimal entries should compute eigenvalues numerically
-        let result = mcp_eigenvalues("1 & 0.4349 & 0.4349 \\\\ 0.4349 & 1 & 0.4349 \\\\ 0.4349 & 0.4349 & 1");
-        assert!(result.is_ok(), "Decimal 3×3 eigenvalues should work: {:?}", result);
+        let result = mcp_eigenvalues(
+            "1 & 0.4349 & 0.4349 \\\\ 0.4349 & 1 & 0.4349 \\\\ 0.4349 & 0.4349 & 1",
+        );
+        assert!(
+            result.is_ok(),
+            "Decimal 3×3 eigenvalues should work: {:?}",
+            result
+        );
         let eigenvalues = result.unwrap();
         assert_eq!(eigenvalues.len(), 3, "Should find 3 eigenvalues");
     }
@@ -180,7 +190,8 @@ mod parser_hardening_tests {
     fn test_eigenvalues_decimal_correctness() {
         // Carl's bug: α=0.3 gives {1, 1.3, 0.7} instead of {1.6, 0.7, 0.7}
         let env = Environment::new();
-        let latex = "\\begin{pmatrix} 1 & 0.3 & 0.3 \\\\ 0.3 & 1 & 0.3 \\\\ 0.3 & 0.3 & 1 \\end{pmatrix}";
+        let latex =
+            "\\begin{pmatrix} 1 & 0.3 & 0.3 \\\\ 0.3 & 1 & 0.3 \\\\ 0.3 & 0.3 & 1 \\end{pmatrix}";
         let mat = arithma::parse_latex_matrix(latex, &env).unwrap();
 
         let char_poly = mat.characteristic_polynomial(&env).unwrap();
@@ -191,17 +202,32 @@ mod parser_hardening_tests {
         }
 
         let eigs = mat.eigenvalues(&env).unwrap();
-        let vals: Vec<f64> = eigs.iter().map(|e| arithma::Evaluator::evaluate(e, &env).unwrap()).collect();
+        let vals: Vec<f64> = eigs
+            .iter()
+            .map(|e| arithma::Evaluator::evaluate(e, &env).unwrap())
+            .collect();
         eprintln!("eigenvalues: {:?}", vals);
 
         let sum: f64 = vals.iter().sum();
         let product: f64 = vals.iter().product();
         assert!((sum - 3.0).abs() < 0.01, "Trace should be 3, got {}", sum);
-        assert!((product - 0.784).abs() < 0.01, "Det should be 0.784, got {}", product);
+        assert!(
+            (product - 0.784).abs() < 0.01,
+            "Det should be 0.784, got {}",
+            product
+        );
         let mut sorted = vals.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        assert!((sorted[0] - 0.7).abs() < 0.01, "Smallest should be 0.7, got {}", sorted[0]);
-        assert!((sorted[2] - 1.6).abs() < 0.01, "Largest should be 1.6, got {}", sorted[2]);
+        assert!(
+            (sorted[0] - 0.7).abs() < 0.01,
+            "Smallest should be 0.7, got {}",
+            sorted[0]
+        );
+        assert!(
+            (sorted[2] - 1.6).abs() < 0.01,
+            "Largest should be 1.6, got {}",
+            sorted[2]
+        );
     }
 
     fn mcp_eigenvalues(matrix_body: &str) -> Result<Vec<f64>, String> {

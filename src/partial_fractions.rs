@@ -451,14 +451,12 @@ mod tests {
 
     #[test]
     fn test_factor_over_q_linear_content() {
-        // factor_over_q(2x+1) should return (2, [x+1/2])
+        // factor_over_q(2x+1) should return (1, [2x+1]) — integer-coefficient factors
         use crate::mod_poly::factor_over_q;
         let p = poly(&[1, 2], "x"); // 2x + 1
         let (content, factors) = factor_over_q(&p);
-        assert_eq!(content, int(2));
+        assert_eq!(content, int(1));
         assert_eq!(factors.len(), 1);
-        // Verify reconstruction: content * product(factors) = original
-        let reconstructed = factors[0].scalar_mul(&content);
-        assert_eq!(reconstructed, p);
+        assert_eq!(factors[0], p);
     }
 }

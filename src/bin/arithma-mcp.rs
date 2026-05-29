@@ -306,6 +306,7 @@ fn tools_schema() -> Value {
                         "default": "x"
                     },
                     "center": {
+                        "type": ["number", "string"],
                         "description": "Center of the expansion. Use a number (0 for Maclaurin) or a LaTeX expression for symbolic centers (e.g. \"a\" or \"\\\\alpha\").",
                         "default": 0
                     },

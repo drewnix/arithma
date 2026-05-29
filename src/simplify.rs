@@ -50,6 +50,8 @@ impl Simplifiable for Node {
                     Ok(rebuild_expression(term_map))
                 } else if let Some(normalized) = try_polynomial_normalize(&result) {
                     Ok(normalized)
+                } else if let Some(normalized) = try_rational_normalize(&result, env) {
+                    Ok(normalized)
                 } else {
                     Ok(result)
                 }
@@ -171,6 +173,8 @@ impl Simplifiable for Node {
 
                 let result = Node::Multiply(Box::new(left_simplified), Box::new(right_simplified));
                 if let Some(normalized) = try_polynomial_normalize(&result) {
+                    Ok(normalized)
+                } else if let Some(normalized) = try_rational_normalize(&result, env) {
                     Ok(normalized)
                 } else {
                     Ok(result)
@@ -303,6 +307,8 @@ impl Simplifiable for Node {
                     Ok(rebuild_expression(term_map))
                 } else if let Some(normalized) = try_polynomial_normalize(&result) {
                     Ok(normalized)
+                } else if let Some(normalized) = try_rational_normalize(&result, env) {
+                    Ok(normalized)
                 } else {
                     Ok(result)
                 }
@@ -329,8 +335,7 @@ impl Simplifiable for Node {
                 let right_simplified = right.simplify(env)?;
 
                 // Cancel common leading negative signs in fractions
-                if has_leading_negative(&left_simplified)
-                    && has_leading_negative(&right_simplified)
+                if has_leading_negative(&left_simplified) && has_leading_negative(&right_simplified)
                 {
                     let pos_num = negate_leading(&left_simplified);
                     let pos_den = negate_leading(&right_simplified);
@@ -824,6 +829,35 @@ fn collect_variables(node: &Node, vars: &mut std::collections::HashSet<String>) 
     }
 }
 
+fn contains_divide(node: &Node) -> bool {
+    match node {
+        Node::Divide(_, _) => true,
+        Node::Add(a, b) | Node::Subtract(a, b) | Node::Multiply(a, b) => {
+            contains_divide(a) || contains_divide(b)
+        }
+        Node::Negate(a) => contains_divide(a),
+        _ => false,
+    }
+}
+
+fn try_rational_normalize(node: &Node, env: &Environment) -> Option<Node> {
+    if !contains_divide(node) {
+        return None;
+    }
+    let (num, den) = crate::expression::to_rational_form(node)?;
+    let num_simplified = num.simplify(env).ok()?;
+    let den_simplified = den.simplify(env).ok()?;
+    if let Node::Num(ref n) = den_simplified {
+        if n.is_one() {
+            return Some(num_simplified);
+        }
+    }
+    Some(Node::Divide(
+        Box::new(num_simplified),
+        Box::new(den_simplified),
+    ))
+}
+
 fn try_polynomial_normalize(node: &Node) -> Option<Node> {
     if let Some(var) = find_single_variable(node) {
         let poly = Polynomial::from_node(node, &var).ok()?;
@@ -1147,17 +1181,50 @@ fn try_combine_fractions(
     subtract: bool,
     env: &Environment,
 ) -> Option<Node> {
-    if let (Node::Divide(ln, ld), Node::Divide(rn, rd)) = (left, right) {
-        if ld == rd {
-            let combined_num = if subtract {
-                Node::Subtract(ln.clone(), rn.clone())
-            } else {
-                Node::Add(ln.clone(), rn.clone())
-            };
-            let simplified_num = combined_num.simplify(env).ok()?;
-            let result = Node::Divide(Box::new(simplified_num), ld.clone());
-            return result.simplify(env).ok();
+    let left_is_frac = matches!(left, Node::Divide(_, _));
+    let right_is_frac = matches!(right, Node::Divide(_, _));
+    if !left_is_frac && !right_is_frac {
+        return None;
+    }
+
+    let (ln, ld) = match left {
+        Node::Divide(n, d) => (n.as_ref().clone(), d.as_ref().clone()),
+        _ => (left.clone(), Node::Num(ExactNum::one())),
+    };
+    let (rn, rd) = match right {
+        Node::Divide(n, d) => (n.as_ref().clone(), d.as_ref().clone()),
+        _ => (right.clone(), Node::Num(ExactNum::one())),
+    };
+
+    if ld == rd {
+        let combined_num = if subtract {
+            Node::Subtract(Box::new(ln), Box::new(rn))
+        } else {
+            Node::Add(Box::new(ln), Box::new(rn))
+        };
+        let simplified_num = combined_num.simplify(env).ok()?;
+        let result = Node::Divide(Box::new(simplified_num), Box::new(ld));
+        return result.simplify(env).ok();
+    }
+
+    let left_num = Node::Multiply(Box::new(ln), Box::new(rd.clone()));
+    let right_num = Node::Multiply(Box::new(rn), Box::new(ld.clone()));
+    let combined_num = if subtract {
+        Node::Subtract(Box::new(left_num), Box::new(right_num))
+    } else {
+        Node::Add(Box::new(left_num), Box::new(right_num))
+    };
+    let combined_den = Node::Multiply(Box::new(ld), Box::new(rd));
+
+    let simplified_num = combined_num.simplify(env).ok()?;
+    let simplified_den = combined_den.simplify(env).ok()?;
+
+    if let Node::Num(ref n) = simplified_den {
+        if n.is_one() {
+            return Some(simplified_num);
         }
     }
-    None
+
+    let result = Node::Divide(Box::new(simplified_num), Box::new(simplified_den));
+    result.simplify(env).ok()
 }

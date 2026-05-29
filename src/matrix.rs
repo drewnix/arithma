@@ -553,8 +553,7 @@ impl Matrix {
             }
             3 => {
                 let (a, b, c, d, e, f, g, h, k) = (
-                    vals[0][0], vals[0][1], vals[0][2],
-                    vals[1][0], vals[1][1], vals[1][2],
+                    vals[0][0], vals[0][1], vals[0][2], vals[1][0], vals[1][1], vals[1][2],
                     vals[2][0], vals[2][1], vals[2][2],
                 );
                 let trace = a + e + k;

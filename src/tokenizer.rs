@@ -170,9 +170,7 @@ impl<'a> Tokenizer<'a> {
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
                 if let Some(last) = last_token.as_ref() {
-                    if last.chars().all(char::is_numeric)
-                        || last == ")"
-                        || is_variable_token(last)
+                    if last.chars().all(char::is_numeric) || last == ")" || is_variable_token(last)
                     {
                         tokens.push("*".to_string());
                     }
@@ -749,10 +747,7 @@ mod tests {
         // u(3-2u) → u * (3 - 2*u), NOT function call
         let mut tokenizer = Tokenizer::new("u(3-2u)");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec!["u", "*", "(", "3", "-", "2", "*", "u", ")"]
-        );
+        assert_eq!(tokens, vec!["u", "*", "(", "3", "-", "2", "*", "u", ")"]);
     }
 
     #[test]
@@ -771,10 +766,7 @@ mod tests {
         // α(x+1) → α * (x + 1)
         let mut tokenizer = Tokenizer::new("\\alpha(x+1)");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec!["α", "*", "(", "x", "+", "1", ")"]
-        );
+        assert_eq!(tokens, vec!["α", "*", "(", "x", "+", "1", ")"]);
     }
 
     #[test]

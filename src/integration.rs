@@ -261,21 +261,19 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     let env = crate::environment::Environment::new();
                     let simplified =
                         crate::simplify::Simplifiable::simplify(&coeff, &env).unwrap_or(coeff);
-                    return Ok(
-                        crate::simplify::Simplifiable::simplify(
-                            &Node::Multiply(Box::new(simplified), Box::new(ln_term)),
-                            &env,
+                    return Ok(crate::simplify::Simplifiable::simplify(
+                        &Node::Multiply(Box::new(simplified), Box::new(ln_term)),
+                        &env,
+                    )
+                    .unwrap_or_else(|_| {
+                        Node::Multiply(
+                            Box::new(Node::Divide(left.clone(), Box::new(b_const))),
+                            Box::new(Node::Function(
+                                "ln".to_string(),
+                                vec![Node::Abs(Box::new(right.as_ref().clone()))],
+                            )),
                         )
-                        .unwrap_or_else(|_| {
-                            Node::Multiply(
-                                Box::new(Node::Divide(left.clone(), Box::new(b_const))),
-                                Box::new(Node::Function(
-                                    "ln".to_string(),
-                                    vec![Node::Abs(Box::new(right.as_ref().clone()))],
-                                )),
-                            )
-                        }),
-                    );
+                    }));
                 }
             }
 
@@ -551,7 +549,9 @@ fn contains_var(expr: &Node, var: &str) -> bool {
 
 fn try_decompose_linear(expr: &Node, var: &str) -> Option<(Node, Node)> {
     match expr {
-        Node::Variable(v) if v == var => Some((Node::Num(ExactNum::one()), Node::Num(ExactNum::zero()))),
+        Node::Variable(v) if v == var => {
+            Some((Node::Num(ExactNum::one()), Node::Num(ExactNum::zero())))
+        }
         Node::Multiply(a, b) => {
             if let Node::Variable(v) = b.as_ref() {
                 if v == var && !contains_var(a, var) {
@@ -598,7 +598,10 @@ fn try_decompose_linear(expr: &Node, var: &str) -> Option<(Node, Node)> {
         }
         Node::Negate(inner) => {
             let (coeff, constant) = try_decompose_linear(inner, var)?;
-            Some((Node::Negate(Box::new(coeff)), Node::Negate(Box::new(constant))))
+            Some((
+                Node::Negate(Box::new(coeff)),
+                Node::Negate(Box::new(constant)),
+            ))
         }
         _ => None,
     }

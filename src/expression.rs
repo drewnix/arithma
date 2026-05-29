@@ -43,13 +43,10 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
-                Polynomial::from_node(&cleared_simplified, target_var).map_err(|e| {
-                    format!("Cannot convert to polynomial: {}", e)
-                })?
+                Polynomial::from_node(&cleared_simplified, target_var)
+                    .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
             } else {
-                return Err(
-                    "Cannot convert to polynomial: variable in denominator".to_string(),
-                );
+                return Err("Cannot convert to polynomial: variable in denominator".to_string());
             }
         }
     };
@@ -382,7 +379,7 @@ fn contains_var(node: &Node, var: &str) -> bool {
     }
 }
 
-fn to_rational_form(node: &Node) -> Option<(Node, Node)> {
+pub(crate) fn to_rational_form(node: &Node) -> Option<(Node, Node)> {
     match node {
         Node::Num(_) | Node::Variable(_) => Some((node.clone(), Node::Num(ExactNum::one()))),
         Node::Divide(a, b) => Some((*a.clone(), *b.clone())),
