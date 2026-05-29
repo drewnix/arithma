@@ -476,6 +476,7 @@ impl Matrix {
     /// Computes the eigenvalues of a square matrix via the characteristic polynomial.
     /// Returns eigenvalues with algebraic multiplicity.
     /// Supports matrices up to 4×4 (Cardano for 3×3, Ferrari for 4×4).
+    /// Falls back to symbolic computation when entries contain variables.
     pub fn eigenvalues(&self, env: &Environment) -> Result<Vec<Node>, String> {
         if !self.is_square() {
             return Err("Cannot compute eigenvalues of a non-square matrix".to_string());
@@ -487,20 +488,295 @@ impl Matrix {
             ));
         }
 
-        let char_poly = self.characteristic_polynomial(env)?;
-        let (_, factors) = crate::mod_poly::factor_over_q(&char_poly);
-
-        let mut eigenvalues = Vec::new();
-        for factor in &factors {
-            let expr = factor.to_node();
-            let eq = Node::Equation(Box::new(expr), Box::new(Node::Num(ExactNum::zero())));
-            if let Ok(roots) = crate::expression::solve_for_variable_exact(&eq, "__lambda__") {
-                for root in roots {
-                    eigenvalues.push(Node::Num(root));
+        // Try numerical path first
+        if let Ok(char_poly) = self.characteristic_polynomial(env) {
+            let (_, factors) = crate::mod_poly::factor_over_q(&char_poly);
+            let mut eigenvalues = Vec::new();
+            for factor in &factors {
+                let expr = factor.to_node();
+                let eq = Node::Equation(Box::new(expr), Box::new(Node::Num(ExactNum::zero())));
+                if let Ok(roots) =
+                    crate::expression::solve_for_variable_exact(&eq, "__lambda__")
+                {
+                    for root in roots {
+                        eigenvalues.push(Node::Num(root));
+                    }
                 }
             }
+            if !eigenvalues.is_empty() {
+                return Ok(eigenvalues);
+            }
         }
-        Ok(eigenvalues)
+
+        // Numerical path failed — try symbolic
+        self.eigenvalues_symbolic(env)
+    }
+
+    /// Symbolic eigenvalue computation for matrices with variable entries.
+    fn eigenvalues_symbolic(&self, env: &Environment) -> Result<Vec<Node>, String> {
+        match self.rows {
+            1 => Ok(vec![self.elements[0].clone()]),
+            2 => self.eigenvalues_symbolic_2x2(env),
+            3 => self.eigenvalues_symbolic_3x3(env),
+            _ => Err("Symbolic eigenvalues for 4×4+ not yet implemented".to_string()),
+        }
+    }
+
+    /// Symbolic eigenvalues for a 2×2 matrix via the quadratic formula.
+    fn eigenvalues_symbolic_2x2(&self, env: &Environment) -> Result<Vec<Node>, String> {
+        let a = &self.elements[0];
+        let d = &self.elements[3];
+        let b = &self.elements[1];
+        let c = &self.elements[2];
+
+        let trace = Node::Add(Box::new(a.clone()), Box::new(d.clone())).simplify(env)?;
+        let det = Node::Subtract(
+            Box::new(Node::Multiply(Box::new(a.clone()), Box::new(d.clone()))),
+            Box::new(Node::Multiply(Box::new(b.clone()), Box::new(c.clone()))),
+        )
+        .simplify(env)?;
+
+        let trace_sq = Node::Power(
+            Box::new(trace.clone()),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        )
+        .simplify(env)?;
+        let four_det = Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(4))),
+            Box::new(det),
+        )
+        .simplify(env)?;
+        let discriminant =
+            Node::Subtract(Box::new(trace_sq), Box::new(four_det)).simplify(env)?;
+        let sqrt_disc = Node::Sqrt(Box::new(discriminant)).simplify(env)?;
+
+        let two = Node::Num(ExactNum::integer(2));
+        let lambda1 = Node::Divide(
+            Box::new(Node::Add(
+                Box::new(trace.clone()),
+                Box::new(sqrt_disc.clone()),
+            )),
+            Box::new(two.clone()),
+        )
+        .simplify(env)?;
+        let lambda2 = Node::Divide(
+            Box::new(Node::Subtract(Box::new(trace), Box::new(sqrt_disc))),
+            Box::new(two),
+        )
+        .simplify(env)?;
+
+        Ok(vec![lambda1, lambda2])
+    }
+
+    /// Symbolic eigenvalues for a 3×3 matrix.
+    /// Tries to find a root among row sums, column sums, and diagonal elements,
+    /// then deflates to a quadratic.
+    fn eigenvalues_symbolic_3x3(&self, env: &Environment) -> Result<Vec<Node>, String> {
+        let lambda_var = "__lambda__";
+        let lambda = Node::Variable(lambda_var.to_string());
+
+        // Build det(A - λI)
+        let mut shifted = self.elements.clone();
+        for i in 0..self.rows {
+            let idx = i * self.cols + i;
+            shifted[idx] =
+                Node::Subtract(Box::new(shifted[idx].clone()), Box::new(lambda.clone()));
+        }
+        let shifted_matrix = Matrix {
+            rows: self.rows,
+            cols: self.cols,
+            elements: shifted,
+        };
+        let det_expr = shifted_matrix.determinant(env)?;
+        let det_simplified = det_expr.simplify(env).unwrap_or(det_expr);
+
+        // Compute trace s₁, sum of 2×2 principal minors s₂, determinant s₃
+        let s1 = Node::Add(
+            Box::new(Node::Add(
+                Box::new(self.elements[0].clone()),
+                Box::new(self.elements[4].clone()),
+            )),
+            Box::new(self.elements[8].clone()),
+        )
+        .simplify(env)?;
+
+        // s₂ = (a00*a11 - a01*a10) + (a00*a22 - a02*a20) + (a11*a22 - a12*a21)
+        let minor01 = Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(self.elements[0].clone()),
+                Box::new(self.elements[4].clone()),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(self.elements[1].clone()),
+                Box::new(self.elements[3].clone()),
+            )),
+        )
+        .simplify(env)?;
+        let minor02 = Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(self.elements[0].clone()),
+                Box::new(self.elements[8].clone()),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(self.elements[2].clone()),
+                Box::new(self.elements[6].clone()),
+            )),
+        )
+        .simplify(env)?;
+        let minor12 = Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(self.elements[4].clone()),
+                Box::new(self.elements[8].clone()),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(self.elements[5].clone()),
+                Box::new(self.elements[7].clone()),
+            )),
+        )
+        .simplify(env)?;
+        let s2 = Node::Add(
+            Box::new(Node::Add(Box::new(minor01), Box::new(minor02))),
+            Box::new(minor12),
+        )
+        .simplify(env)?;
+
+        let _s3 = self.determinant(env)?;
+
+        // Generate candidate eigenvalues
+        let mut candidates: Vec<Node> = Vec::new();
+
+        // Row sums
+        let row_sums: Vec<Node> = (0..3)
+            .map(|i| {
+                let sum = self.elements[i * 3..i * 3 + 3]
+                    .iter()
+                    .fold(Node::Num(ExactNum::zero()), |acc, elem| {
+                        Node::Add(Box::new(acc), Box::new(elem.clone()))
+                    });
+                sum.simplify(env).unwrap_or(sum)
+            })
+            .collect();
+
+        // Check if all row sums are equal — if so, it's an eigenvalue
+        let rs0_str = format!("{}", row_sums[0]);
+        if row_sums[1..].iter().all(|rs| format!("{}", rs) == rs0_str) {
+            candidates.push(row_sums[0].clone());
+        }
+
+        // Column sums
+        let col_sums: Vec<Node> = (0..3)
+            .map(|j| {
+                let sum = (0..3).fold(Node::Num(ExactNum::zero()), |acc, i| {
+                    Node::Add(Box::new(acc), Box::new(self.elements[i * 3 + j].clone()))
+                });
+                sum.simplify(env).unwrap_or(sum)
+            })
+            .collect();
+
+        let cs0_str = format!("{}", col_sums[0]);
+        if col_sums[1..].iter().all(|cs| format!("{}", cs) == cs0_str)
+            && (cs0_str != rs0_str
+                || !row_sums[1..].iter().all(|rs| format!("{}", rs) == rs0_str))
+        {
+            candidates.push(col_sums[0].clone());
+        }
+
+        // Diagonal elements as candidates
+        for i in 0..3 {
+            candidates.push(self.elements[i * 3 + i].clone());
+        }
+
+        // Node::Num(ExactNum::zero()) as a candidate
+        candidates.push(Node::Num(ExactNum::zero()));
+
+        // Verify each candidate by substituting into det(A - λI)
+        for candidate in &candidates {
+            let substituted = crate::substitute::substitute(
+                &det_simplified,
+                &[(lambda_var.to_string(), candidate.clone())],
+            )?;
+            let result = substituted.simplify(env).unwrap_or(substituted);
+            if is_zero_node(&result) {
+                // Found an eigenvalue r. Deflate to quadratic.
+                let r = candidate;
+
+                // Quadratic: λ² + (r - s₁)λ + (s₂ + r² - s₁·r) = 0
+                let a_coeff = Node::Subtract(Box::new(r.clone()), Box::new(s1.clone()))
+                    .simplify(env)?;
+                let r_sq = Node::Power(
+                    Box::new(r.clone()),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )
+                .simplify(env)?;
+                let s1_r = Node::Multiply(Box::new(s1.clone()), Box::new(r.clone()))
+                    .simplify(env)?;
+                let b_coeff = Node::Add(
+                    Box::new(Node::Subtract(
+                        Box::new(Node::Add(Box::new(s2.clone()), Box::new(r_sq))),
+                        Box::new(s1_r),
+                    )),
+                    Box::new(Node::Num(ExactNum::zero())),
+                )
+                .simplify(env)?;
+
+                // Discriminant: a_coeff² - 4·b_coeff
+                let a_sq = Node::Power(
+                    Box::new(a_coeff.clone()),
+                    Box::new(Node::Num(ExactNum::integer(2))),
+                )
+                .simplify(env)?;
+                let four_b = Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(4))),
+                    Box::new(b_coeff),
+                )
+                .simplify(env)?;
+                let disc =
+                    Node::Subtract(Box::new(a_sq), Box::new(four_b)).simplify(env)?;
+
+                if is_zero_node(&disc) {
+                    // Double root
+                    let neg_a = Node::Negate(Box::new(a_coeff)).simplify(env)?;
+                    let double_root = Node::Divide(
+                        Box::new(neg_a),
+                        Box::new(Node::Num(ExactNum::integer(2))),
+                    )
+                    .simplify(env)?;
+                    return Ok(vec![r.clone(), double_root.clone(), double_root]);
+                }
+
+                let sqrt_disc = Node::Sqrt(Box::new(disc)).simplify(env)?;
+                let neg_a = Node::Negate(Box::new(a_coeff)).simplify(env)?;
+                let two = Node::Num(ExactNum::integer(2));
+
+                let lambda2 = Node::Divide(
+                    Box::new(Node::Add(
+                        Box::new(neg_a.clone()),
+                        Box::new(sqrt_disc.clone()),
+                    )),
+                    Box::new(two.clone()),
+                )
+                .simplify(env)?;
+                let lambda3 = Node::Divide(
+                    Box::new(Node::Subtract(Box::new(neg_a), Box::new(sqrt_disc))),
+                    Box::new(two),
+                )
+                .simplify(env)?;
+
+                return Ok(vec![r.clone(), lambda2, lambda3]);
+            }
+        }
+
+        Err(
+            "Could not find symbolic eigenvalues: no candidate root verified".to_string(),
+        )
+    }
+}
+
+/// Check whether a Node expression represents zero.
+fn is_zero_node(node: &Node) -> bool {
+    match node {
+        Node::Num(n) => n.to_f64() == 0.0,
+        _ => format!("{}", node) == "0",
     }
 }
 
@@ -1199,5 +1475,108 @@ mod tests {
         let char_poly = matrix.characteristic_polynomial(&env).unwrap();
         // det(A - λI) = (2-λ)(3-λ)(5-λ) = -λ³ + 10λ² - 31λ + 30
         assert_eq!(char_poly.degree(), Some(3));
+    }
+
+    #[test]
+    fn test_symbolic_eigenvalues_2x2() {
+        let env = Environment::new();
+        let a = Node::Variable("a".to_string());
+        let b = Node::Variable("b".to_string());
+        let elements = vec![
+            a.clone(),
+            b.clone(),
+            Node::Num(ExactNum::zero()),
+            a.clone(),
+        ];
+        let matrix = Matrix::new(2, 2, elements).unwrap();
+        let eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(
+            eigenvalues.len(),
+            2,
+            "2x2 symbolic should have 2 eigenvalues: {:?}",
+            eigenvalues
+        );
+    }
+
+    #[test]
+    fn test_symbolic_eigenvalues_3x3_circulant() {
+        // [[1, α, α], [α, 1, α], [α, α, 1]]
+        // Eigenvalues: 1+2α (mult 1), 1-α (mult 2)
+        let env = Environment::new();
+        let one = Node::Num(ExactNum::one());
+        let alpha = Node::Variable("α".to_string());
+        let elements = vec![
+            one.clone(),
+            alpha.clone(),
+            alpha.clone(),
+            alpha.clone(),
+            one.clone(),
+            alpha.clone(),
+            alpha.clone(),
+            alpha.clone(),
+            one.clone(),
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(
+            eigenvalues.len(),
+            3,
+            "3x3 circulant should have 3 eigenvalues: {:?}",
+            eigenvalues
+        );
+
+        // Verify numerically at α=0.3: eigenvalues should be 1.6, 0.7, 0.7
+        let mut test_env = Environment::new();
+        test_env.set("α", 0.3);
+        let mut vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| crate::evaluator::Evaluator::evaluate(ev, &test_env).unwrap())
+            .collect();
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (vals[0] - 0.7).abs() < 0.01,
+            "Expected 0.7, got {}",
+            vals[0]
+        );
+        assert!(
+            (vals[1] - 0.7).abs() < 0.01,
+            "Expected 0.7, got {}",
+            vals[1]
+        );
+        assert!(
+            (vals[2] - 1.6).abs() < 0.01,
+            "Expected 1.6, got {}",
+            vals[2]
+        );
+    }
+
+    #[test]
+    fn test_symbolic_eigenvalues_3x3_diagonal() {
+        // [[a, 0, 0], [0, b, 0], [0, 0, c]]
+        // Eigenvalues: a, b, c
+        let env = Environment::new();
+        let a = Node::Variable("a".to_string());
+        let b = Node::Variable("b".to_string());
+        let c = Node::Variable("c".to_string());
+        let zero = Node::Num(ExactNum::zero());
+        let elements = vec![
+            a.clone(),
+            zero.clone(),
+            zero.clone(),
+            zero.clone(),
+            b.clone(),
+            zero.clone(),
+            zero.clone(),
+            zero.clone(),
+            c.clone(),
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(
+            eigenvalues.len(),
+            3,
+            "3x3 diagonal should have 3 eigenvalues: {:?}",
+            eigenvalues
+        );
     }
 }
