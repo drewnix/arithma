@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**874 tests, zero failures.** Every algorithm is verified against known results.
+**877 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -67,9 +67,10 @@ Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
 constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
 complex roots). Returns general solutions with arbitrary constants.
 
-**Linear algebra.** Determinant, inverse, eigenvalues (up to 4×4 via
-characteristic polynomial + Cardano/Ferrari), rank, transpose,
-multiplication, Ax = b, and RREF.
+**Linear algebra.** Determinant, inverse, eigenvalues (numerical up to
+4×4 via characteristic polynomial + Cardano/Ferrari; symbolic for 2×2
+and 3×3 matrices with variable entries), rank, transpose, multiplication,
+Ax = b, and RREF.
 
 ## MCP server
 
@@ -228,7 +229,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 874 tests
+cargo test                                # run all 877 tests
 ```
 
 ## Design principles
