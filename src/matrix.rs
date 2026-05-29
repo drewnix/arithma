@@ -5,6 +5,7 @@ use crate::environment::Environment;
 use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
+use num_traits::ToPrimitive;
 
 /// Represents a mathematical matrix with expression elements
 #[derive(Clone, Debug)]
@@ -488,7 +489,7 @@ impl Matrix {
             ));
         }
 
-        // Try numerical path first
+        // Try exact path: characteristic polynomial → factor → solve
         if let Ok(char_poly) = self.characteristic_polynomial(env) {
             let (_, factors) = crate::mod_poly::factor_over_q(&char_poly);
             let mut eigenvalues = Vec::new();
@@ -504,10 +505,58 @@ impl Matrix {
             if !eigenvalues.is_empty() {
                 return Ok(eigenvalues);
             }
+
+            // Exact factoring failed — try numerical solve on the characteristic polynomial
+            if let Some(numerical) = self.eigenvalues_numerical(&char_poly) {
+                return Ok(numerical);
+            }
         }
 
-        // Numerical path failed — try symbolic
+        // Try symbolic
         self.eigenvalues_symbolic(env)
+    }
+
+    fn eigenvalues_numerical(
+        &self,
+        char_poly: &crate::polynomial::Polynomial,
+    ) -> Option<Vec<Node>> {
+        let deg = char_poly.degree()?;
+        if deg > 4 {
+            return None;
+        }
+        let coeff = |i: usize| -> f64 { char_poly.coeff(i).to_f64().unwrap_or(0.0) };
+        let roots = match deg {
+            1 => {
+                let a = coeff(1);
+                let b = coeff(0);
+                if a.abs() < 1e-15 {
+                    return None;
+                }
+                vec![-b / a]
+            }
+            2 => {
+                let a = coeff(2);
+                let b = coeff(1);
+                let c = coeff(0);
+                let disc = b * b - 4.0 * a * c;
+                if disc < -1e-10 {
+                    return None;
+                }
+                let disc = disc.max(0.0).sqrt();
+                vec![(-b + disc) / (2.0 * a), (-b - disc) / (2.0 * a)]
+            }
+            3 => crate::expression::solve_cubic_f64_pub(coeff(3), coeff(2), coeff(1), coeff(0)),
+            _ => return None,
+        };
+        if roots.is_empty() {
+            return None;
+        }
+        Some(
+            roots
+                .into_iter()
+                .map(|r| Node::Num(ExactNum::from_f64(r)))
+                .collect(),
+        )
     }
 
     /// Symbolic eigenvalue computation for matrices with variable entries.

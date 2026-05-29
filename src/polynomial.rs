@@ -591,9 +591,8 @@ pub(crate) fn rational_to_node(r: &BigRational) -> Node {
 fn exact_to_rational(n: &ExactNum) -> Result<BigRational, String> {
     match n {
         ExactNum::Rational(r) => Ok(r.clone()),
-        ExactNum::Float(_) => {
-            Err("Cannot convert float to exact rational for polynomial".to_string())
-        }
+        ExactNum::Float(f) => BigRational::from_float(*f)
+            .ok_or_else(|| "Cannot convert float to exact rational for polynomial".to_string()),
     }
 }
 

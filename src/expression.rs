@@ -188,6 +188,10 @@ fn solve_cubic_cardano(poly: &Polynomial) -> Vec<ExactNum> {
 
 /// Solve a3·x³ + a2·x² + a1·x + a0 = 0 using Cardano's formula.
 /// Returns all real roots as f64 values.
+pub fn solve_cubic_f64_pub(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
+    solve_cubic_f64(a3, a2, a1, a0)
+}
+
 fn solve_cubic_f64(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
     let shift = a2 / (3.0 * a3);
     let p = (a1 / a3) - (a2 * a2) / (3.0 * a3 * a3);

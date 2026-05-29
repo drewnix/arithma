@@ -142,4 +142,25 @@ mod parser_hardening_tests {
         let solutions = arithma::solve_for_variable_exact(&expr, "x").unwrap();
         assert!(!solutions.is_empty(), "Should find x = 1/4");
     }
+
+    // --- Decimal eigenvalues ---
+
+    #[test]
+    fn test_eigenvalues_decimal_3x3() {
+        // 3×3 matrix with decimal entries should compute eigenvalues numerically
+        let result = mcp_eigenvalues("1 & 0.4349 & 0.4349 \\\\ 0.4349 & 1 & 0.4349 \\\\ 0.4349 & 0.4349 & 1");
+        assert!(result.is_ok(), "Decimal 3×3 eigenvalues should work: {:?}", result);
+        let eigenvalues = result.unwrap();
+        assert_eq!(eigenvalues.len(), 3, "Should find 3 eigenvalues");
+    }
+
+    fn mcp_eigenvalues(matrix_body: &str) -> Result<Vec<f64>, String> {
+        let env = Environment::new();
+        let latex = format!("\\begin{{pmatrix}} {} \\end{{pmatrix}}", matrix_body);
+        let mat = arithma::parse_latex_matrix(&latex, &env)?;
+        let eigs = mat.eigenvalues(&env)?;
+        eigs.iter()
+            .map(|e| arithma::Evaluator::evaluate(e, &env))
+            .collect()
+    }
 }
