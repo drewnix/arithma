@@ -1214,6 +1214,69 @@ fn try_partial_fraction_integration(
     Some(Ok(result))
 }
 
+/// Compute the exact square root of a non-negative rational number, if it exists.
+/// Works directly with BigInt (no i64 conversion) to avoid overflow.
+#[allow(dead_code)]
+fn exact_rational_sqrt_bigrat(r: &num_rational::BigRational) -> Option<num_rational::BigRational> {
+    use num_traits::Signed;
+    if r.is_negative() {
+        return None;
+    }
+    if r.is_zero() {
+        return Some(num_rational::BigRational::zero());
+    }
+    let n = r.numer();
+    let d = r.denom();
+    let sn = n.sqrt();
+    let sd = d.sqrt();
+    if &(&sn * &sn) == n && &(&sd * &sd) == d {
+        Some(num_rational::BigRational::new(sn, sd))
+    } else {
+        None
+    }
+}
+
+/// Detect if a monic degree-4 polynomial is biquadratic and factorable over Q(sqrt(d)).
+/// Returns Some((b, d)) where b^2=q, d=2b-p, if factorable.
+#[allow(dead_code)]
+fn try_factor_biquadratic(
+    poly: &crate::polynomial::Polynomial,
+) -> Option<(num_rational::BigRational, num_rational::BigRational)> {
+    // Must be degree 4 and monic
+    if poly.degree() != Some(4) {
+        return None;
+    }
+    if poly.leading_coeff()? != &num_rational::BigRational::one() {
+        return None;
+    }
+
+    // Must be biquadratic: coeff(3) == 0 and coeff(1) == 0
+    if !poly.coeff(3).is_zero() || !poly.coeff(1).is_zero() {
+        return None;
+    }
+
+    let p = poly.coeff(2);
+    let q = poly.coeff(0);
+
+    // b = sqrt(q); q must be a perfect rational square
+    let b = exact_rational_sqrt_bigrat(&q)?;
+
+    // d = 2b - p; must be positive
+    let two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+    let d = &two * &b - &p;
+
+    if d <= num_rational::BigRational::zero() {
+        return None;
+    }
+
+    // If d is a perfect square, Berlekamp-Zassenhaus already handles this
+    if exact_rational_sqrt_bigrat(&d).is_some() {
+        return None;
+    }
+
+    Some((b, d))
+}
+
 /// Integrate a single partial fraction term: N(x) / q(x)^k.
 fn integrate_pf_term(
     term: &crate::partial_fractions::PartialFractionTerm,
@@ -2156,5 +2219,50 @@ mod tests {
             "Expected non-elementary, got: {:?}",
             result
         );
+    }
+
+    fn test_poly(coeffs: &[i64], var: &str) -> crate::polynomial::Polynomial {
+        crate::polynomial::Polynomial::from_coeffs(
+            coeffs
+                .iter()
+                .map(|&c| num_rational::BigRational::from_integer(num_bigint::BigInt::from(c)))
+                .collect(),
+            var,
+        )
+    }
+
+    #[test]
+    fn test_detect_biquadratic() {
+        use num_bigint::BigInt;
+        use num_rational::BigRational;
+        use num_traits::One;
+
+        // x⁴+1: biquadratic with p=0, q=1, b=1, d=2
+        let p1 = test_poly(&[1, 0, 0, 0, 1], "x");
+        let result = try_factor_biquadratic(&p1);
+        assert!(result.is_some(), "x⁴+1 should be biquadratic");
+        let (b, d) = result.unwrap();
+        assert_eq!(b, BigRational::one());
+        assert_eq!(d, BigRational::from_integer(BigInt::from(2)));
+
+        // x⁴-x²+1: biquadratic with p=-1, q=1, b=1, d=3
+        let p2 = test_poly(&[1, 0, -1, 0, 1], "x");
+        let result = try_factor_biquadratic(&p2);
+        assert!(result.is_some());
+        let (b, d) = result.unwrap();
+        assert_eq!(b, BigRational::one());
+        assert_eq!(d, BigRational::from_integer(BigInt::from(3)));
+
+        // x⁴+x²+1: d=1 is perfect square → None (BZ handles it)
+        let p3 = test_poly(&[1, 0, 1, 0, 1], "x");
+        assert!(try_factor_biquadratic(&p3).is_none());
+
+        // x⁴+x+1: not biquadratic (has x term) → None
+        let p4 = test_poly(&[1, 1, 0, 0, 1], "x");
+        assert!(try_factor_biquadratic(&p4).is_none());
+
+        // x⁴+3x²+1: d = 2-3 = -1 < 0 → None
+        let p5 = test_poly(&[1, 0, 3, 0, 1], "x");
+        assert!(try_factor_biquadratic(&p5).is_none());
     }
 }
