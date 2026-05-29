@@ -724,7 +724,11 @@ mod integration_tests {
     #[test]
     fn test_e2e_biquadratic_x4_plus_1() {
         let result = integrate_latex("\\frac{1}{x^4 + 1}", "x").unwrap();
-        assert!(result.contains("\\sqrt{2}"), "Should have exact √2: {}", result);
+        assert!(
+            result.contains("\\sqrt{2}"),
+            "Should have exact √2: {}",
+            result
+        );
         assert!(result.contains("arctan"), "Should have arctan: {}", result);
         assert!(result.contains("ln"), "Should have ln: {}", result);
     }
@@ -732,7 +736,11 @@ mod integration_tests {
     #[test]
     fn test_e2e_biquadratic_x4_minus_x2_plus_1() {
         let result = integrate_latex("\\frac{1}{x^4 - x^2 + 1}", "x").unwrap();
-        assert!(result.contains("\\sqrt{3}"), "Should have exact √3: {}", result);
+        assert!(
+            result.contains("\\sqrt{3}"),
+            "Should have exact √3: {}",
+            result
+        );
         assert!(result.contains("arctan"), "Should have arctan: {}", result);
     }
 

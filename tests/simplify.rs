@@ -1102,4 +1102,333 @@ mod test_simplify {
         let val = Evaluator::evaluate(&result, &test_env).unwrap();
         assert_eq!(val, 1.0, "1/(x+1) + x/(x+1) at x=5 should be 1");
     }
+
+    // --- Content GCD simplification tests ---
+
+    #[test]
+    fn test_content_gcd_simplification() {
+        let env = Environment::new();
+        // (-32a + 32) / (16a + 8) should reduce coefficients via content GCD
+        // GCD of coefficients: numerator has gcd(32,32)=32, denominator has gcd(16,8)=8
+        // Overall content GCD = 8, so it should reduce to (-4a + 4) / (2a + 1)
+        let expr = arithma::parse_latex("\\frac{-32a + 32}{16a + 8}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("32") && !display.contains("16"),
+            "Expected reduced coefficients (no 32 or 16), got: {}",
+            display
+        );
+        // Verify numerical correctness at a = 0.435
+        let mut test_env = Environment::new();
+        test_env.set("a", 0.435);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = (-32.0 * 0.435 + 32.0) / (16.0 * 0.435 + 8.0);
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at a=0.435: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_content_gcd_constant_numerator() {
+        let env = Environment::new();
+        // 48 / (16a^3 + 24a^2 + 12a + 2) should reduce via content GCD
+        // Denominator coefficients gcd(16,24,12,2) = 2, gcd with 48 = 2
+        // Reduces to 24 / (8a^3 + 12a^2 + 6a + 1)
+        let expr = arithma::parse_latex("\\frac{48}{16a^3 + 24a^2 + 12a + 2}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("48"),
+            "Expected reduced numerator (no 48), got: {}",
+            display
+        );
+        // Verify numerically at a = 0.5
+        let mut test_env = Environment::new();
+        test_env.set("a", 0.5);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 48.0 / (16.0 * 0.125 + 24.0 * 0.25 + 12.0 * 0.5 + 2.0);
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at a=0.5: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_content_gcd_constant_denominator() {
+        let env = Environment::new();
+        // (6a + 3) / 3 should reduce to 2a + 1 (a polynomial, no fraction)
+        let expr = arithma::parse_latex("\\frac{6a + 3}{3}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("\\frac"),
+            "Expected polynomial result (no \\frac), got: {}",
+            display
+        );
+        // Verify numerically at a = 2: (6*2 + 3) / 3 = 15 / 3 = 5
+        let mut test_env = Environment::new();
+        test_env.set("a", 2.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 5.0, "(6a+3)/3 at a=2 should be 5, got {}", val);
+    }
+
+    #[test]
+    fn test_content_gcd_both_reduce() {
+        let env = Environment::new();
+        // (6a^2 - 6) / (4a + 4) should reduce via both polynomial GCD and content GCD
+        // 6a^2 - 6 = 6(a^2 - 1) = 6(a+1)(a-1)
+        // 4a + 4 = 4(a + 1)
+        // After polynomial GCD cancellation of (a+1) and content GCD: (3a - 3) / 2
+        let expr = arithma::parse_latex("\\frac{6a^2 - 6}{4a + 4}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        // The result should be a single clean fraction \frac{3a - 3}{2},
+        // not scattered rational coefficients like \frac{3}{2} * a - \frac{3}{2}
+        assert!(
+            !display.contains('6') && !display.contains('4'),
+            "Expected fully reduced coefficients (no 6 or 4), got: {}",
+            display
+        );
+        // The display should show the result as a single fraction with integer coefficients
+        // (i.e., content GCD should keep the denominator unified, not distribute it)
+        let frac_count = display.matches("\\frac").count();
+        assert!(
+            frac_count <= 1,
+            "Expected at most one \\frac (clean form), got {} in: {}",
+            frac_count,
+            display
+        );
+        // Verify numerically at a = 3: (6*9 - 6) / (4*3 + 4) = 48 / 16 = 3.0
+        let mut test_env = Environment::new();
+        test_env.set("a", 3.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(
+            val, 3.0,
+            "(6a^2-6)/(4a+4) at a=3 should be 3.0, got {}",
+            val
+        );
+    }
+
+    // --- Factored display tests ---
+
+    #[test]
+    fn test_factored_display_cubed() {
+        let env = Environment::new();
+        // 48 / (16a^3 + 24a^2 + 12a + 2)
+        // Content GCD reduces to 24 / (8a^3 + 12a^2 + 6a + 1)
+        // The denominator 8a^3 + 12a^2 + 6a + 1 = (2a + 1)^3
+        // Factored display should show (2a + 1) in the denominator
+        let expr = arithma::parse_latex("\\frac{48}{16a^3 + 24a^2 + 12a + 2}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            display.contains("(2a + 1)") || display.contains("(1 + 2a)"),
+            "Expected factored denominator containing (2a + 1), got: {}",
+            display
+        );
+        // Verify numerically at a = 0.5: 48 / (16*0.125 + 24*0.25 + 12*0.5 + 2) = 48/16 = 3
+        let mut test_env = Environment::new();
+        test_env.set("a", 0.5);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 48.0 / (16.0 * 0.125 + 24.0 * 0.25 + 12.0 * 0.5 + 2.0);
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at a=0.5: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_factored_display_squared() {
+        let env = Environment::new();
+        // 1 / (a^2 + 2a + 1)
+        // The denominator a^2 + 2a + 1 = (a + 1)^2
+        // Factored display should show (a + 1) in the denominator
+        let expr = arithma::parse_latex("\\frac{1}{a^2 + 2a + 1}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            display.contains("(a + 1)") || display.contains("(1 + a)"),
+            "Expected factored denominator containing (a + 1), got: {}",
+            display
+        );
+        // Verify numerically at a = 2: 1 / (4 + 4 + 1) = 1/9
+        let mut test_env = Environment::new();
+        test_env.set("a", 2.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 1.0 / 9.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at a=2: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_factored_display_two_distinct_factors() {
+        let env = Environment::new();
+        // 1 / (a^2 - 1)
+        // The denominator a^2 - 1 = (a - 1)(a + 1)
+        // Factored display should show both factors
+        let expr = arithma::parse_latex("\\frac{1}{a^2 - 1}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            (display.contains("(a + 1)") || display.contains("(1 + a)"))
+                && (display.contains("(a - 1)") || display.contains("(-1 + a)")),
+            "Expected factored denominator with (a - 1)(a + 1), got: {}",
+            display
+        );
+        // Verify numerically at a = 3: 1 / (9 - 1) = 1/8 = 0.125
+        let mut test_env = Environment::new();
+        test_env.set("a", 3.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert!(
+            (val - 0.125).abs() < 1e-10,
+            "Numerical mismatch at a=3: got {}, expected 0.125",
+            val
+        );
+    }
+
+    #[test]
+    fn test_factored_display_irreducible_unchanged() {
+        let env = Environment::new();
+        // 1 / (a^2 + a + 1) is irreducible over Q
+        // The denominator should remain as a polynomial (no factoring possible)
+        let expr = arithma::parse_latex("\\frac{1}{a^2 + a + 1}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        // Just verify numerical correctness at a = 2: 1 / (4 + 2 + 1) = 1/7
+        let mut test_env = Environment::new();
+        test_env.set("a", 2.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 1.0 / 7.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at a=2: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_multivariate_content_simplification() {
+        let env = Environment::new();
+        // (6xy + 6x) / (3y + 3) → 2x
+        // 6xy + 6x = 6x(y+1), 3y + 3 = 3(y+1)
+        // After poly GCD (y+1) and content GCD: 6x/3 = 2x
+        let x = Node::Variable("x".to_string());
+        let y = Node::Variable("y".to_string());
+        let numer = Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(6))),
+                Box::new(Node::Multiply(Box::new(x.clone()), Box::new(y.clone()))),
+            )),
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(6))),
+                Box::new(x.clone()),
+            )),
+        );
+        let denom = Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(3))),
+                Box::new(y.clone()),
+            )),
+            Box::new(Node::Num(ExactNum::integer(3))),
+        );
+        let expr = Node::Divide(Box::new(numer), Box::new(denom));
+        let simplified = expr.simplify(&env).unwrap();
+        let mut test_env = Environment::new();
+        test_env.set("x", 5.0);
+        test_env.set("y", 7.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        assert_eq!(val, 10.0, "6*5*7+6*5=210+30=240, 3*7+3=24, 240/24=10=2*5");
+    }
+
+    // --- E2E tests through LaTeX interface ---
+
+    #[test]
+    fn test_e2e_alex_eigenvalue_ratio() {
+        // R = 4(1-α)/(2α+1) from the companion paper
+        // Parse \frac{-32α+32}{16α+8} and verify coefficients are reduced
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\frac{-32\\alpha+32}{16\\alpha+8}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("32") && !display.contains("16"),
+            "Expected reduced coefficients (no 32 or 16), got: {}",
+            display
+        );
+        // Verify numerically at α=0.435
+        let mut test_env = Environment::new();
+        test_env.set("α", 0.435);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = (-32.0 * 0.435 + 32.0) / (16.0 * 0.435 + 8.0);
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at α=0.435: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_e2e_factored_cubic_denominator() {
+        // Parse \frac{48}{16α^3+24α^2+12α+2} with Greek alpha
+        // Content GCD reduces to 24/(8α^3+12α^2+6α+1), denominator factors as (2α+1)^3
+        let env = Environment::new();
+        let expr =
+            arithma::parse_latex("\\frac{48}{16\\alpha^3+24\\alpha^2+12\\alpha+2}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        let display = format!("{}", simplified);
+        assert!(
+            !display.contains("48"),
+            "Expected reduced numerator (no 48), got: {}",
+            display
+        );
+        // Denominator should be factored — output should contain parenthesized factor
+        assert!(
+            display.contains("(2") && display.contains(")"),
+            "Expected factored denominator with (2...+1) form, got: {}",
+            display
+        );
+        // Verify numerically at α=0.5: 48 / (16*0.125 + 24*0.25 + 12*0.5 + 2) = 48/16 = 3
+        let mut test_env = Environment::new();
+        test_env.set("α", 0.5);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 48.0 / (16.0 * 0.125 + 24.0 * 0.25 + 12.0 * 0.5 + 2.0);
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Numerical mismatch at α=0.5: got {}, expected {}",
+            val,
+            expected
+        );
+    }
+
+    #[test]
+    fn test_already_simplified_unchanged() {
+        // (a+1)/(a+2) — coprime polynomials with content 1
+        // Should remain unchanged and evaluate correctly
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\frac{a+1}{a+2}", &env).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        // Verify numerically at a=5: (5+1)/(5+2) = 6/7
+        let mut test_env = Environment::new();
+        test_env.set("a", 5.0);
+        let val = Evaluator::evaluate(&simplified, &test_env).unwrap();
+        let expected = 6.0 / 7.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Expected 6/7 at a=5, got {}",
+            val
+        );
+    }
 }

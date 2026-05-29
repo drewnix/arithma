@@ -577,7 +577,7 @@ impl Polynomial {
     }
 }
 
-fn rational_to_node(r: &BigRational) -> Node {
+pub(crate) fn rational_to_node(r: &BigRational) -> Node {
     if r.is_integer() {
         Node::Num(ExactNum::integer(r.numer().try_into().unwrap_or(0)))
     } else {
@@ -633,6 +633,19 @@ pub(crate) fn lcm_bigint(a: &BigInt, b: &BigInt) -> BigInt {
     }
     let g = gcd_bigint(a, b);
     (a / &g) * b
+}
+
+/// GCD of two rational numbers: gcd(a/b, c/d) = gcd(a,c) / lcm(b,d)
+pub(crate) fn rational_gcd(a: &BigRational, b: &BigRational) -> BigRational {
+    if a.is_zero() {
+        return b.abs();
+    }
+    if b.is_zero() {
+        return a.abs();
+    }
+    let numer = gcd_bigint(a.numer(), b.numer());
+    let denom = lcm_bigint(a.denom(), b.denom());
+    BigRational::new(numer, denom)
 }
 
 // --- Operator implementations ---

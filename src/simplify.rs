@@ -792,6 +792,84 @@ fn try_polynomial_normalize(node: &Node) -> Option<Node> {
     Some(mp.to_node())
 }
 
+fn try_factored_display(poly: &Polynomial) -> Option<Node> {
+    use crate::mod_poly::factor_over_q;
+    use crate::polynomial::{lcm_bigint, rational_to_node};
+    use num_bigint::BigInt;
+    use num_traits::One;
+
+    // Only factor degree > 1 polynomials
+    let deg = poly.degree()?;
+    if deg <= 1 {
+        return None;
+    }
+
+    let (content, factors) = factor_over_q(poly);
+    // Only use factored form when there are multiple factors (distinct or repeated)
+    if factors.len() <= 1 {
+        return None;
+    }
+
+    // Group identical monic factors and convert to integer-coefficient form
+    let mut grouped: Vec<(Polynomial, usize)> = Vec::new();
+    let mut adjusted_content = content;
+
+    for f in &factors {
+        // Clear denominators: find LCM of coefficient denominators
+        let mut lcm = BigInt::one();
+        for i in 0..=f.degree().unwrap_or(0) {
+            let c = f.coeff(i);
+            lcm = lcm_bigint(&lcm, c.denom());
+        }
+        let scale = num_rational::BigRational::from_integer(lcm);
+        let f_int = f.scalar_mul(&scale);
+        adjusted_content /= &scale;
+
+        // Group identical factors
+        let found = grouped.iter_mut().find(|(p, _)| {
+            p.degree() == f_int.degree()
+                && (0..=p.degree().unwrap_or(0)).all(|i| p.coeff(i) == f_int.coeff(i))
+        });
+        if let Some(entry) = found {
+            entry.1 += 1;
+        } else {
+            grouped.push((f_int, 1));
+        }
+    }
+
+    // Build the factored node
+    let mut parts: Vec<Node> = Vec::new();
+
+    // Add content coefficient if not 1
+    if !adjusted_content.is_one() {
+        parts.push(rational_to_node(&adjusted_content));
+    }
+
+    for (factor, mult) in &grouped {
+        let factor_node = factor.to_node();
+        let term = if *mult > 1 {
+            Node::Power(
+                Box::new(factor_node),
+                Box::new(Node::Num(ExactNum::integer(*mult as i64))),
+            )
+        } else {
+            factor_node
+        };
+        parts.push(term);
+    }
+
+    if parts.is_empty() {
+        return Some(Node::Num(ExactNum::one()));
+    }
+
+    let mut result = parts.remove(0);
+    for part in parts {
+        result = Node::Multiply(Box::new(result), Box::new(part));
+    }
+
+    Some(result)
+}
+
 fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
     let mut vars = std::collections::HashSet::new();
     collect_variables(numer, &mut vars);
@@ -810,6 +888,7 @@ fn try_polynomial_divide(numer: &Node, denom: &Node) -> Option<Node> {
 }
 
 fn try_univariate_divide(numer: &Node, denom: &Node, var: &str) -> Option<Node> {
+    use crate::polynomial::rational_gcd;
     let n = Polynomial::from_node(numer, var).ok()?;
     let d = Polynomial::from_node(denom, var).ok()?;
 
@@ -817,36 +896,54 @@ fn try_univariate_divide(numer: &Node, denom: &Node, var: &str) -> Option<Node> 
         return None;
     }
 
+    // Step 1: Polynomial GCD cancellation
     let g = n.gcd(&d);
-    if g.degree()? == 0 {
-        return None;
-    }
-
-    let (n_reduced, n_rem) = n.div_rem(&g).ok()?;
-    let (d_reduced, d_rem) = d.div_rem(&g).ok()?;
-
-    if !n_rem.is_zero() || !d_rem.is_zero() {
-        return None;
-    }
-
-    if d_reduced.is_constant() {
-        let d_val = d_reduced.coeff(0);
-        if d_val == num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) {
-            return Some(n_reduced.to_node());
+    let (n_red, d_red) = if g.degree().unwrap_or(0) > 0 {
+        let (nr, nr_rem) = n.div_rem(&g).ok()?;
+        let (dr, dr_rem) = d.div_rem(&g).ok()?;
+        if !nr_rem.is_zero() || !dr_rem.is_zero() {
+            return None;
         }
-        return Some(
-            n_reduced
-                .scalar_mul(
-                    &(num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) / d_val),
-                )
-                .to_node(),
-        );
+        (nr, dr)
+    } else {
+        (n.clone(), d.clone())
+    };
+
+    // Step 2: Content simplification — cancel GCD of rational coefficients
+    let c_n = n_red.content();
+    let c_d = d_red.content();
+    let c_gcd = rational_gcd(&c_n, &c_d);
+    let one = num_rational::BigRational::from_integer(num_bigint::BigInt::from(1));
+    let (n_final, d_final) = if c_gcd != one {
+        let inv = num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) / &c_gcd;
+        (n_red.scalar_mul(&inv), d_red.scalar_mul(&inv))
+    } else {
+        (n_red, d_red)
+    };
+
+    // Step 3: Try factored display for numerator and denominator
+    let denom_factored = try_factored_display(&d_final);
+    let numer_factored = try_factored_display(&n_final);
+
+    // Check if anything changed (GCD/content simplification or factored display)
+    let changed =
+        n_final != n || d_final != d || denom_factored.is_some() || numer_factored.is_some();
+    if !changed {
+        return None;
     }
 
-    Some(Node::Divide(
-        Box::new(n_reduced.to_node()),
-        Box::new(d_reduced.to_node()),
-    ))
+    // Step 4: Build result
+    if d_final.is_constant() {
+        let d_val = d_final.coeff(0);
+        if d_val == one {
+            return Some(numer_factored.unwrap_or_else(|| n_final.to_node()));
+        }
+    }
+
+    let denom_node = denom_factored.unwrap_or_else(|| d_final.to_node());
+    let numer_node = numer_factored.unwrap_or_else(|| n_final.to_node());
+
+    Some(Node::Divide(Box::new(numer_node), Box::new(denom_node)))
 }
 
 fn try_multivariate_divide(numer: &Node, denom: &Node) -> Option<Node> {
@@ -857,27 +954,47 @@ fn try_multivariate_divide(numer: &Node, denom: &Node) -> Option<Node> {
         return None;
     }
 
+    // Step 1: Polynomial GCD cancellation
     let g = MultiPoly::gcd(&n, &d);
-    if g.is_constant() {
+    let (n_red, d_red) = if !g.is_constant() {
+        (n.exact_div(&g), d.exact_div(&g))
+    } else {
+        (n.clone(), d.clone())
+    };
+
+    // Step 2: Rational content simplification
+    use crate::polynomial::rational_gcd;
+    use num_traits::One;
+    let c_n = n_red.rational_content();
+    let c_d = d_red.rational_content();
+    let c_gcd = rational_gcd(&c_n, &c_d);
+    let (n_final, d_final) = if !c_gcd.is_one() {
+        (
+            n_red.scalar_div_rational(&c_gcd),
+            d_red.scalar_div_rational(&c_gcd),
+        )
+    } else {
+        (n_red, d_red)
+    };
+
+    // Step 3: Check if anything changed
+    if n_final == n && d_final == d {
         return None;
     }
 
-    let n_reduced = n.exact_div(&g);
-    let d_reduced = d.exact_div(&g);
-
-    if d_reduced.is_one() {
-        return Some(n_reduced.to_node());
+    if d_final.is_one() {
+        return Some(n_final.to_node());
     }
-    if let Some(d_val) = d_reduced.as_constant() {
+    if let Some(d_val) = d_final.as_constant() {
         if !num_traits::Zero::is_zero(d_val) {
             let inv = num_rational::BigRational::from_integer(num_bigint::BigInt::from(1)) / d_val;
-            return Some(n_reduced.scalar_mul(&inv).to_node());
+            return Some(n_final.scalar_mul(&inv).to_node());
         }
     }
 
     Some(Node::Divide(
-        Box::new(n_reduced.to_node()),
-        Box::new(d_reduced.to_node()),
+        Box::new(n_final.to_node()),
+        Box::new(d_final.to_node()),
     ))
 }
 

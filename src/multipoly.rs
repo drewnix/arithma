@@ -274,6 +274,37 @@ impl MultiPoly {
         }
     }
 
+    /// Compute the rational (leaf-level) content: the GCD of all
+    /// BigRational constants at the leaves of this MultiPoly.
+    pub fn rational_content(&self) -> BigRational {
+        use crate::polynomial::rational_gcd;
+        match self {
+            MultiPoly::Constant(c) => c.abs(),
+            MultiPoly::Poly { coeffs, .. } => {
+                let mut g = BigRational::zero();
+                for c in coeffs {
+                    if c.is_zero() {
+                        continue;
+                    }
+                    g = rational_gcd(&g, &c.rational_content());
+                    if g.is_one() {
+                        return g;
+                    }
+                }
+                g
+            }
+        }
+    }
+
+    /// Divide all leaf-level constants by a rational scalar.
+    pub fn scalar_div_rational(&self, s: &BigRational) -> MultiPoly {
+        if s.is_one() {
+            return self.clone();
+        }
+        let inv = BigRational::one() / s;
+        self.scalar_mul(&inv)
+    }
+
     /// Scalar multiplication.
     pub fn scalar_mul(&self, s: &BigRational) -> Self {
         if s.is_zero() {
