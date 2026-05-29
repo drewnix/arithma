@@ -489,6 +489,12 @@ impl Matrix {
             ));
         }
 
+        // For purely numeric matrices, compute directly with f64 to avoid
+        // precision issues in the symbolic path with Float entries.
+        if let Some(numerical) = self.eigenvalues_direct_numeric(env) {
+            return Ok(numerical);
+        }
+
         // Try exact path: characteristic polynomial → factor → solve
         if let Ok(char_poly) = self.characteristic_polynomial(env) {
             let (_, factors) = crate::mod_poly::factor_over_q(&char_poly);
@@ -514,6 +520,69 @@ impl Matrix {
 
         // Try symbolic
         self.eigenvalues_symbolic(env)
+    }
+
+    fn eigenvalues_direct_numeric(&self, env: &Environment) -> Option<Vec<Node>> {
+        let n = self.rows;
+        if n > 4 {
+            return None;
+        }
+        let mut vals = vec![vec![0.0f64; n]; n];
+        for (i, row) in vals.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                let node = &self.elements[i * n + j];
+                let v = crate::evaluator::Evaluator::evaluate(node, env).ok()?;
+                if v.is_nan() || v.is_infinite() {
+                    return None;
+                }
+                *cell = v;
+            }
+        }
+
+        let roots = match n {
+            1 => vec![vals[0][0]],
+            2 => {
+                let tr = vals[0][0] + vals[1][1];
+                let det = vals[0][0] * vals[1][1] - vals[0][1] * vals[1][0];
+                let disc = tr * tr - 4.0 * det;
+                if disc < -1e-10 {
+                    return None;
+                }
+                let disc = disc.max(0.0).sqrt();
+                vec![(tr + disc) / 2.0, (tr - disc) / 2.0]
+            }
+            3 => {
+                let (a, b, c, d, e, f, g, h, k) = (
+                    vals[0][0], vals[0][1], vals[0][2],
+                    vals[1][0], vals[1][1], vals[1][2],
+                    vals[2][0], vals[2][1], vals[2][2],
+                );
+                let trace = a + e + k;
+                let c3 = -1.0;
+                let c2 = trace;
+                let c1 = -(a * e - b * d + a * k - c * g + e * k - f * h);
+                let c0 = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
+                let mut r = crate::expression::solve_cubic_f64_pub(c3, c2, c1, c0);
+                // Fill in missing repeated roots using the trace identity
+                while r.len() < 3 {
+                    let missing: f64 = trace - r.iter().sum::<f64>();
+                    r.push(missing / (3 - r.len()) as f64);
+                }
+                r
+            }
+            _ => return None,
+        };
+
+        if roots.is_empty() {
+            return None;
+        }
+
+        Some(
+            roots
+                .into_iter()
+                .map(|r| Node::Num(ExactNum::from_f64(r)))
+                .collect(),
+        )
     }
 
     fn eigenvalues_numerical(
