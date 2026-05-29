@@ -1,4 +1,5 @@
 use arithma::simplify::Simplifiable;
+use arithma::tokenizer::normalize_var;
 use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
 use std::io::{self, Write};
 
@@ -107,8 +108,11 @@ fn cmd_differentiate(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
-    match arithma::derivative::differentiate_latex(expr, var) {
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
+    match arithma::derivative::differentiate_latex(expr, &var) {
         Ok(result) => println!("{}", result),
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -123,8 +127,11 @@ fn cmd_integrate(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
-    match arithma::integration::integrate_latex(expr, var) {
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
+    match arithma::integration::integrate_latex(expr, &var) {
         Ok(result) => println!("{}", result),
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {
             println!("{}", e.replacen("NON_ELEMENTARY: ", "", 1));
@@ -142,7 +149,10 @@ fn cmd_solve(args: &[String]) {
         std::process::exit(1);
     }
     let equation = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
 
     let mut tokenizer = Tokenizer::new(equation);
     let tokens = tokenizer.tokenize();
@@ -154,7 +164,7 @@ fn cmd_solve(args: &[String]) {
         }
     };
 
-    match arithma::expression::solve_for_variable_exact(&expr, var) {
+    match arithma::expression::solve_for_variable_exact(&expr, &var) {
         Ok(solutions) if solutions.is_empty() => println!("No solutions found"),
         Ok(solutions) => {
             for s in &solutions {
@@ -174,7 +184,10 @@ fn cmd_factor(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
 
     let mut tokenizer = Tokenizer::new(expr);
     let tokens = tokenizer.tokenize();
@@ -186,7 +199,7 @@ fn cmd_factor(args: &[String]) {
         }
     };
 
-    let poly = match arithma::polynomial::Polynomial::from_node(&node, var) {
+    let poly = match arithma::polynomial::Polynomial::from_node(&node, &var) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("Not a polynomial: {}", e);
@@ -239,8 +252,11 @@ fn cmd_partial_fractions(args: &[String]) {
     }
     let num = &args[0];
     let den = &args[1];
-    let var = args.get(2).map(|s| s.as_str()).unwrap_or("x");
-    match arithma::partial_fractions::partial_fractions_latex(num, den, var) {
+    let var = args
+        .get(2)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
+    match arithma::partial_fractions::partial_fractions_latex(num, den, &var) {
         Ok(result) => println!("{}", result),
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -300,12 +316,15 @@ fn cmd_limit(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
     let point = args
         .get(2)
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
-    match arithma::limits::limit_latex(expr, var, point) {
+    match arithma::limits::limit_latex(expr, &var, point) {
         Ok(result) => println!("{}", result),
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -320,7 +339,10 @@ fn cmd_taylor(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = args.get(1).map(|s| s.as_str()).unwrap_or("x");
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".to_string());
     let center = args
         .get(2)
         .and_then(|s| s.parse::<f64>().ok())
@@ -329,7 +351,7 @@ fn cmd_taylor(args: &[String]) {
         .get(3)
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(5);
-    match arithma::series::taylor_series_latex(expr, var, center, order) {
+    match arithma::series::taylor_series_latex(expr, &var, center, order) {
         Ok(result) => println!("{}", result),
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -344,9 +366,9 @@ fn cmd_substitute(args: &[String]) {
         std::process::exit(1);
     }
     let expr = &args[0];
-    let var = &args[1];
+    let var = normalize_var(&args[1]);
     let value = &args[2];
-    let subs = vec![(var.to_string(), value.to_string())];
+    let subs = vec![(var, value.to_string())];
     match arithma::substitute::substitute_latex(expr, &subs) {
         Ok(result) => {
             let env = Environment::new();
@@ -386,8 +408,11 @@ fn cmd_ode(args: &[String]) {
             eprintln!("Invalid coefficient c: {}", args[3]);
             std::process::exit(1);
         });
-        let indep = args.get(4).map(|s| s.as_str()).unwrap_or("x");
-        match arithma::ode::solve_constant_coeff_latex(a, b, c, indep) {
+        let indep = args
+            .get(4)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "x".to_string());
+        match arithma::ode::solve_constant_coeff_latex(a, b, c, &indep) {
             Ok(result) => println!("{}", result),
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -396,9 +421,15 @@ fn cmd_ode(args: &[String]) {
         }
     } else {
         let rhs = &args[0];
-        let indep = args.get(1).map(|s| s.as_str()).unwrap_or("x");
-        let dep = args.get(2).map(|s| s.as_str()).unwrap_or("y");
-        match arithma::ode::solve_ode_latex(rhs, indep, dep) {
+        let indep = args
+            .get(1)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "x".to_string());
+        let dep = args
+            .get(2)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "y".to_string());
+        match arithma::ode::solve_ode_latex(rhs, &indep, &dep) {
             Ok(result) => println!("{}", result),
             Err(e) => {
                 eprintln!("Error: {}", e);

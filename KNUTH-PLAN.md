@@ -28,9 +28,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ---
 
-## Current State (Post Session 26)
+## Current State (Post Session 27)
 
-**849 tests pass. 0 failures. 14 MCP tools. ~23K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**866 tests pass. 0 failures. 14 MCP tools. ~23K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
 
 Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension towers** in both tower orderings: the unified tower builder handles logarithmic extensions, exponential extensions, **two-level exp-over-log towers** (polynomial and rational), AND **two-level log-over-exp towers** (polynomial integrands in ln(h(x, exp(g)))). Integration covers polynomials, transcendentals, IBP, u-substitution, trig powers (all parities), inverse trig, partial fractions (via Berlekamp-Zassenhaus factoring), trig substitution, **Risch polynomial-in-exp integration** (independent Risch DE per degree, polynomial AND rational coefficients), **Risch polynomial-in-log integration** (top-down coefficient solving with rational coefficients and ln(x) absorption), **Rothstein-Trager for logarithmic rational integration**, **Rothstein-Trager for exponential rational integration** (with residual computation), **two-level exp-over-log polynomial tower integration** (inner Risch DE solver over Q(x)[ln(x)]), **two-level exp-over-log rational tower integration** (Hermite reduction via per-θ₁-degree linearity, Rothstein-Trager with θ₁-structured resultant, general GCD via θ₁-component decomposition), **two-level log-over-exp polynomial tower integration** (top-down logarithmic descent with structured inner exp integration), **θ₁-in-denominator detection** via content extraction (separable case: D₁(θ₁)·D₂(θ₂) factorization), and **two-level log-over-exp rational tower integration** (h-scaled Rothstein-Trager for non-elementarity detection) — all with non-elementary detection.
 
@@ -38,7 +38,7 @@ Phases 1-5 and 7-8, 10 complete. Phase 9 (Risch) now handles **multi-extension t
 
 **Key results:** ∫ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp tower, degree-0 RT fails). ∫exp(x)·ln(1+exp(x)) dx = exp(x)·ln(1+exp(x)) + ln(1+exp(x)) − exp(x) ✓ (log-over-exp elementary). ∫ln(x)/(1+exp(x)) dx → non-elementary ✓ (exp-over-log, RT resultant has θ₁ term). ∫ln(x)/(1+exp(2x)) dx → non-elementary ✓ (degree-2 denominator). ∫exp(x)·ln(x)/(1+exp(x)) dx → non-elementary ✓. ∫exp(x)·ln(x) dx → non-elementary ✓ (reduces to Ei). ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x) ✓. ∫(exp(x)·ln(x)² + 2·exp(x)·ln(x)/x) dx = exp(x)·ln(x)² ✓. ∫exp(x²)·ln(x) dx → non-elementary ✓. ∫1/(ln(x)·(1+exp(x))) dx → non-elementary ✓ (content extraction, scaled RT). ∫exp(x)/(ln(x)·(1+exp(x))) dx → non-elementary ✓. ∫1/(ln(x)²·(1+exp(x))) dx → non-elementary ✓ (content = θ₁²). ∫1/ln(1+exp(x)) dx → non-elementary ✓ (log-over-exp rational, h-scaled RT). ∫exp(x)/ln(1+exp(x)) dx → non-elementary ✓. Plus all previous: ∫exp(x)/(1+exp(x))dx = ln(1+exp(x)) ✓. ∫1/(1+exp(x))dx = x − ln(1+exp(x)) ✓. ∫((1-x)/x²)·exp(x)dx = −exp(x)/x ✓. ∫exp(x)/x dx → non-elementary ✓. ∫ln(x)/x² dx = −(ln(x)+1)/x ✓. ∫(1/x+ln(x))dx = (x+1)ln(x)−x ✓. ∫ln(x)/(x+1) dx → non-elementary ✓.
 
-Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
+Equation solver handles degree 1-4 classically, degree ≥ 5 via factoring. Matrix eigenvalues computed via characteristic polynomial + solver for matrices up to 4×4, with algebraic multiplicity. Greek letter LaTeX parsing (`\alpha` → `α` internally, `\alpha` on output) with `normalize_var()` at all API boundaries. Simplifier has verified idempotency contract plus assumption-aware rules. Assumption system supports variable constraints across 9 MCP tools. LaTeX in, LaTeX out.
 
 ---
 
@@ -209,6 +209,14 @@ That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness 
 ---
 
 ## Completed Work
+
+### Session 27 (2026-05-28)
+- Fix: Partial fraction content factor for non-monic linear denominators (Ada MSG-016 bug)
+- Feature: Greek letter LaTeX parsing (\alpha, \beta, etc. → Unicode internally, \alpha on output)
+- Feature: normalize_var() at MCP and CLI boundaries for Greek variable names
+- Feature: Eigenvalue computation for 3×3 and 4×4 matrices via characteristic polynomial
+- Feature: characteristic_polynomial() method on Matrix
+- 17 new tests (849→866), 3 features
 
 ### Session 26 (2026-05-25)
 - Phase 9: θ₁-in-denominator via content extraction for two-level exp-over-log tower

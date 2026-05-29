@@ -704,7 +704,8 @@ pub fn factor_over_q(
     }
 
     if n == 1 {
-        return (content, vec![prim.make_monic()]);
+        let lc = prim.leading_coeff().unwrap().clone();
+        return (&content * &lc, vec![prim.make_monic()]);
     }
 
     // SFD produces monic factors (divides by leading coefficient).

@@ -662,4 +662,62 @@ mod integration_tests {
             "Should be NON_ELEMENTARY"
         );
     }
+
+    #[test]
+    fn test_greek_letter_differentiate() {
+        let result = arithma::derivative::differentiate_latex("\\alpha^2 + 3\\alpha", "α").unwrap();
+        assert!(
+            result.contains("\\alpha"),
+            "Output should use LaTeX Greek: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_greek_letter_round_trip() {
+        let result = arithma::derivative::differentiate_latex("\\beta^3", "β").unwrap();
+        assert!(
+            result.contains("\\beta"),
+            "Output should render β as \\beta: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_greek_letter_solve() {
+        let tokens = arithma::Tokenizer::new("\\alpha^2 - 4 = 0").tokenize();
+        let expr = arithma::build_expression_tree(tokens).unwrap();
+        let solutions = arithma::solve_for_variable_exact(&expr, "α").unwrap();
+        assert_eq!(solutions.len(), 2, "Should find 2 roots: {:?}", solutions);
+    }
+
+    #[test]
+    fn test_3x3_eigenvalues_via_latex() {
+        use arithma::matrix::parse_latex_matrix;
+        let env = arithma::Environment::new();
+        let m = parse_latex_matrix(
+            "\\begin{pmatrix} 2 & -1 & 0 \\\\ -1 & 2 & -1 \\\\ 0 & -1 & 2 \\end{pmatrix}",
+            &env,
+        )
+        .unwrap();
+        let eigenvalues = m.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 3, "Should find 3 eigenvalues");
+    }
+
+    #[test]
+    fn test_greek_partial_fractions_content_bug() {
+        use arithma::partial_fractions::partial_fractions_latex;
+        let result = partial_fractions_latex("4 - 4x", "2x + 1", "x").unwrap();
+        let tokens = arithma::Tokenizer::new(&result).tokenize();
+        let expr = arithma::build_expression_tree(tokens).unwrap();
+        let env = arithma::Environment::new();
+        let mut test_env = env.clone();
+        test_env.set("x", 0.435);
+        let val = arithma::Evaluator::evaluate(&expr, &test_env).unwrap();
+        assert!(
+            (val - 1.2086).abs() < 0.01,
+            "4(1-x)/(2x+1) at x=0.435 should be ~1.209, got {}",
+            val
+        );
+    }
 }

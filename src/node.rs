@@ -103,7 +103,14 @@ impl fmt::Display for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Node::Num(n) => write!(f, "{}", n),
-            Node::Variable(v) => write!(f, "{}", v),
+            Node::Variable(v) => {
+                if v.chars().count() == 1 {
+                    if let Some(latex) = crate::tokenizer::latex_name(v.chars().next().unwrap()) {
+                        return write!(f, "{}", latex);
+                    }
+                }
+                write!(f, "{}", v)
+            }
             Node::Add(left, right) => {
                 self.fmt_child(left, 2, false, f)?;
                 match right.as_ref() {

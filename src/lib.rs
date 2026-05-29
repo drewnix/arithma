@@ -17,7 +17,7 @@ pub use crate::environment::Environment;
 mod evaluator; // Declare evaluator module
 pub use crate::evaluator::Evaluator; // Re-export Evaluator so it can be used elsewhere
 
-mod tokenizer;
+pub mod tokenizer;
 pub use crate::tokenizer::Tokenizer;
 
 mod parser; // Add this to lib.rs

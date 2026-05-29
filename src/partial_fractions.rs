@@ -431,4 +431,34 @@ mod tests {
         let result = partial_fractions_latex("1", "x^2 - 1", "x");
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_non_monic_linear_denominator() {
+        // Ada's bug report: 4(1-x)/(2x+1)
+        // = -2 + 6/(2x+1) = -2 + 3/(x+1/2)
+        let num = poly(&[4, -4], "x"); // 4 - 4x
+        let den = poly(&[1, 2], "x"); // 2x + 1
+        verify_decomposition(&num, &den);
+    }
+
+    #[test]
+    fn test_non_monic_quadratic_denominator() {
+        // 1/(2x²+3x+1) = 1/((2x+1)(x+1))
+        let num = poly(&[1], "x");
+        let den = poly(&[1, 3, 2], "x"); // 2x²+3x+1
+        verify_decomposition(&num, &den);
+    }
+
+    #[test]
+    fn test_factor_over_q_linear_content() {
+        // factor_over_q(2x+1) should return (2, [x+1/2])
+        use crate::mod_poly::factor_over_q;
+        let p = poly(&[1, 2], "x"); // 2x + 1
+        let (content, factors) = factor_over_q(&p);
+        assert_eq!(content, int(2));
+        assert_eq!(factors.len(), 1);
+        // Verify reconstruction: content * product(factors) = original
+        let reconstructed = factors[0].scalar_mul(&content);
+        assert_eq!(reconstructed, p);
+    }
 }

@@ -441,72 +441,66 @@ impl Matrix {
         Ok(rank)
     }
 
-    /// Computes the eigenvalues of a square matrix
-    /// NOTE: This is a simplified implementation that only works for 2x2 matrices
+    /// Computes the characteristic polynomial det(A - λI) as a Polynomial in λ.
+    pub fn characteristic_polynomial(
+        &self,
+        env: &Environment,
+    ) -> Result<crate::polynomial::Polynomial, String> {
+        if !self.is_square() {
+            return Err(
+                "Cannot compute characteristic polynomial of a non-square matrix".to_string(),
+            );
+        }
+        let lambda_var = "__lambda__";
+        let lambda = Node::Variable(lambda_var.to_string());
+
+        let mut shifted = self.elements.clone();
+        for i in 0..self.rows {
+            let idx = i * self.cols + i;
+            shifted[idx] = Node::Subtract(Box::new(shifted[idx].clone()), Box::new(lambda.clone()));
+        }
+
+        let shifted_matrix = Matrix {
+            rows: self.rows,
+            cols: self.cols,
+            elements: shifted,
+        };
+
+        let det_expr = shifted_matrix.determinant(env)?;
+        let det_simplified = det_expr.simplify(env).unwrap_or(det_expr);
+
+        crate::polynomial::Polynomial::from_node(&det_simplified, lambda_var)
+            .map_err(|e| format!("Characteristic polynomial extraction failed: {}", e))
+    }
+
+    /// Computes the eigenvalues of a square matrix via the characteristic polynomial.
+    /// Returns eigenvalues with algebraic multiplicity.
+    /// Supports matrices up to 4×4 (Cardano for 3×3, Ferrari for 4×4).
     pub fn eigenvalues(&self, env: &Environment) -> Result<Vec<Node>, String> {
         if !self.is_square() {
             return Err("Cannot compute eigenvalues of a non-square matrix".to_string());
         }
-
-        match self.rows {
-            2 => {
-                // For 2x2 matrix, eigenvalues are solutions to the characteristic equation:
-                // λ² - tr(A)λ + det(A) = 0
-                let a = &self.elements[0]; // Top left
-                let b = &self.elements[1]; // Top right
-                let c = &self.elements[2]; // Bottom left
-                let d = &self.elements[3]; // Bottom right
-
-                // Calculate trace
-                let trace = Node::Add(Box::new(a.clone()), Box::new(d.clone())).simplify(env)?;
-
-                // Calculate determinant
-                let det = Node::Subtract(
-                    Box::new(Node::Multiply(Box::new(a.clone()), Box::new(d.clone()))),
-                    Box::new(Node::Multiply(Box::new(b.clone()), Box::new(c.clone()))),
-                )
-                .simplify(env)?;
-
-                // Calculate discriminant: trace² - 4*det
-                let trace_squared =
-                    Node::Multiply(Box::new(trace.clone()), Box::new(trace.clone()))
-                        .simplify(env)?;
-
-                let four_det = Node::Multiply(
-                    Box::new(Node::Num(ExactNum::integer(4))),
-                    Box::new(det.clone()),
-                )
-                .simplify(env)?;
-
-                let discriminant =
-                    Node::Subtract(Box::new(trace_squared), Box::new(four_det)).simplify(env)?;
-
-                // Calculate eigenvalues: (trace ± √discriminant) / 2
-                let sqrt_discriminant =
-                    Node::Function("sqrt".to_string(), vec![discriminant.clone()]).simplify(env)?;
-
-                let lambda1 = Node::Divide(
-                    Box::new(Node::Add(
-                        Box::new(trace.clone()),
-                        Box::new(sqrt_discriminant.clone()),
-                    )),
-                    Box::new(Node::Num(ExactNum::two())),
-                )
-                .simplify(env)?;
-
-                let lambda2 = Node::Divide(
-                    Box::new(Node::Subtract(Box::new(trace), Box::new(sqrt_discriminant))),
-                    Box::new(Node::Num(ExactNum::two())),
-                )
-                .simplify(env)?;
-
-                Ok(vec![lambda1, lambda2])
-            }
-            _ => Err(
-                "Eigenvalue calculation for matrices larger than 2x2 is not implemented"
-                    .to_string(),
-            ),
+        if self.rows > 4 {
+            return Err(format!(
+                "Eigenvalue computation for {}×{} matrices is not supported (max 4×4)",
+                self.rows, self.rows
+            ));
         }
+
+        let char_poly = self.characteristic_polynomial(env)?;
+        let (_, factors) = crate::mod_poly::factor_over_q(&char_poly);
+
+        let mut eigenvalues = Vec::new();
+        for factor in &factors {
+            let expr = factor.to_node();
+            let eq = Node::Equation(Box::new(expr), Box::new(Node::Num(ExactNum::zero())));
+            if let Ok(roots) = crate::expression::solve_for_variable_exact(&eq, "__lambda__") {
+                for root in roots {
+                    eigenvalues.push(Node::Num(root));
+                }
+            }
+        }
+        Ok(eigenvalues)
     }
 }
 
@@ -1025,5 +1019,185 @@ mod tests {
             Node::Num(n) => assert!((n.to_f64() - 3.0).abs() < 1e-10),
             _ => panic!("Expected Num node"),
         }
+    }
+
+    #[test]
+    fn test_3x3_eigenvalues_identity() {
+        let env = Environment::new();
+        let elements = vec![
+            Node::Num(ExactNum::integer(1)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(1)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(1)),
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 3);
+        for ev in &eigenvalues {
+            match ev {
+                Node::Num(n) => assert!(
+                    (n.to_f64() - 1.0).abs() < 1e-10,
+                    "Expected 1, got {}",
+                    n.to_f64()
+                ),
+                _ => panic!("Expected Num node"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_3x3_eigenvalues_diagonal() {
+        let env = Environment::new();
+        let elements = vec![
+            Node::Num(ExactNum::integer(2)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(3)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(5)),
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let mut eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 3);
+        eigenvalues.sort_by(|a, b| {
+            if let (Node::Num(x), Node::Num(y)) = (a, b) {
+                x.to_f64().partial_cmp(&y.to_f64()).unwrap()
+            } else {
+                panic!("Expected Num nodes")
+            }
+        });
+        let vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| {
+                if let Node::Num(n) = ev {
+                    n.to_f64()
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        assert!((vals[0] - 2.0).abs() < 1e-10);
+        assert!((vals[1] - 3.0).abs() < 1e-10);
+        assert!((vals[2] - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_3x3_eigenvalues_symmetric() {
+        // [[2, -1, 0], [-1, 2, -1], [0, -1, 2]]
+        // Eigenvalues: 2-√2, 2, 2+√2
+        let env = Environment::new();
+        let two = Node::Num(ExactNum::integer(2));
+        let neg1 = Node::Num(-ExactNum::one());
+        let zero = Node::Num(ExactNum::zero());
+        let elements = vec![
+            two.clone(),
+            neg1.clone(),
+            zero.clone(),
+            neg1.clone(),
+            two.clone(),
+            neg1.clone(),
+            zero,
+            neg1,
+            two,
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let mut eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 3);
+        eigenvalues.sort_by(|a, b| {
+            if let (Node::Num(x), Node::Num(y)) = (a, b) {
+                x.to_f64().partial_cmp(&y.to_f64()).unwrap()
+            } else {
+                panic!("Expected Num nodes")
+            }
+        });
+        let vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| {
+                if let Node::Num(n) = ev {
+                    n.to_f64()
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        let sqrt2 = std::f64::consts::SQRT_2;
+        assert!((vals[0] - (2.0 - sqrt2)).abs() < 1e-8, "Got {}", vals[0]);
+        assert!((vals[1] - 2.0).abs() < 1e-8, "Got {}", vals[1]);
+        assert!((vals[2] - (2.0 + sqrt2)).abs() < 1e-8, "Got {}", vals[2]);
+    }
+
+    #[test]
+    fn test_4x4_eigenvalues_diagonal() {
+        let env = Environment::new();
+        let elements = vec![
+            Node::Num(ExactNum::integer(1)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(2)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(3)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(4)),
+        ];
+        let matrix = Matrix::new(4, 4, elements).unwrap();
+        let mut eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 4);
+        eigenvalues.sort_by(|a, b| {
+            if let (Node::Num(x), Node::Num(y)) = (a, b) {
+                x.to_f64().partial_cmp(&y.to_f64()).unwrap()
+            } else {
+                panic!("Expected Num nodes")
+            }
+        });
+        let vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| {
+                if let Node::Num(n) = ev {
+                    n.to_f64()
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        assert!((vals[0] - 1.0).abs() < 1e-10);
+        assert!((vals[1] - 2.0).abs() < 1e-10);
+        assert!((vals[2] - 3.0).abs() < 1e-10);
+        assert!((vals[3] - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_characteristic_polynomial_3x3() {
+        let env = Environment::new();
+        let elements = vec![
+            Node::Num(ExactNum::integer(2)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(3)),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::zero()),
+            Node::Num(ExactNum::integer(5)),
+        ];
+        let matrix = Matrix::new(3, 3, elements).unwrap();
+        let char_poly = matrix.characteristic_polynomial(&env).unwrap();
+        // det(A - λI) = (2-λ)(3-λ)(5-λ) = -λ³ + 10λ² - 31λ + 30
+        assert_eq!(char_poly.degree(), Some(3));
     }
 }

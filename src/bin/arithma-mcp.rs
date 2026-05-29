@@ -11,6 +11,7 @@ use arithma::matrix::parse_latex_matrix;
 use arithma::series::taylor_series_latex;
 use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
+use arithma::tokenizer::normalize_var;
 use arithma::{
     build_expression_tree, factor_over_q, partial_fractions_latex, solve_for_variable_exact,
     Environment, Evaluator, Polynomial, Tokenizer,
@@ -468,6 +469,10 @@ fn get_str_or<'a>(args: &'a Value, key: &str, default: &'a str) -> &'a str {
     get_str(args, key).unwrap_or(default)
 }
 
+fn get_var(args: &Value, default: &str) -> String {
+    normalize_var(get_str_or(args, "variable", default))
+}
+
 fn env_from_args(args: &Value) -> Result<Environment, String> {
     match args.get("assumptions") {
         Some(v) if !v.is_null() => {
@@ -494,22 +499,22 @@ fn tool_simplify(args: &Value) -> Result<String, String> {
 
 fn tool_differentiate(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str_or(args, "variable", "x");
-    let result = differentiate_latex(expr, var)?;
+    let var = get_var(args, "x");
+    let result = differentiate_latex(expr, &var)?;
     let env = env_from_args(args)?;
     parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_integrate(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str_or(args, "variable", "x");
+    let var = get_var(args, "x");
 
     let has_lower = args.get("lower").and_then(|v| v.as_f64());
     let has_upper = args.get("upper").and_then(|v| v.as_f64());
 
     let result = match (has_lower, has_upper) {
-        (Some(lower), Some(upper)) => definite_integral_latex(expr, var, lower, upper),
-        _ => integrate_latex(expr, var),
+        (Some(lower), Some(upper)) => definite_integral_latex(expr, &var, lower, upper),
+        _ => integrate_latex(expr, &var),
     };
 
     match result {
@@ -524,9 +529,10 @@ fn tool_integrate(args: &Value) -> Result<String, String> {
 
 fn tool_substitute(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str(args, "variable").ok_or("Missing required parameter: variable")?;
+    let var =
+        normalize_var(get_str(args, "variable").ok_or("Missing required parameter: variable")?);
     let value = get_str(args, "value").ok_or("Missing required parameter: value")?;
-    let subs = vec![(var.to_string(), value.to_string())];
+    let subs = vec![(var, value.to_string())];
     let result = substitute_latex(expr, &subs)?;
     let env = env_from_args(args)?;
     parse_and_simplify_with_env(&result, &env).or(Ok(result))
@@ -534,13 +540,13 @@ fn tool_substitute(args: &Value) -> Result<String, String> {
 
 fn tool_solve(args: &Value) -> Result<String, String> {
     let equation = get_str(args, "equation").ok_or("Missing required parameter: equation")?;
-    let var = get_str_or(args, "variable", "x");
+    let var = get_var(args, "x");
 
     let mut tokenizer = Tokenizer::new(equation);
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
 
-    let solutions = solve_for_variable_exact(&expr, var)?;
+    let solutions = solve_for_variable_exact(&expr, &var)?;
     if solutions.is_empty() {
         Ok("No solutions found".to_string())
     } else {
@@ -554,12 +560,13 @@ fn tool_solve(args: &Value) -> Result<String, String> {
 
 fn tool_factor(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str_or(args, "variable", "x");
+    let var = get_var(args, "x");
 
     let mut tokenizer = Tokenizer::new(expr);
     let tokens = tokenizer.tokenize();
     let node = build_expression_tree(tokens)?;
-    let poly = Polynomial::from_node(&node, var).map_err(|e| format!("Not a polynomial: {}", e))?;
+    let poly =
+        Polynomial::from_node(&node, &var).map_err(|e| format!("Not a polynomial: {}", e))?;
 
     let (content, factors) = factor_over_q(&poly);
 
@@ -605,25 +612,25 @@ fn tool_factor(args: &Value) -> Result<String, String> {
 fn tool_partial_fractions(args: &Value) -> Result<String, String> {
     let num = get_str(args, "numerator").ok_or("Missing required parameter: numerator")?;
     let den = get_str(args, "denominator").ok_or("Missing required parameter: denominator")?;
-    let var = get_str_or(args, "variable", "x");
-    partial_fractions_latex(num, den, var)
+    let var = get_var(args, "x");
+    partial_fractions_latex(num, den, &var)
 }
 
 fn tool_limit(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str_or(args, "variable", "x");
+    let var = get_var(args, "x");
     let point = args.get("point").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let result = limit_latex(expr, var, point)?;
+    let result = limit_latex(expr, &var, point)?;
     let env = env_from_args(args)?;
     parse_and_simplify_with_env(&result, &env)
 }
 
 fn tool_taylor_series(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
-    let var = get_str_or(args, "variable", "x");
+    let var = get_var(args, "x");
     let center = args.get("center").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-    let result = taylor_series_latex(expr, var, center, order)?;
+    let result = taylor_series_latex(expr, &var, center, order)?;
     let env = env_from_args(args)?;
     parse_and_simplify_with_env(&result, &env)
 }
@@ -643,11 +650,12 @@ fn tool_evaluate(args: &Value) -> Result<String, String> {
     let mut env = env_from_args(args)?;
     if let Some(vars) = args.get("variables").and_then(|v| v.as_object()) {
         for (k, v) in vars {
+            let key = normalize_var(k);
             if let Some(f) = v.as_f64() {
                 if f == f.floor() && f.abs() < 1e15 {
-                    env.set_exact(k, ExactNum::integer(f as i64));
+                    env.set_exact(&key, ExactNum::integer(f as i64));
                 } else {
-                    env.set(k, f);
+                    env.set(&key, f);
                 }
             }
         }
@@ -813,14 +821,14 @@ fn tool_solve_ode(args: &Value) -> Result<String, String> {
             .get("c")
             .and_then(|v| v.as_f64())
             .ok_or("Invalid coefficient c")?;
-        let indep = get_str_or(args, "indep", "x");
-        arithma::ode::solve_constant_coeff_latex(a, b, c, indep)
+        let indep = normalize_var(get_str_or(args, "indep", "x"));
+        arithma::ode::solve_constant_coeff_latex(a, b, c, &indep)
     } else {
         let expr =
             get_str(args, "expr").ok_or("Missing expr (first-order) or a,b,c (second-order)")?;
-        let indep = get_str_or(args, "indep", "x");
-        let dep = get_str_or(args, "dep", "y");
-        arithma::ode::solve_ode_latex(expr, indep, dep)
+        let indep = normalize_var(get_str_or(args, "indep", "x"));
+        let dep = normalize_var(get_str_or(args, "dep", "y"));
+        arithma::ode::solve_ode_latex(expr, &indep, &dep)
     }
 }
 

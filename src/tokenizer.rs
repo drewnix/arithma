@@ -1,6 +1,92 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+fn greek_letter(name: &str) -> Option<char> {
+    match name {
+        "alpha" => Some('α'),
+        "beta" => Some('β'),
+        "gamma" => Some('γ'),
+        "delta" => Some('δ'),
+        "epsilon" | "varepsilon" => Some('ε'),
+        "zeta" => Some('ζ'),
+        "eta" => Some('η'),
+        "theta" | "vartheta" => Some('θ'),
+        "iota" => Some('ι'),
+        "kappa" => Some('κ'),
+        "lambda" => Some('λ'),
+        "mu" => Some('μ'),
+        "nu" => Some('ν'),
+        "xi" => Some('ξ'),
+        "rho" | "varrho" => Some('ρ'),
+        "sigma" | "varsigma" => Some('σ'),
+        "tau" => Some('τ'),
+        "upsilon" => Some('υ'),
+        "phi" | "varphi" => Some('φ'),
+        "chi" => Some('χ'),
+        "psi" => Some('ψ'),
+        "omega" => Some('ω'),
+        "Gamma" => Some('Γ'),
+        "Delta" => Some('Δ'),
+        "Theta" => Some('Θ'),
+        "Lambda" => Some('Λ'),
+        "Xi" => Some('Ξ'),
+        "Sigma" => Some('Σ'),
+        "Phi" => Some('Φ'),
+        "Psi" => Some('Ψ'),
+        "Omega" => Some('Ω'),
+        _ => None,
+    }
+}
+
+pub fn latex_name(c: char) -> Option<&'static str> {
+    match c {
+        'α' => Some("\\alpha"),
+        'β' => Some("\\beta"),
+        'γ' => Some("\\gamma"),
+        'δ' => Some("\\delta"),
+        'ε' => Some("\\epsilon"),
+        'ζ' => Some("\\zeta"),
+        'η' => Some("\\eta"),
+        'θ' => Some("\\theta"),
+        'ι' => Some("\\iota"),
+        'κ' => Some("\\kappa"),
+        'λ' => Some("\\lambda"),
+        'μ' => Some("\\mu"),
+        'ν' => Some("\\nu"),
+        'ξ' => Some("\\xi"),
+        'ρ' => Some("\\rho"),
+        'σ' => Some("\\sigma"),
+        'τ' => Some("\\tau"),
+        'υ' => Some("\\upsilon"),
+        'φ' => Some("\\phi"),
+        'χ' => Some("\\chi"),
+        'ψ' => Some("\\psi"),
+        'ω' => Some("\\omega"),
+        'Γ' => Some("\\Gamma"),
+        'Δ' => Some("\\Delta"),
+        'Θ' => Some("\\Theta"),
+        'Λ' => Some("\\Lambda"),
+        'Ξ' => Some("\\Xi"),
+        'Σ' => Some("\\Sigma"),
+        'Φ' => Some("\\Phi"),
+        'Ψ' => Some("\\Psi"),
+        'Ω' => Some("\\Omega"),
+        _ => None,
+    }
+}
+
+pub fn normalize_var(name: &str) -> String {
+    if let Some(stripped) = name.strip_prefix('\\') {
+        if let Some(ch) = greek_letter(stripped) {
+            return ch.to_string();
+        }
+    }
+    if let Some(ch) = greek_letter(name) {
+        return ch.to_string();
+    }
+    name.to_string()
+}
+
 pub struct Tokenizer<'a> {
     chars: Peekable<Chars<'a>>,
 }
@@ -146,7 +232,7 @@ impl<'a> Tokenizer<'a> {
                     | "sqrt"
                     | "frac"
                     | "pi"
-            );
+            ) || greek_letter(&stripped_token).is_some();
             if needs_mul && is_value_producing {
                 tokens.push("*".to_string());
             }
@@ -275,7 +361,13 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
             }
-            _ => tokens.push(stripped_token),
+            _ => {
+                if let Some(ch) = greek_letter(&stripped_token) {
+                    tokens.push(ch.to_string());
+                } else {
+                    tokens.push(stripped_token);
+                }
+            }
         }
         current_token.clear();
     }
@@ -602,5 +694,35 @@ mod tests {
             tokens,
             vec!["(", "sin", "(", "x", "+", "1", ")", ")", "^", "2"]
         );
+    }
+
+    #[test]
+    fn test_tokenize_greek_alpha() {
+        let mut tokenizer = Tokenizer::new("\\alpha + 1");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["α", "+", "1"]);
+    }
+
+    #[test]
+    fn test_tokenize_greek_implicit_mul() {
+        let mut tokenizer = Tokenizer::new("2\\alpha");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["2", "*", "α"]);
+    }
+
+    #[test]
+    fn test_tokenize_greek_squared() {
+        let mut tokenizer = Tokenizer::new("\\alpha^2 + \\beta");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["α", "^", "2", "+", "β"]);
+    }
+
+    #[test]
+    fn test_normalize_var() {
+        use super::normalize_var;
+        assert_eq!(normalize_var("\\alpha"), "α");
+        assert_eq!(normalize_var("alpha"), "α");
+        assert_eq!(normalize_var("x"), "x");
+        assert_eq!(normalize_var("\\lambda"), "λ");
     }
 }
