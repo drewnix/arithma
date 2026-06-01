@@ -1541,4 +1541,66 @@ mod test_simplify {
         let result = format!("{}", simplified);
         assert_eq!(result, "\\frac{x}{x + 1}");
     }
+
+    #[test]
+    fn test_simplify_sqrt_12() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{12}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains('.'), "Should NOT fall back to float: {}", s);
+        assert!(s.contains("\\sqrt"), "Should preserve symbolic sqrt: {}", s);
+        assert_eq!(s, "2\\sqrt{3}");
+    }
+
+    #[test]
+    fn test_simplify_sqrt_8() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{8}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains('.'), "Should NOT fall back to float: {}", s);
+        assert_eq!(s, "2\\sqrt{2}");
+    }
+
+    #[test]
+    fn test_simplify_sqrt_perfect_square() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{4}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert_eq!(s, "2");
+    }
+
+    #[test]
+    fn test_simplify_sqrt_prime() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{7}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("\\sqrt"), "sqrt(7) should stay symbolic: {}", s);
+        assert!(!s.contains('.'), "Should NOT fall back to float: {}", s);
+        assert_eq!(s, "\\sqrt{7}");
+    }
+
+    #[test]
+    fn test_simplify_sqrt_72() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{72}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains('.'), "Should NOT be float: {}", s);
+        assert!(s.contains("\\sqrt"), "Should have radical: {}", s);
+        assert_eq!(s, "6\\sqrt{2}");
+    }
+
+    #[test]
+    fn test_simplify_sqrt_50() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{50}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains('.'), "Should NOT be float: {}", s);
+        assert_eq!(s, "5\\sqrt{2}");
+    }
 }

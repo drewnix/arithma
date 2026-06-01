@@ -3,7 +3,25 @@ use crate::exact::ExactNum;
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
+use num_traits::{Signed, ToPrimitive};
 use std::collections::HashMap;
+
+/// Extract square factors from `n` so that `√n = outside · √inside` with `inside` square-free.
+fn extract_square_factors(mut n: u64) -> (u64, u64) {
+    if n == 0 {
+        return (0, 0);
+    }
+    let mut outside = 1u64;
+    let mut d = 2u64;
+    while d * d <= n {
+        while n.is_multiple_of(d * d) {
+            outside *= d;
+            n /= d * d;
+        }
+        d += 1;
+    }
+    (outside, n)
+}
 
 pub trait Simplifiable {
     fn simplify(&self, env: &Environment) -> Result<Node, String>;
@@ -545,7 +563,57 @@ impl Simplifiable for Node {
                     if matches!(s, ExactNum::Rational(_)) {
                         return Ok(Node::Num(s));
                     }
-                    // Non-perfect-square: preserve symbolic sqrt
+                    // Non-perfect-square integer: extract square factors
+                    if let Some(val) = n.to_i64() {
+                        if val > 0 {
+                            let (outside, inside) = extract_square_factors(val as u64);
+                            if inside == 1 {
+                                return Ok(Node::Num(ExactNum::integer(outside as i64)));
+                            }
+                            let sqrt_inside =
+                                Node::Sqrt(Box::new(Node::Num(ExactNum::integer(inside as i64))));
+                            if outside == 1 {
+                                return Ok(sqrt_inside);
+                            }
+                            return Ok(Node::Multiply(
+                                Box::new(Node::Num(ExactNum::integer(outside as i64))),
+                                Box::new(sqrt_inside),
+                            ));
+                        }
+                    }
+                    // Non-perfect-square rational: try numerator and denominator separately
+                    if let ExactNum::Rational(ref r) = n {
+                        if !r.is_negative() {
+                            if let (Some(num), Some(den)) = (r.numer().to_i64(), r.denom().to_i64())
+                            {
+                                if num > 0 && den > 0 {
+                                    let (num_out, num_in) = extract_square_factors(num as u64);
+                                    let (den_out, den_in) = extract_square_factors(den as u64);
+                                    if num_in == 1 && den_in == 1 {
+                                        return Ok(Node::Num(ExactNum::rational(
+                                            num_out as i64,
+                                            den_out as i64,
+                                        )));
+                                    }
+                                    let sqrt_part = Node::Sqrt(Box::new(Node::Num(
+                                        ExactNum::rational(num_in as i64, den_in as i64),
+                                    )));
+                                    if num_out == 1 && den_out == 1 {
+                                        return Ok(sqrt_part);
+                                    }
+                                    return Ok(Node::Multiply(
+                                        Box::new(Node::Num(ExactNum::rational(
+                                            num_out as i64,
+                                            den_out as i64,
+                                        ))),
+                                        Box::new(sqrt_part),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    // Keep symbolic — do NOT fall back to float
+                    return Ok(Node::Sqrt(Box::new(simplified)));
                 }
                 // sqrt(x²) → x when x positive, |x| otherwise
                 if let Node::Power(ref base, ref exp) = simplified {
@@ -614,6 +682,74 @@ impl Simplifiable for Node {
                             }
                         }
                         "sqrt" => {
+                            // Numeric: extract square factors to avoid float fallback
+                            if let Node::Num(ref n) = arg {
+                                // Perfect rational square → exact result
+                                let s = n.sqrt();
+                                if matches!(s, ExactNum::Rational(_)) {
+                                    return Ok(Node::Num(s));
+                                }
+                                // Non-perfect-square integer: √n = outside · √inside
+                                if let Some(val) = n.to_i64() {
+                                    if val > 0 {
+                                        let (outside, inside) = extract_square_factors(val as u64);
+                                        if inside == 1 {
+                                            return Ok(Node::Num(ExactNum::integer(
+                                                outside as i64,
+                                            )));
+                                        }
+                                        let sqrt_inside = Node::Sqrt(Box::new(Node::Num(
+                                            ExactNum::integer(inside as i64),
+                                        )));
+                                        if outside == 1 {
+                                            return Ok(sqrt_inside);
+                                        }
+                                        return Ok(Node::Multiply(
+                                            Box::new(Node::Num(ExactNum::integer(outside as i64))),
+                                            Box::new(sqrt_inside),
+                                        ));
+                                    }
+                                }
+                                // Non-perfect-square rational
+                                if let ExactNum::Rational(ref r) = n {
+                                    if !r.is_negative() {
+                                        if let (Some(num), Some(den)) =
+                                            (r.numer().to_i64(), r.denom().to_i64())
+                                        {
+                                            if num > 0 && den > 0 {
+                                                let (num_out, num_in) =
+                                                    extract_square_factors(num as u64);
+                                                let (den_out, den_in) =
+                                                    extract_square_factors(den as u64);
+                                                if num_in == 1 && den_in == 1 {
+                                                    return Ok(Node::Num(ExactNum::rational(
+                                                        num_out as i64,
+                                                        den_out as i64,
+                                                    )));
+                                                }
+                                                let sqrt_part = Node::Sqrt(Box::new(Node::Num(
+                                                    ExactNum::rational(
+                                                        num_in as i64,
+                                                        den_in as i64,
+                                                    ),
+                                                )));
+                                                if num_out == 1 && den_out == 1 {
+                                                    return Ok(sqrt_part);
+                                                }
+                                                return Ok(Node::Multiply(
+                                                    Box::new(Node::Num(ExactNum::rational(
+                                                        num_out as i64,
+                                                        den_out as i64,
+                                                    ))),
+                                                    Box::new(sqrt_part),
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                                // Fallback: keep symbolic as Sqrt node
+                                return Ok(Node::Sqrt(Box::new(arg.clone())));
+                            }
                             // sqrt(x²) → x when x nonneg, |x| otherwise
                             if let Node::Power(base, exp) = arg {
                                 if let Node::Num(ref e) = **exp {
@@ -1227,4 +1363,23 @@ fn try_combine_fractions(
 
     let result = Node::Divide(Box::new(simplified_num), Box::new(simplified_den));
     result.simplify(env).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_square_factors;
+
+    #[test]
+    fn test_extract_square_factors() {
+        assert_eq!(extract_square_factors(12), (2, 3));
+        assert_eq!(extract_square_factors(8), (2, 2));
+        assert_eq!(extract_square_factors(18), (3, 2));
+        assert_eq!(extract_square_factors(7), (1, 7));
+        assert_eq!(extract_square_factors(4), (2, 1));
+        assert_eq!(extract_square_factors(1), (1, 1));
+        assert_eq!(extract_square_factors(72), (6, 2));
+        assert_eq!(extract_square_factors(100), (10, 1));
+        assert_eq!(extract_square_factors(50), (5, 2));
+        assert_eq!(extract_square_factors(0), (0, 0));
+    }
 }
