@@ -3,6 +3,7 @@ use crate::exact::ExactNum;
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
+use num_integer::Integer;
 use num_traits::{Signed, ToPrimitive};
 use std::collections::HashMap;
 
@@ -470,6 +471,72 @@ impl Simplifiable for Node {
                                 let reduced = numer_num / denom_coeff;
                                 return Node::Divide(Box::new(Node::Num(reduced)), dl.clone())
                                     .simplify(env);
+                            }
+                        }
+                    }
+                }
+
+                // (k·expr1) / (m·expr2) → cancel common integer factor
+                if let Node::Multiply(ref nl, ref nr) = left_simplified {
+                    if let Node::Multiply(ref dl, ref dr) = right_simplified {
+                        let num_coeff = if let Node::Num(ref k) = **nl {
+                            Some((k, nr.as_ref()))
+                        } else if let Node::Num(ref k) = **nr {
+                            Some((k, nl.as_ref()))
+                        } else {
+                            None
+                        };
+                        let den_coeff = if let Node::Num(ref m) = **dl {
+                            Some((m, dr.as_ref()))
+                        } else if let Node::Num(ref m) = **dr {
+                            Some((m, dl.as_ref()))
+                        } else {
+                            None
+                        };
+                        if let (Some((k, e1)), Some((m, e2))) = (num_coeff, den_coeff) {
+                            if let (ExactNum::Rational(ref kr), ExactNum::Rational(ref mr)) = (k, m)
+                            {
+                                if kr.is_integer() && mr.is_integer() {
+                                    let ki = kr.to_integer();
+                                    let mi = mr.to_integer();
+                                    let g = ki.gcd(&mi);
+                                    let abs_g = if g.is_negative() { -&g } else { g.clone() };
+                                    if abs_g > num_bigint::BigInt::from(1) {
+                                        let new_k = &ki / &g;
+                                        let new_m = &mi / &g;
+                                        let one = num_bigint::BigInt::from(1);
+                                        let neg_one = num_bigint::BigInt::from(-1);
+                                        let make_num = |n: num_bigint::BigInt| {
+                                            use num_rational::BigRational;
+                                            ExactNum::Rational(BigRational::from_integer(n))
+                                        };
+                                        let new_num = if new_k == one {
+                                            e1.clone()
+                                        } else if new_k == neg_one {
+                                            Node::Negate(Box::new(e1.clone()))
+                                        } else {
+                                            Node::Multiply(
+                                                Box::new(Node::Num(make_num(new_k))),
+                                                Box::new(e1.clone()),
+                                            )
+                                        };
+                                        let new_den = if new_m == one {
+                                            e2.clone()
+                                        } else if new_m == neg_one {
+                                            Node::Negate(Box::new(e2.clone()))
+                                        } else {
+                                            Node::Multiply(
+                                                Box::new(Node::Num(make_num(new_m))),
+                                                Box::new(e2.clone()),
+                                            )
+                                        };
+                                        return Node::Divide(
+                                            Box::new(new_num),
+                                            Box::new(new_den),
+                                        )
+                                        .simplify(env);
+                                    }
+                                }
                             }
                         }
                     }

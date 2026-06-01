@@ -1718,4 +1718,50 @@ mod test_simplify {
         let s = format!("{}", result);
         assert!(!s.contains("|"), "With a>=0, should be 2a not 2|a|: {}", s);
     }
+
+    #[test]
+    fn test_general_fraction_coeff_cancel_sqrt() {
+        let env = Environment::new();
+        // 2x / (2√a) → x / √a
+        let expr = arithma::parse_latex("\\frac{2x}{2\\sqrt{a}}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains("2"), "2/2 should cancel: {}", s);
+        assert!(s.contains("x"), "x should remain: {}", s);
+        assert!(s.contains("\\sqrt"), "√a should remain: {}", s);
+    }
+
+    #[test]
+    fn test_general_fraction_coeff_cancel_trig() {
+        let env = Environment::new();
+        // 6sin(x) / (3cos(x)) → 2tan(x) or 2sin(x)/cos(x)
+        let expr = arithma::parse_latex("\\frac{6\\sin(x)}{3\\cos(x)}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("2"), "6/3 should reduce to factor 2: {}", s);
+        assert!(!s.contains("6"), "6 should not remain: {}", s);
+        assert!(!s.contains("3"), "3 should not remain: {}", s);
+    }
+
+    #[test]
+    fn test_general_fraction_coeff_cancel_partial() {
+        let env = Environment::new();
+        // 6·exp(x) / (4·ln(x)) → 3·exp(x) / (2·ln(x))
+        let expr = arithma::parse_latex("\\frac{6\\exp(x)}{4\\ln(x)}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("3"), "6/4 should reduce, 3 in numerator: {}", s);
+        assert!(!s.contains("6"), "6 should not remain: {}", s);
+        assert!(!s.contains("4"), "4 should not remain: {}", s);
+    }
+
+    #[test]
+    fn test_general_fraction_coeff_cancel_full() {
+        let env = Environment::new();
+        // 5·exp(x) / (5·x) → exp(x) / x
+        let expr = arithma::parse_latex("\\frac{5\\exp(x)}{5x}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains("5"), "5/5 should cancel completely: {}", s);
+    }
 }
