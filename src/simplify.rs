@@ -413,6 +413,68 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // (k·expr) / m → (k/m)·expr — cancel common numeric factors
+                // Also: -(k·expr) / m → -((k/m)·expr)
+                if let Node::Num(ref denom_num) = right_simplified {
+                    if !denom_num.is_zero() {
+                        // Handle -(k·expr) / m
+                        if let Node::Negate(ref inner) = left_simplified {
+                            if let Node::Multiply(_, _) = **inner {
+                                let inner_div =
+                                    Node::Divide(inner.clone(), Box::new(right_simplified.clone()));
+                                let inner_result = inner_div.simplify(env)?;
+                                return Ok(Node::Negate(Box::new(inner_result)));
+                            }
+                        }
+                        if let Node::Multiply(ref ml, ref mr) = left_simplified {
+                            if let Node::Num(ref numer_coeff) = **ml {
+                                let reduced = numer_coeff / denom_num;
+                                if reduced.is_one() {
+                                    return Ok(*mr.clone());
+                                }
+                                let neg_one = ExactNum::integer(-1);
+                                if reduced == neg_one {
+                                    return Ok(Node::Negate(mr.clone()));
+                                }
+                                return Node::Multiply(Box::new(Node::Num(reduced)), mr.clone())
+                                    .simplify(env);
+                            }
+                            if let Node::Num(ref numer_coeff) = **mr {
+                                let reduced = numer_coeff / denom_num;
+                                if reduced.is_one() {
+                                    return Ok(*ml.clone());
+                                }
+                                let neg_one = ExactNum::integer(-1);
+                                if reduced == neg_one {
+                                    return Ok(Node::Negate(ml.clone()));
+                                }
+                                return Node::Multiply(ml.clone(), Box::new(Node::Num(reduced)))
+                                    .simplify(env);
+                            }
+                        }
+                    }
+                }
+
+                // k / (m·expr) → (k/m) / expr — cancel numeric factor in denominator
+                if let Node::Num(ref numer_num) = left_simplified {
+                    if let Node::Multiply(ref dl, ref dr) = right_simplified {
+                        if let Node::Num(ref denom_coeff) = **dl {
+                            if !denom_coeff.is_zero() {
+                                let reduced = numer_num / denom_coeff;
+                                return Node::Divide(Box::new(Node::Num(reduced)), dr.clone())
+                                    .simplify(env);
+                            }
+                        }
+                        if let Node::Num(ref denom_coeff) = **dr {
+                            if !denom_coeff.is_zero() {
+                                let reduced = numer_num / denom_coeff;
+                                return Node::Divide(Box::new(Node::Num(reduced)), dl.clone())
+                                    .simplify(env);
+                            }
+                        }
+                    }
+                }
+
                 // x / x → 1
                 if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
                     return Ok(Node::Num(ExactNum::one()));
