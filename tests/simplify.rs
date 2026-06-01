@@ -1668,4 +1668,54 @@ mod test_simplify {
             s
         );
     }
+
+    #[test]
+    fn test_simplify_sqrt_4a_squared() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{4 a^2}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        // Should be 2|a|, not √(4a²)
+        assert!(
+            !s.contains("\\sqrt"),
+            "Should extract all square factors: {}",
+            s
+        );
+        assert!(s.contains("2"), "Should have factor 2: {}", s);
+    }
+
+    #[test]
+    fn test_simplify_sqrt_4a() {
+        let env = Environment::new();
+        // √(4a) = 2√a — numeric square factor with symbolic remainder
+        let expr = arithma::parse_latex("\\sqrt{4 a}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("2"), "Should have factor 2: {}", s);
+        assert!(s.contains("\\sqrt"), "Should have √a remaining: {}", s);
+    }
+
+    #[test]
+    fn test_simplify_sqrt_9x_squared() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{9 x^2}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        // Should be 3|x|
+        assert!(!s.contains("\\sqrt"), "Should fully simplify: {}", s);
+        assert!(s.contains("3"), "Should have factor 3: {}", s);
+    }
+
+    #[test]
+    fn test_simplify_sqrt_mixed_nonneg() {
+        use arithma::assumptions::{Assumption, Assumptions};
+        // With assumption a >= 0: √(4a²) → 2a
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("a", Assumption::NonNegative);
+        let env_pos = Environment::with_assumptions(assumptions);
+        let expr = arithma::parse_latex("\\sqrt{4 a^2}", &env_pos).unwrap();
+        let result = expr.simplify(&env_pos).unwrap();
+        let s = format!("{}", result);
+        assert!(!s.contains("|"), "With a>=0, should be 2a not 2|a|: {}", s);
+    }
 }

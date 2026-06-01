@@ -644,6 +644,10 @@ impl Simplifiable for Node {
                     // Keep symbolic — do NOT fall back to float
                     return Ok(Node::Sqrt(Box::new(simplified)));
                 }
+                // Product radicand: decompose and extract
+                if let Some(result) = try_simplify_sqrt_product(&simplified, env, true) {
+                    return Ok(result);
+                }
                 // sqrt(x²) → x when x positive, |x| otherwise
                 if let Node::Power(ref base, ref exp) = simplified {
                     if let Node::Num(ref e) = **exp {
@@ -778,6 +782,10 @@ impl Simplifiable for Node {
                                 }
                                 // Fallback: keep symbolic as Sqrt node
                                 return Ok(Node::Sqrt(Box::new(arg.clone())));
+                            }
+                            // Product radicand: decompose and extract
+                            if let Some(result) = try_simplify_sqrt_product(arg, env, false) {
+                                return Ok(result);
                             }
                             // sqrt(x²) → x when x nonneg, |x| otherwise
                             if let Node::Power(base, exp) = arg {
@@ -1451,6 +1459,156 @@ fn try_combine_fractions(
 
     let result = Node::Divide(Box::new(simplified_num), Box::new(simplified_den));
     result.simplify(env).ok()
+}
+
+/// Collect all multiplicative factors from a nested Multiply tree.
+fn collect_multiply_factors<'a>(node: &'a Node, factors: &mut Vec<&'a Node>) {
+    if let Node::Multiply(left, right) = node {
+        collect_multiply_factors(left, factors);
+        collect_multiply_factors(right, factors);
+    } else {
+        factors.push(node);
+    }
+}
+
+/// Try to simplify √(product) by extracting numeric square factors and even powers.
+/// Returns Some(simplified) if any extraction succeeded, None otherwise.
+fn try_simplify_sqrt_product(
+    radicand: &Node,
+    env: &Environment,
+    use_node_sqrt: bool,
+) -> Option<Node> {
+    let mut factors = Vec::new();
+    collect_multiply_factors(radicand, &mut factors);
+
+    if factors.len() < 2 {
+        return None;
+    }
+
+    let mut outside: Vec<Node> = Vec::new();
+    let mut inside: Vec<Node> = Vec::new();
+    let mut changed = false;
+
+    for factor in &factors {
+        match factor {
+            Node::Num(n) => {
+                if let Some(val) = n.to_i64() {
+                    if val > 0 {
+                        let (out, inn) = extract_square_factors(val as u64);
+                        if out > 1 {
+                            outside.push(Node::Num(ExactNum::integer(out as i64)));
+                            changed = true;
+                        }
+                        if inn > 1 {
+                            inside.push(Node::Num(ExactNum::integer(inn as i64)));
+                        }
+                        continue;
+                    }
+                }
+                inside.push((*factor).clone());
+            }
+            Node::Power(base, exp) => {
+                if let Node::Num(ref e) = **exp {
+                    if let Some(exp_val) = e.to_i64() {
+                        if exp_val >= 2 && exp_val % 2 == 0 {
+                            let half_exp = exp_val / 2;
+                            let base_factor = if half_exp == 1 {
+                                if let Node::Variable(ref v) = **base {
+                                    if env.assumptions().is_nonneg(v) {
+                                        *base.clone()
+                                    } else {
+                                        Node::Abs(base.clone())
+                                    }
+                                } else {
+                                    Node::Abs(base.clone())
+                                }
+                            } else {
+                                Node::Power(
+                                    base.clone(),
+                                    Box::new(Node::Num(ExactNum::integer(half_exp))),
+                                )
+                            };
+                            outside.push(base_factor);
+                            changed = true;
+                            continue;
+                        }
+                        if exp_val > 2 && exp_val % 2 == 1 {
+                            let half = exp_val / 2;
+                            if let Node::Variable(ref v) = **base {
+                                if env.assumptions().is_nonneg(v) {
+                                    if half == 1 {
+                                        outside.push(*base.clone());
+                                    } else {
+                                        outside.push(Node::Power(
+                                            base.clone(),
+                                            Box::new(Node::Num(ExactNum::integer(half))),
+                                        ));
+                                    }
+                                } else {
+                                    let abs_base = Node::Abs(base.clone());
+                                    if half == 1 {
+                                        outside.push(abs_base);
+                                    } else {
+                                        outside.push(Node::Power(
+                                            Box::new(abs_base),
+                                            Box::new(Node::Num(ExactNum::integer(half))),
+                                        ));
+                                    }
+                                }
+                                inside.push(*base.clone());
+                                changed = true;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                inside.push((*factor).clone());
+            }
+            _ => {
+                inside.push((*factor).clone());
+            }
+        }
+    }
+
+    if !changed {
+        return None;
+    }
+
+    let outside_node = if outside.is_empty() {
+        None
+    } else {
+        Some(
+            outside
+                .into_iter()
+                .reduce(|a, b| Node::Multiply(Box::new(a), Box::new(b)))
+                .unwrap(),
+        )
+    };
+
+    let inside_node = if inside.is_empty() {
+        None
+    } else {
+        let inner = inside
+            .into_iter()
+            .reduce(|a, b| Node::Multiply(Box::new(a), Box::new(b)))
+            .unwrap();
+        let sqrt_node = if use_node_sqrt {
+            Node::Sqrt(Box::new(inner))
+        } else {
+            Node::Function("sqrt".to_string(), vec![inner])
+        };
+        Some(sqrt_node)
+    };
+
+    let result = match (outside_node, inside_node) {
+        (Some(out), Some(sqrt)) => Node::Multiply(Box::new(out), Box::new(sqrt)),
+        (Some(out), None) => out,
+        (None, Some(sqrt)) => sqrt,
+        (None, None) => Node::Num(ExactNum::one()),
+    };
+
+    let simplified = crate::simplify::Simplifiable::simplify(&result, env).unwrap_or(result);
+    Some(simplified)
 }
 
 #[cfg(test)]
