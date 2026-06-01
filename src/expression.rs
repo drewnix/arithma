@@ -32,14 +32,14 @@ pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> 
 
     let poly = match Polynomial::from_node(&simplified, target_var) {
         Ok(p) => p,
-        Err(_) => {
+        Err(orig_err) => {
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
                 Polynomial::from_node(&cleared_simplified, target_var)
                     .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
             } else {
-                return Err("Cannot convert to polynomial: variable in denominator".to_string());
+                return Err(format!("Cannot convert to polynomial: {}", orig_err));
             }
         }
     };
@@ -92,14 +92,14 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
 
     let poly = match Polynomial::from_node(&simplified, target_var) {
         Ok(p) => p,
-        Err(_) => {
+        Err(orig_err) => {
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
                 Polynomial::from_node(&cleared_simplified, target_var)
                     .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
             } else {
-                return Err("Cannot convert to polynomial: variable in denominator".to_string());
+                return Err(format!("Cannot convert to polynomial: {}", orig_err));
             }
         }
     };
@@ -205,14 +205,14 @@ fn solve_polynomial_nodes(expr: &Node, target_var: &str) -> Result<Vec<Node>, St
 
     let poly = match Polynomial::from_node(&simplified, target_var) {
         Ok(p) => p,
-        Err(_) => {
+        Err(orig_err) => {
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
                 Polynomial::from_node(&cleared_simplified, target_var)
                     .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
             } else {
-                return Err("Cannot convert to polynomial: variable in denominator".to_string());
+                return Err(format!("Cannot convert to polynomial: {}", orig_err));
             }
         }
     };
