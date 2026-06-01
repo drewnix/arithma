@@ -277,6 +277,11 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                 }
             }
 
+            // ∫(px+q)/(ax²+bx+c) dx with symbolic coefficients — parametric quadratic denominator
+            if let Some(result) = try_parametric_quadratic_integral(left, right, var_name) {
+                return result;
+            }
+
             // ∫1/(1+x²) dx = arctan(x), ∫1/√(1-x²) dx = arcsin(x)
             if let Node::Num(ref n) = **left {
                 if n.is_one() {
@@ -781,6 +786,116 @@ fn try_decompose_quadratic(expr: &Node, var: &str) -> Option<(Node, Node, Node)>
     }
 
     Some((a, b, c))
+}
+
+/// Try to integrate `numerator / denominator` where the denominator is quadratic
+/// in `var` and the numerator is at most linear in `var`.
+///
+/// Handles ∫(px+q)/(ax²+bx+c) dx with fully symbolic coefficients.
+/// Result = (p/(2a))·ln|ax²+bx+c| + ((2aq−bp)/√(4ac−b²))·arctan((2ax+b)/√(4ac−b²))
+fn try_parametric_quadratic_integral(
+    numerator: &Node,
+    denominator: &Node,
+    var: &str,
+) -> Option<Result<Node, String>> {
+    let (a, b, c) = try_decompose_quadratic(denominator, var)?;
+
+    // Extract numerator as px + q
+    let (p, q) = if !contains_var(numerator, var) {
+        // Constant numerator: p = 0, q = numerator
+        (Node::Num(ExactNum::zero()), numerator.clone())
+    } else if let Some((p_coeff, q_const)) = try_decompose_linear(numerator, var) {
+        (p_coeff, q_const)
+    } else {
+        // Numerator has degree >= 2, can't handle
+        return None;
+    };
+
+    let env = crate::environment::Environment::new();
+
+    // Check if p is zero (pure constant numerator)
+    let p_simplified =
+        crate::simplify::Simplifiable::simplify(&p, &env).unwrap_or_else(|_| p.clone());
+    let p_is_zero = matches!(&p_simplified, Node::Num(n) if n.is_zero());
+
+    // Build ln term: (p / (2a)) · ln|ax² + bx + c|
+    let ln_term = if p_is_zero {
+        None
+    } else {
+        let two_a = Node::Multiply(Box::new(Node::Num(ExactNum::two())), Box::new(a.clone()));
+        let ln_coeff = Node::Divide(Box::new(p_simplified.clone()), Box::new(two_a));
+        let ln_coeff = crate::simplify::Simplifiable::simplify(&ln_coeff, &env).unwrap_or(ln_coeff);
+        let ln_arg = Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(denominator.clone()))],
+        );
+        Some(Node::Multiply(Box::new(ln_coeff), Box::new(ln_arg)))
+    };
+
+    // Build arctan term: ((2aq - bp) / sqrt(4ac - b²)) · arctan((2ax + b) / sqrt(4ac - b²))
+    // Compute arctan_num = 2aq - bp
+    let two_a_q = Node::Multiply(
+        Box::new(Node::Multiply(
+            Box::new(Node::Num(ExactNum::two())),
+            Box::new(a.clone()),
+        )),
+        Box::new(q.clone()),
+    );
+    let b_p = Node::Multiply(Box::new(b.clone()), Box::new(p_simplified.clone()));
+    let arctan_num = Node::Subtract(Box::new(two_a_q), Box::new(b_p));
+    let arctan_num =
+        crate::simplify::Simplifiable::simplify(&arctan_num, &env).unwrap_or(arctan_num);
+
+    let arctan_num_is_zero = matches!(&arctan_num, Node::Num(n) if n.is_zero());
+
+    let arctan_term = if arctan_num_is_zero {
+        None
+    } else {
+        // discriminant = 4ac - b²
+        let four_a_c = Node::Multiply(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::integer(4))),
+                Box::new(a.clone()),
+            )),
+            Box::new(c.clone()),
+        );
+        let b_sq = Node::Power(Box::new(b.clone()), Box::new(Node::Num(ExactNum::two())));
+        let disc = Node::Subtract(Box::new(four_a_c), Box::new(b_sq));
+        let disc = crate::simplify::Simplifiable::simplify(&disc, &env).unwrap_or(disc);
+        let sqrt_disc = Node::Function("sqrt".to_string(), vec![disc]);
+
+        // arctan coefficient: arctan_num / sqrt_disc
+        let arctan_coeff = Node::Divide(Box::new(arctan_num), Box::new(sqrt_disc.clone()));
+        let arctan_coeff =
+            crate::simplify::Simplifiable::simplify(&arctan_coeff, &env).unwrap_or(arctan_coeff);
+
+        // arctan argument: (2ax + b) / sqrt_disc
+        let two_a_x = Node::Multiply(
+            Box::new(Node::Multiply(
+                Box::new(Node::Num(ExactNum::two())),
+                Box::new(a.clone()),
+            )),
+            Box::new(Node::Variable(var.to_string())),
+        );
+        let arctan_inner = Node::Add(Box::new(two_a_x), Box::new(b.clone()));
+        let arctan_arg = Node::Divide(Box::new(arctan_inner), Box::new(sqrt_disc));
+        let arctan_arg =
+            crate::simplify::Simplifiable::simplify(&arctan_arg, &env).unwrap_or(arctan_arg);
+
+        let arctan_fn = Node::Function("arctan".to_string(), vec![arctan_arg]);
+        Some(Node::Multiply(Box::new(arctan_coeff), Box::new(arctan_fn)))
+    };
+
+    // Combine terms
+    let result = match (ln_term, arctan_term) {
+        (Some(ln), Some(at)) => Node::Add(Box::new(ln), Box::new(at)),
+        (Some(ln), None) => ln,
+        (None, Some(at)) => at,
+        (None, None) => Node::Num(ExactNum::zero()),
+    };
+
+    let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+    Some(Ok(result))
 }
 
 fn try_tabular_integration(
@@ -2895,5 +3010,45 @@ mod tests {
             Box::new(Node::Variable("a".to_string())),
         );
         assert!(try_decompose_quadratic(&cubic, "x").is_none());
+    }
+
+    #[test]
+    fn test_parametric_quadratic_simple() {
+        // ∫1/(x²+a) dx should produce arctan
+        let result = integrate_latex("\\frac{1}{x^2 + a}", "x");
+        assert!(result.is_ok(), "Should integrate 1/(x²+a): {:?}", result);
+        let r = result.unwrap();
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_parametric_quadratic_full() {
+        // ∫1/(ax²+bx+c) dx — full general case
+        let result = integrate_latex("\\frac{1}{a x^2 + b x + c}", "x");
+        assert!(
+            result.is_ok(),
+            "Should integrate 1/(ax²+bx+c): {:?}",
+            result
+        );
+        let r = result.unwrap();
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_parametric_quadratic_linear_numerator() {
+        // ∫x/(x²+a) dx = (1/2)·ln|x²+a| — pure log result
+        let result = integrate_latex("\\frac{x}{x^2 + a}", "x");
+        assert!(result.is_ok(), "Should integrate x/(x²+a): {:?}", result);
+        let r = result.unwrap();
+        assert!(r.contains("ln"), "Should contain ln: {}", r);
+    }
+
+    #[test]
+    fn test_parametric_quadratic_scaled() {
+        // ∫3/(2x²+c) dx — scaled constant numerator
+        let result = integrate_latex("\\frac{3}{2 x^2 + c}", "x");
+        assert!(result.is_ok(), "Should integrate 3/(2x²+c): {:?}", result);
+        let r = result.unwrap();
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
     }
 }
