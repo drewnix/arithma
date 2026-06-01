@@ -230,6 +230,89 @@ mod parser_hardening_tests {
         );
     }
 
+    #[test]
+    fn test_integrate_parametric_quadratic_simple() {
+        // ∫1/(x²+a) dx = (1/√a)·arctan(x/√a)
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{x^2 + a}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(result.is_ok(), "Should integrate 1/(x²+a): {:?}", result);
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_parametric_quadratic_full_abc() {
+        // ∫1/(ax²+bx+c) dx — full general case
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{a x^2 + b x + c}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "Should integrate 1/(ax²+bx+c): {:?}",
+            result
+        );
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_parametric_quadratic_linear_num() {
+        // ∫x/(x²+a) dx = (1/2)·ln|x²+a| — pure log result
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{x}{x^2 + a}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(result.is_ok(), "Should integrate x/(x²+a): {:?}", result);
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("ln"), "Should contain ln: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_parametric_quadratic_both_terms() {
+        // ∫(x+1)/(x²+a) dx — both ln and arctan
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{x + 1}{x^2 + a}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(
+            result.is_ok(),
+            "Should integrate (x+1)/(x²+a): {:?}",
+            result
+        );
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("ln"), "Should contain ln: {}", r);
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_integrate_parametric_quadratic_with_linear_term() {
+        // ∫1/(x²+2x+a) dx — quadratic with linear x term in denominator
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{1}{x^2 + 2 x + a}", &env).unwrap();
+        let result = arithma::integrate(&expr, "x");
+        assert!(result.is_ok(), "Should integrate 1/(x²+2x+a): {:?}", result);
+        let r = format!("{}", result.unwrap());
+        assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_parametric_quadratic_numerical_consistency() {
+        // ∫₀² 1/(x²+4) dx = (1/2)·arctan(2/2) - (1/2)·arctan(0) = (1/2)·(π/4) = π/8 ≈ 0.3927
+        let result = arithma::definite_integral_latex("\\frac{1}{x^2 + 4}", "x", 0.0, 2.0);
+        assert!(
+            result.is_ok(),
+            "Definite integral should work: {:?}",
+            result
+        );
+        let val: f64 = result.unwrap().parse().unwrap();
+        let expected = std::f64::consts::FRAC_PI_8;
+        assert!(
+            (val - expected).abs() < 0.001,
+            "∫₀² 1/(x²+4)dx ≈ π/8 ≈ {:.4}, got {:.4}",
+            expected,
+            val
+        );
+    }
+
     fn mcp_eigenvalues(matrix_body: &str) -> Result<Vec<f64>, String> {
         let env = Environment::new();
         let latex = format!("\\begin{{pmatrix}} {} \\end{{pmatrix}}", matrix_body);
