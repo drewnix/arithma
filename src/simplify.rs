@@ -561,6 +561,41 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // k·sin(x) / cos(x) → k·tan(x), k·cos(x) / sin(x) → k·cot(x)
+                if let Node::Multiply(ref ml, ref mr) = left_simplified {
+                    if let Node::Function(ref fname2, ref args2) = right_simplified {
+                        let (coeff, func) = if matches!(**ml, Node::Function(_, _)) {
+                            (mr, ml)
+                        } else {
+                            (ml, mr)
+                        };
+                        if let Node::Function(ref fname1, ref args1) = **func {
+                            if args1 == args2 {
+                                if fname1 == "sin" && fname2 == "cos" {
+                                    return Node::Multiply(
+                                        coeff.clone(),
+                                        Box::new(Node::Function(
+                                            "tan".to_string(),
+                                            args1.clone(),
+                                        )),
+                                    )
+                                    .simplify(env);
+                                }
+                                if fname1 == "cos" && fname2 == "sin" {
+                                    return Node::Multiply(
+                                        coeff.clone(),
+                                        Box::new(Node::Function(
+                                            "cot".to_string(),
+                                            args1.clone(),
+                                        )),
+                                    )
+                                    .simplify(env);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // 1 / sin(x) → csc(x), 1 / cos(x) → sec(x), 1 / tan(x) → cot(x)
                 if let Node::Num(ref n) = left_simplified {
                     if n.is_one() {

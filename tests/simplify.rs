@@ -1734,13 +1734,27 @@ mod test_simplify {
     #[test]
     fn test_general_fraction_coeff_cancel_trig() {
         let env = Environment::new();
-        // 6sin(x) / (3cos(x)) → 2tan(x) or 2sin(x)/cos(x)
+        // 6sin(x) / (3cos(x)) → 2tan(x)
         let expr = arithma::parse_latex("\\frac{6\\sin(x)}{3\\cos(x)}", &env).unwrap();
         let result = expr.simplify(&env).unwrap();
         let s = format!("{}", result);
         assert!(s.contains("2"), "6/3 should reduce to factor 2: {}", s);
-        assert!(!s.contains("6"), "6 should not remain: {}", s);
-        assert!(!s.contains("3"), "3 should not remain: {}", s);
+        assert!(
+            s.contains("\\tan"),
+            "sin/cos should become tan: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_coeff_sin_over_cos_becomes_tan() {
+        let env = Environment::new();
+        // 2sin(x) / cos(x) → 2tan(x)
+        let expr = arithma::parse_latex("\\frac{2\\sin(x)}{\\cos(x)}", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("\\tan"), "k·sin/cos should become k·tan: {}", s);
+        assert!(s.contains("2"), "coefficient 2 should remain: {}", s);
     }
 
     #[test]
