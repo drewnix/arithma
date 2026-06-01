@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**960 tests, zero failures.** Every algorithm is verified against known results.
+**969 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -75,7 +75,10 @@ rule.
 Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
 **Exact radical roots** — `x²-2=0` returns `±√2`, not `±1.414...`.
 Rational equations with the variable in a denominator (`1/x = 2` → `x = 1/2`)
-via automatic denominator clearing.
+via automatic denominator clearing. **Complex root reporting** — when a
+polynomial has complex roots that can't be expressed in reals, the solver
+reports how many were omitted (e.g., `x³-2=0` → `x = ∛2 (2 complex roots
+omitted)`).
 
 **ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
 (`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
@@ -257,7 +260,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 960 tests
+cargo test                                # run all 969 tests
 ```
 
 ## Design principles
