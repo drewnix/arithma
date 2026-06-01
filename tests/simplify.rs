@@ -1603,4 +1603,50 @@ mod test_simplify {
         assert!(!s.contains('.'), "Should NOT be float: {}", s);
         assert_eq!(s, "5\\sqrt{2}");
     }
+
+    #[test]
+    fn test_combine_like_radicals_add() {
+        let env = Environment::new();
+        // √8 + √2 = 2√2 + √2 = 3√2
+        let expr = arithma::parse_latex("\\sqrt{8} + \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(s.contains("3"), "Should have coefficient 3: {}", s);
+        assert!(s.contains("\\sqrt{2}"), "Should have √2: {}", s);
+        assert!(!s.contains('+'), "Should be combined, no +: {}", s);
+    }
+
+    #[test]
+    fn test_combine_like_radicals_subtract() {
+        let env = Environment::new();
+        // √8 - √2 = 2√2 - √2 = √2
+        let expr = arithma::parse_latex("\\sqrt{8} - \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert_eq!(s, "\\sqrt{2}", "√8 - √2 should be √2: {}", s);
+    }
+
+    #[test]
+    fn test_combine_like_radicals_cancel() {
+        let env = Environment::new();
+        // √2 - √2 = 0
+        let expr = arithma::parse_latex("\\sqrt{2} - \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert_eq!(s, "0", "√2 - √2 should be 0: {}", s);
+    }
+
+    #[test]
+    fn test_combine_like_radicals_different() {
+        let env = Environment::new();
+        // √2 + √3 — different radicals, should NOT combine
+        let expr = arithma::parse_latex("\\sqrt{2} + \\sqrt{3}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(
+            s.contains('+'),
+            "Different radicals should not combine: {}",
+            s
+        );
+    }
 }

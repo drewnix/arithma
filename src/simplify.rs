@@ -62,6 +62,13 @@ impl Simplifiable for Node {
                     return Ok(combined);
                 }
 
+                // a√X + b√X → (a+b)√X
+                if let Some(combined) =
+                    try_combine_like_radicals(&left_simplified, &right_simplified, false, env)
+                {
+                    return Ok(combined);
+                }
+
                 let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
@@ -315,6 +322,13 @@ impl Simplifiable for Node {
                 // a/d - b/d → (a-b)/d
                 if let Some(combined) =
                     try_combine_fractions(&left_simplified, &right_simplified, true, env)
+                {
+                    return Ok(combined);
+                }
+
+                // a√X - b√X → (a-b)√X
+                if let Some(combined) =
+                    try_combine_like_radicals(&left_simplified, &right_simplified, true, env)
                 {
                     return Ok(combined);
                 }
@@ -1308,6 +1322,65 @@ fn is_even_integer_expr(node: &Node, env: &Environment) -> bool {
         return n.is_even();
     }
     false
+}
+
+/// Extract (coefficient, radical) from a term that's either a bare √X or coeff·√X.
+fn extract_radical_parts(node: &Node) -> Option<(ExactNum, Node)> {
+    match node {
+        Node::Sqrt(_) => Some((ExactNum::one(), node.clone())),
+        Node::Multiply(left, right) => {
+            if let Node::Num(ref coeff) = **left {
+                if matches!(**right, Node::Sqrt(_)) {
+                    return Some((coeff.clone(), *right.clone()));
+                }
+            }
+            if let Node::Num(ref coeff) = **right {
+                if matches!(**left, Node::Sqrt(_)) {
+                    return Some((coeff.clone(), *left.clone()));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Combine like-radical terms: a√X ± b√X → (a±b)√X
+fn try_combine_like_radicals(
+    left: &Node,
+    right: &Node,
+    is_subtract: bool,
+    _env: &Environment,
+) -> Option<Node> {
+    let (l_coeff, l_radical) = extract_radical_parts(left)?;
+    let (r_coeff, r_radical) = extract_radical_parts(right)?;
+
+    // Check structural equality of radicals
+    if format!("{}", l_radical) != format!("{}", r_radical) {
+        return None;
+    }
+
+    let combined = if is_subtract {
+        l_coeff - r_coeff
+    } else {
+        l_coeff + r_coeff
+    };
+
+    if combined.is_zero() {
+        return Some(Node::Num(ExactNum::zero()));
+    }
+    if combined.is_one() {
+        return Some(l_radical);
+    }
+    let neg_one = ExactNum::integer(-1);
+    if combined == neg_one {
+        return Some(Node::Negate(Box::new(l_radical)));
+    }
+
+    Some(Node::Multiply(
+        Box::new(Node::Num(combined)),
+        Box::new(l_radical),
+    ))
 }
 
 /// Combine fractions with the same denominator: a/d ± b/d → (a±b)/d
