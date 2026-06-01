@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**923 tests, zero failures.** Every algorithm is verified against known results.
+**960 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -42,9 +42,12 @@ properties, power rules, rational content GCD cancellation, and sign
 normalization. Factored display for expressions with repeated polynomial
 factors. Partial fraction decomposition. Expression equivalence checking.
 Greek letter LaTeX parsing (`\alpha` through `\omega`). Implicit
-multiplication (`u(3-2u)`, `α(x+1)`). Assumption system for domain-aware
-simplification: declare `x > 0` and `sqrt(x^2)` simplifies to `x`
-instead of `|x|`.
+multiplication (`u(3-2u)`, `α(x+1)`). **Radical simplification** with
+square-factor extraction (`√12 → 2√3`, `√(4a²) → 2|a|`), like-radical
+combination (`√8 + √2 → 3√2`), and common-denominator combination
+(`1/x + 1/(x+1) → (2x+1)/(x(x+1))`). Assumption system for
+domain-aware simplification: declare `x > 0` and `sqrt(x^2)` simplifies
+to `x` instead of `|x|`.
 
 **Calculus.** Differentiation with full chain rule. Integration via heuristic
 methods (polynomial rules, transcendental table, integration by parts, u-sub,
@@ -60,7 +63,9 @@ towers with inner DE solving over Q(x)[ln(x)], and **biquadratic
 integration** (∫1/(ax⁴+bx²+c)dx via quadratic-in-x² factoring with
 exact radical coefficients). All via Hermite reduction and the
 Rothstein-Trager resultant method.
-Parametric integration for linear denominators (`∫1/(x+a)dx = ln|x+a|`).
+Parametric integration for linear and **quadratic** denominators
+(`∫1/(x+a)dx = ln|x+a|`, `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)`,
+`∫(px+q)/(ax²+bx+c)dx` with the full completing-the-square formula).
 Taylor/Maclaurin series with exact rational coefficients, including
 symbolic-center expansion (`f(x)` around `x=a` with symbolic `a`).
 Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's
@@ -68,6 +73,7 @@ rule.
 
 **Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
 Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
+**Exact radical roots** — `x²-2=0` returns `±√2`, not `±1.414...`.
 Rational equations with the variable in a denominator (`1/x = 2` → `x = 1/2`)
 via automatic denominator clearing.
 
@@ -162,6 +168,19 @@ $ arithma solve "x^2 - 4 = 0"
 x = 2
 x = -2
 
+$ arithma solve "x^2 - 2 = 0"
+x = \sqrt{2}
+x = -\sqrt{2}
+
+$ arithma simplify "\sqrt{12}"
+2\sqrt{3}
+
+$ arithma simplify "\sqrt{8} + \sqrt{2}"
+3\sqrt{2}
+
+$ arithma integrate "\frac{1}{x^2 + a}" x
+\frac{1}{\sqrt(a)} \cdot \arctan(\frac{2x}{2\sqrt(a)}) + C
+
 $ arithma factor "x^4 - 1"
 (x + 1) * (x - 1) * (x^2 + 1)
 
@@ -238,7 +257,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 923 tests
+cargo test                                # run all 960 tests
 ```
 
 ## Design principles
@@ -283,7 +302,7 @@ src/
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-~25K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~26K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
