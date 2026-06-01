@@ -13,8 +13,8 @@ use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
 use arithma::{
-    build_expression_tree, factor_over_q, partial_fractions_latex, solve_for_variable_nodes,
-    Environment, Evaluator, Polynomial, Tokenizer,
+    build_expression_tree, factor_over_q, partial_fractions_latex, Environment, Evaluator,
+    Polynomial, Tokenizer,
 };
 
 fn main() {
@@ -486,6 +486,9 @@ fn env_from_args(args: &Value) -> Result<Environment, String> {
 fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr_str);
     let tokens = tokenizer.tokenize();
+    if let Some(err) = tokenizer.errors.into_iter().next() {
+        return Err(err);
+    }
     let expr = build_expression_tree(tokens)?;
     let simplified = expr.simplify(env).unwrap_or(expr);
     Ok(format!("{}", simplified))
@@ -544,16 +547,27 @@ fn tool_solve(args: &Value) -> Result<String, String> {
 
     let mut tokenizer = Tokenizer::new(equation);
     let tokens = tokenizer.tokenize();
+    if let Some(err) = tokenizer.errors.into_iter().next() {
+        return Err(err);
+    }
     let expr = build_expression_tree(tokens)?;
 
-    let solutions = solve_for_variable_nodes(&expr, &var)?;
-    if solutions.is_empty() {
+    let result = arithma::expression::solve_full(&expr, &var)?;
+    let mut parts: Vec<String> = result
+        .solutions
+        .iter()
+        .map(|s| format!("{} = {}", var, s))
+        .collect();
+    if result.complex_omitted > 0 {
+        parts.push(format!(
+            "({} complex root{} omitted)",
+            result.complex_omitted,
+            if result.complex_omitted == 1 { "" } else { "s" }
+        ));
+    }
+    if parts.is_empty() {
         Ok("No solutions found".to_string())
     } else {
-        let parts: Vec<String> = solutions
-            .iter()
-            .map(|s| format!("{} = {}", var, s))
-            .collect();
         Ok(parts.join(", "))
     }
 }

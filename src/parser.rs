@@ -222,6 +222,9 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
 pub fn parse_latex(latex: &str, env: &crate::environment::Environment) -> Result<Node, String> {
     let mut tokenizer = crate::tokenizer::Tokenizer::new(latex);
     let tokens = tokenizer.tokenize();
+    if let Some(err) = tokenizer.errors.into_iter().next() {
+        return Err(err);
+    }
     let expr = build_expression_tree(tokens)?;
 
     // Simplify the expression using the environment

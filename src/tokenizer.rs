@@ -103,6 +103,7 @@ pub fn normalize_var(name: &str) -> String {
 
 pub struct Tokenizer<'a> {
     chars: Peekable<Chars<'a>>,
+    pub errors: Vec<String>,
 }
 
 impl<'a> Tokenizer<'a> {
@@ -110,6 +111,7 @@ impl<'a> Tokenizer<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             chars: input.chars().peekable(),
+            errors: Vec::new(),
         }
     }
 
@@ -359,6 +361,18 @@ impl<'a> Tokenizer<'a> {
                             if self.chars.peek() == Some(&'{') {
                                 self.chars.next();
                                 if let Some(denom_str) = self.consume_brace_group() {
+                                    let nt = numer_str.trim();
+                                    let dt = denom_str.trim();
+                                    if nt == "d"
+                                        && dt.starts_with('d')
+                                        && dt[1..].chars().all(|c| c.is_alphabetic())
+                                    {
+                                        self.errors.push(format!(
+                                            "Leibniz derivative notation \\frac{{d}}{{{}}} is not supported as an expression. Use the 'differentiate' tool instead.",
+                                            dt
+                                        ));
+                                        return;
+                                    }
                                     let numer_tokens = Tokenizer::new(&numer_str).tokenize();
                                     let denom_tokens = Tokenizer::new(&denom_str).tokenize();
                                     tokens.push("(".to_string());

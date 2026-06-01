@@ -81,6 +81,9 @@ Examples:
 fn parse_and_simplify(expr: &str, env: &Environment) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr);
     let tokens = tokenizer.tokenize();
+    if let Some(err) = tokenizer.errors.into_iter().next() {
+        return Err(err);
+    }
     let parsed = build_expression_tree(tokens)?;
     let simplified = parsed.simplify(env).unwrap_or(parsed);
     Ok(format!("{}", simplified))
@@ -164,11 +167,27 @@ fn cmd_solve(args: &[String]) {
         }
     };
 
-    match arithma::expression::solve_for_variable_nodes(&expr, &var) {
-        Ok(solutions) if solutions.is_empty() => println!("No solutions found"),
-        Ok(solutions) => {
-            for s in &solutions {
-                println!("{} = {}", var, s);
+    match arithma::expression::solve_full(&expr, &var) {
+        Ok(result) => {
+            if result.solutions.is_empty() && result.complex_omitted > 0 {
+                println!(
+                    "No real solutions ({} complex root{} omitted)",
+                    result.complex_omitted,
+                    if result.complex_omitted == 1 { "" } else { "s" }
+                );
+            } else if result.solutions.is_empty() {
+                println!("No solutions found");
+            } else {
+                for s in &result.solutions {
+                    println!("{} = {}", var, s);
+                }
+                if result.complex_omitted > 0 {
+                    println!(
+                        "({} complex root{} omitted)",
+                        result.complex_omitted,
+                        if result.complex_omitted == 1 { "" } else { "s" }
+                    );
+                }
             }
         }
         Err(e) => {

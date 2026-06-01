@@ -322,4 +322,26 @@ mod parser_hardening_tests {
             .map(|e| arithma::Evaluator::evaluate(e, &env))
             .collect()
     }
+
+    #[test]
+    fn test_leibniz_derivative_detection() {
+        let env = Environment::new();
+        // \frac{d}{dx}(x^2) should error with a helpful message, not parse silently
+        let result = parse_latex("\\frac{d}{dx}(x^2)", &env);
+        assert!(result.is_err(), "Leibniz d/dx should produce an error, not parse silently");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("differentiate") || err.contains("diff"),
+            "Error should mention the differentiate tool: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_leibniz_ddt_detection() {
+        let env = Environment::new();
+        // \frac{d}{dt} should also be caught
+        let result = parse_latex("\\frac{d}{dt}", &env);
+        assert!(result.is_err(), "Leibniz d/dt should produce an error");
+    }
 }
