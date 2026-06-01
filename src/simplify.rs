@@ -134,6 +134,21 @@ impl Simplifiable for Node {
                             .simplify(env);
                     }
                 }
+                // f * (-g) → -(f * g), (-f) * g → -(f * g) — general negation extraction
+                if let Node::Negate(inner) = &right_simplified {
+                    return Node::Negate(Box::new(Node::Multiply(
+                        Box::new(left_simplified),
+                        inner.clone(),
+                    )))
+                    .simplify(env);
+                }
+                if let Node::Negate(inner) = &left_simplified {
+                    return Node::Negate(Box::new(Node::Multiply(
+                        inner.clone(),
+                        Box::new(right_simplified),
+                    )))
+                    .simplify(env);
+                }
 
                 // **Handle implicit multiplication of number and variable (e.g., 5 * x -> 5x)**
                 if let (Node::Num(ref l_coef), Node::Variable(ref var)) =

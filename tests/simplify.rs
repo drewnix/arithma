@@ -1649,4 +1649,23 @@ mod test_simplify {
             s
         );
     }
+
+    #[test]
+    fn test_negate_in_product_display() {
+        use arithma::parse_latex;
+        let env = Environment::new();
+        let expr = parse_latex("\\sin(x) \\cdot -\\sin(x)", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(
+            !s.contains("\\cdot -"),
+            "Should not have ·- in output: {}",
+            s
+        );
+        assert!(
+            s.contains("-\\sin") || s.contains("-1"),
+            "Negation should be extracted: {}",
+            s
+        );
+    }
 }
