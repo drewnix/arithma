@@ -607,6 +607,182 @@ fn try_decompose_linear(expr: &Node, var: &str) -> Option<(Node, Node)> {
     }
 }
 
+/// Helper: add a `term` to an accumulator node, respecting `negated` sign.
+/// When `acc` is `Num(0)` (the identity for addition), just replace it.
+#[allow(dead_code)]
+fn add_to_accumulator(acc: &mut Node, term: Node, negated: bool) {
+    let signed = if negated {
+        Node::Negate(Box::new(term))
+    } else {
+        term
+    };
+    if let Node::Num(ref n) = acc {
+        if n.is_zero() {
+            *acc = signed;
+            return;
+        }
+    }
+    *acc = Node::Add(Box::new(acc.clone()), Box::new(signed));
+}
+
+/// Recursively walk an additive AST tree and accumulate quadratic, linear, and
+/// constant parts with respect to `var`.
+///
+/// Returns `false` if the expression contains degree > 2 terms (cubic+), which
+/// means the expression is not quadratic in `var`.
+#[allow(dead_code)]
+fn collect_quadratic_terms(
+    expr: &Node,
+    var: &str,
+    negated: bool,
+    a: &mut Node,
+    b: &mut Node,
+    c: &mut Node,
+) -> bool {
+    match expr {
+        // --- additive structure ------------------------------------------
+        Node::Add(l, r) => {
+            collect_quadratic_terms(l, var, negated, a, b, c)
+                && collect_quadratic_terms(r, var, negated, a, b, c)
+        }
+        Node::Subtract(l, r) => {
+            collect_quadratic_terms(l, var, negated, a, b, c)
+                && collect_quadratic_terms(r, var, !negated, a, b, c)
+        }
+        Node::Negate(inner) => collect_quadratic_terms(inner, var, !negated, a, b, c),
+
+        // --- x² (bare) --------------------------------------------------
+        Node::Power(base, exp) => {
+            if let Node::Variable(v) = base.as_ref() {
+                if v == var {
+                    if let Node::Num(n) = exp.as_ref() {
+                        if let Some(e) = n.to_i64() {
+                            if e == 2 {
+                                add_to_accumulator(a, Node::Num(ExactNum::one()), negated);
+                                return true;
+                            }
+                            // degree > 2 → reject
+                            if e > 2 {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+            // Power expression that doesn't contain var → constant
+            if !contains_var(expr, var) {
+                add_to_accumulator(c, expr.clone(), negated);
+                return true;
+            }
+            false
+        }
+
+        // --- coeff * x², x² * coeff, coeff * x, x * coeff ---------------
+        Node::Multiply(lhs, rhs) => {
+            // Check for coeff * x²  or  x² * coeff
+            if let Node::Power(base, exp) = rhs.as_ref() {
+                if let Node::Variable(v) = base.as_ref() {
+                    if v == var {
+                        if let Node::Num(n) = exp.as_ref() {
+                            if let Some(e) = n.to_i64() {
+                                if e == 2 && !contains_var(lhs, var) {
+                                    add_to_accumulator(a, *lhs.clone(), negated);
+                                    return true;
+                                }
+                                if e > 2 {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Node::Power(base, exp) = lhs.as_ref() {
+                if let Node::Variable(v) = base.as_ref() {
+                    if v == var {
+                        if let Node::Num(n) = exp.as_ref() {
+                            if let Some(e) = n.to_i64() {
+                                if e == 2 && !contains_var(rhs, var) {
+                                    add_to_accumulator(a, *rhs.clone(), negated);
+                                    return true;
+                                }
+                                if e > 2 {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Check for coeff * x  or  x * coeff
+            if let Node::Variable(v) = rhs.as_ref() {
+                if v == var && !contains_var(lhs, var) {
+                    add_to_accumulator(b, *lhs.clone(), negated);
+                    return true;
+                }
+            }
+            if let Node::Variable(v) = lhs.as_ref() {
+                if v == var && !contains_var(rhs, var) {
+                    add_to_accumulator(b, *rhs.clone(), negated);
+                    return true;
+                }
+            }
+            // Multiply that doesn't reference var → constant
+            if !contains_var(expr, var) {
+                add_to_accumulator(c, expr.clone(), negated);
+                return true;
+            }
+            // Contains var in a form we can't decompose (e.g. x * x * ...)
+            false
+        }
+
+        // --- bare x ------------------------------------------------------
+        Node::Variable(v) if v == var => {
+            add_to_accumulator(b, Node::Num(ExactNum::one()), negated);
+            true
+        }
+
+        // --- anything that doesn't contain var → constant ----------------
+        _ => {
+            if !contains_var(expr, var) {
+                add_to_accumulator(c, expr.clone(), negated);
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+
+/// Try to decompose `expr` as `a·var² + b·var + c` where `a`, `b`, `c` are
+/// free of `var`.  Returns `None` when the expression is not quadratic (e.g.
+/// cubic terms, or no x² term at all).
+#[allow(dead_code)]
+fn try_decompose_quadratic(expr: &Node, var: &str) -> Option<(Node, Node, Node)> {
+    let mut a = Node::Num(ExactNum::zero());
+    let mut b = Node::Num(ExactNum::zero());
+    let mut c = Node::Num(ExactNum::zero());
+
+    if !collect_quadratic_terms(expr, var, false, &mut a, &mut b, &mut c) {
+        return None;
+    }
+
+    // Simplify coefficients
+    let env = crate::environment::Environment::new();
+    a = crate::simplify::Simplifiable::simplify(&a, &env).unwrap_or(a);
+    b = crate::simplify::Simplifiable::simplify(&b, &env).unwrap_or(b);
+    c = crate::simplify::Simplifiable::simplify(&c, &env).unwrap_or(c);
+
+    // Must actually have an x² term
+    if let Node::Num(ref n) = a {
+        if n.is_zero() {
+            return None;
+        }
+    }
+
+    Some((a, b, c))
+}
+
 fn try_tabular_integration(
     u_candidate: &Node,
     dv_candidate: &Node,
@@ -2664,5 +2840,60 @@ mod tests {
             "∫₁² 1/(x⁴+1)dx ≈ 0.20315, got {}",
             val
         );
+    }
+
+    #[test]
+    fn test_decompose_quadratic() {
+        use crate::exact::ExactNum;
+        use crate::node::Node;
+
+        // x² + a → (1, 0, a)
+        let x2_plus_a = Node::Add(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::two())),
+            )),
+            Box::new(Node::Variable("a".to_string())),
+        );
+        let result = try_decompose_quadratic(&x2_plus_a, "x");
+        assert!(result.is_some(), "x²+a should decompose");
+        let (a_coeff, b_coeff, c_coeff) = result.unwrap();
+        assert_eq!(format!("{}", a_coeff), "1");
+        assert_eq!(format!("{}", b_coeff), "0");
+        assert_eq!(format!("{}", c_coeff), "a");
+
+        // 2x² + 3x + a → (2, 3, a)
+        let expr = Node::Add(
+            Box::new(Node::Add(
+                Box::new(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::two())),
+                    Box::new(Node::Power(
+                        Box::new(Node::Variable("x".to_string())),
+                        Box::new(Node::Num(ExactNum::two())),
+                    )),
+                )),
+                Box::new(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(3))),
+                    Box::new(Node::Variable("x".to_string())),
+                )),
+            )),
+            Box::new(Node::Variable("a".to_string())),
+        );
+        let result = try_decompose_quadratic(&expr, "x");
+        assert!(result.is_some(), "2x²+3x+a should decompose");
+
+        // Pure constant — not quadratic
+        let constant = Node::Variable("a".to_string());
+        assert!(try_decompose_quadratic(&constant, "x").is_none());
+
+        // Contains x³ — not quadratic
+        let cubic = Node::Add(
+            Box::new(Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )),
+            Box::new(Node::Variable("a".to_string())),
+        );
+        assert!(try_decompose_quadratic(&cubic, "x").is_none());
     }
 }
