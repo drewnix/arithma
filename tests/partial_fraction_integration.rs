@@ -85,4 +85,20 @@ mod pf_integration_tests {
         // ∫(x³+1)/(x²-1) dx — has a polynomial part from long division
         verify_antiderivative("(x^3 + 1)/(x^2 - 1)", "x", &[1.5, 2.0, 3.0, -1.5, -2.0]);
     }
+
+    #[test]
+    fn test_pf_latex_output_decomposed() {
+        // 1/(x²-1) should decompose into separate terms, not return as single fraction
+        let result = arithma::partial_fractions_latex("1", "x^2 - 1", "x").unwrap();
+        assert!(
+            result.contains("+") || result.contains("-"),
+            "Partial fractions should return separated terms, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("(x + 1) \\cdot (x - 1)"),
+            "Should NOT recombine into single denominator, got: {}",
+            result
+        );
+    }
 }

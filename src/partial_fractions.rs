@@ -284,11 +284,40 @@ pub fn partial_fractions_latex(
     let den_poly = Polynomial::from_node(&den_expr, var)?;
 
     let decomp = partial_fraction_decomposition(&num_poly, &den_poly)?;
-    let node = decomp.to_node();
 
     let env = crate::environment::Environment::new();
-    let simplified = crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
-    Ok(format!("{}", simplified))
+    let mut parts: Vec<String> = Vec::new();
+
+    if !decomp.polynomial_part.is_zero() {
+        let node = decomp.polynomial_part.to_node();
+        let simplified =
+            crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
+        parts.push(format!("{}", simplified));
+    }
+
+    for term in &decomp.terms {
+        let num_node = term.numerator.to_node();
+        let den_node = if term.power == 1 {
+            term.denominator.to_node()
+        } else {
+            crate::node::Node::Power(
+                Box::new(term.denominator.to_node()),
+                Box::new(crate::node::Node::Num(crate::exact::ExactNum::integer(
+                    term.power as i64,
+                ))),
+            )
+        };
+        let frac = crate::node::Node::Divide(Box::new(num_node), Box::new(den_node));
+        let simplified =
+            crate::simplify::Simplifiable::simplify(&frac, &env).unwrap_or(frac);
+        parts.push(format!("{}", simplified));
+    }
+
+    if parts.is_empty() {
+        Ok("0".to_string())
+    } else {
+        Ok(parts.join(" + "))
+    }
 }
 
 #[cfg(test)]
