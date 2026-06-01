@@ -24,7 +24,9 @@ mod parser; // Add this to lib.rs
 pub use crate::parser::{build_expression_tree, parse_latex, shunting_yard};
 
 pub mod expression;
-pub use crate::expression::{solve_for_variable, solve_for_variable_exact};
+pub use crate::expression::{
+    solve_for_variable, solve_for_variable_exact, solve_for_variable_nodes,
+};
 
 mod wasm_bindings;
 pub use crate::wasm_bindings::evaluate_latex_expression_js;

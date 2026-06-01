@@ -26,6 +26,10 @@ pub fn solve_for_variable_exact(expr: &Node, target_var: &str) -> Result<Vec<Exa
     solve_polynomial(expr, target_var)
 }
 
+pub fn solve_for_variable_nodes(expr: &Node, target_var: &str) -> Result<Vec<Node>, String> {
+    solve_polynomial_nodes(expr, target_var)
+}
+
 fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, String> {
     let equation_expr = if let Node::Equation(left, right) = expr {
         Node::Subtract(left.clone(), right.clone())
@@ -139,6 +143,120 @@ fn solve_polynomial(expr: &Node, target_var: &str) -> Result<Vec<ExactNum>, Stri
     Ok(unique)
 }
 
+fn solve_polynomial_nodes(expr: &Node, target_var: &str) -> Result<Vec<Node>, String> {
+    let equation_expr = if let Node::Equation(left, right) = expr {
+        Node::Subtract(left.clone(), right.clone())
+    } else {
+        expr.clone()
+    };
+
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(&equation_expr, &env).unwrap_or(equation_expr);
+
+    let poly = match Polynomial::from_node(&simplified, target_var) {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
+                let cleared_simplified =
+                    crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
+                Polynomial::from_node(&cleared_simplified, target_var)
+                    .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
+            } else {
+                return Err("Cannot convert to polynomial: variable in denominator".to_string());
+            }
+        }
+    };
+
+    match poly.degree() {
+        None => return Err("Equation is trivially true for all values".to_string()),
+        Some(0) => return Err("No solution (contradiction)".to_string()),
+        _ => {}
+    }
+
+    let mut roots: Vec<Node> = Vec::new();
+
+    let rat_roots = poly.rational_roots();
+    let mut remaining = poly.clone();
+    for root in &rat_roots {
+        roots.push(Node::Num(rational_to_exact(root)));
+        remaining = remaining.deflate(root);
+    }
+
+    match remaining.degree() {
+        None | Some(0) => {}
+        Some(1) => {
+            let a = remaining.coeff(1);
+            let b = remaining.coeff(0);
+            let root = -b / a;
+            roots.push(Node::Num(rational_to_exact(&root)));
+        }
+        Some(2) => {
+            roots.extend(solve_quadratic_nodes(&remaining)?);
+        }
+        Some(3) => {
+            roots.extend(solve_cubic_cardano(&remaining).into_iter().map(Node::Num));
+        }
+        Some(4) => {
+            roots.extend(solve_quartic_ferrari(&remaining).into_iter().map(Node::Num));
+        }
+        Some(d) => {
+            let (_, factors) = crate::mod_poly::factor_over_q(&remaining);
+            let mut found_any = false;
+            for factor in &factors {
+                match factor.degree() {
+                    Some(1) => {
+                        let a = factor.coeff(1);
+                        let b = factor.coeff(0);
+                        let root = -b / a;
+                        roots.push(Node::Num(rational_to_exact(&root)));
+                        found_any = true;
+                    }
+                    Some(2) => {
+                        if let Ok(qr) = solve_quadratic_nodes(factor) {
+                            found_any = found_any || !qr.is_empty();
+                            roots.extend(qr);
+                        }
+                    }
+                    Some(3) => {
+                        let cr = solve_cubic_cardano(factor);
+                        found_any = found_any || !cr.is_empty();
+                        roots.extend(cr.into_iter().map(Node::Num));
+                    }
+                    Some(4) => {
+                        let qr = solve_quartic_ferrari(factor);
+                        found_any = found_any || !qr.is_empty();
+                        roots.extend(qr.into_iter().map(Node::Num));
+                    }
+                    _ => {}
+                }
+            }
+            if !found_any && roots.is_empty() {
+                return Err(format!(
+                    "Polynomial degree {} — irreducible factors of degree > 4 have no closed-form solution",
+                    d
+                ));
+            }
+        }
+    }
+
+    if roots.is_empty() {
+        return Err("No real solutions".to_string());
+    }
+
+    // Deduplicate by display representation
+    let mut unique = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for root in roots {
+        let key = format!("{}", root);
+        if seen.insert(key) {
+            unique.push(root);
+        }
+    }
+
+    Ok(unique)
+}
+
 fn solve_quadratic(poly: &Polynomial) -> Result<Vec<ExactNum>, String> {
     let a = poly.coeff(2);
     let b = poly.coeff(1);
@@ -167,6 +285,68 @@ fn solve_quadratic(poly: &Polynomial) -> Result<Vec<ExactNum>, String> {
         let r1 = (-b_f64 + sqrt_d) / two_a_f64;
         let r2 = (-b_f64 - sqrt_d) / two_a_f64;
         Ok(vec![ExactNum::from_f64(r1), ExactNum::from_f64(r2)])
+    }
+}
+
+fn solve_quadratic_nodes(poly: &Polynomial) -> Result<Vec<Node>, String> {
+    let a = poly.coeff(2);
+    let b = poly.coeff(1);
+    let c = poly.coeff(0);
+    let discriminant = &b * &b - BigRational::from_integer(BigInt::from(4)) * &a * &c;
+
+    if discriminant.is_negative() {
+        return Ok(vec![]);
+    }
+
+    if discriminant.is_zero() {
+        let root = -&b / (BigRational::from_integer(BigInt::from(2)) * &a);
+        return Ok(vec![Node::Num(rational_to_exact(&root))]);
+    }
+
+    let two_a = BigRational::from_integer(BigInt::from(2)) * &a;
+
+    if let Some(sqrt_d) = exact_rational_sqrt(&discriminant) {
+        // Perfect square discriminant: exact rational roots
+        let r1 = (-&b + &sqrt_d) / &two_a;
+        let r2 = (-&b - &sqrt_d) / &two_a;
+        Ok(vec![
+            Node::Num(rational_to_exact(&r1)),
+            Node::Num(rational_to_exact(&r2)),
+        ])
+    } else {
+        // Build symbolic: (-b ± √d) / (2a)
+        let env = crate::environment::Environment::new();
+        let neg_b = rational_to_node(&(-&b));
+        let sqrt_d = Node::Sqrt(Box::new(rational_to_node(&discriminant)));
+        let denom = rational_to_node(&two_a);
+
+        let r1 = Node::Divide(
+            Box::new(Node::Add(Box::new(neg_b.clone()), Box::new(sqrt_d.clone()))),
+            Box::new(denom.clone()),
+        );
+        let r2 = Node::Divide(
+            Box::new(Node::Subtract(Box::new(neg_b), Box::new(sqrt_d))),
+            Box::new(denom),
+        );
+
+        // Simplify to clean up (e.g., 0 + √2 → √2, or 2/2 cancellation)
+        let r1 = crate::simplify::Simplifiable::simplify(&r1, &env).unwrap_or(r1);
+        let r2 = crate::simplify::Simplifiable::simplify(&r2, &env).unwrap_or(r2);
+        Ok(vec![r1, r2])
+    }
+}
+
+fn rational_to_node(r: &BigRational) -> Node {
+    if r.is_integer() {
+        if let Some(n) = r.numer().to_i64() {
+            return Node::Num(ExactNum::integer(n));
+        }
+    }
+    if let (Some(n), Some(d)) = (r.numer().to_i64(), r.denom().to_i64()) {
+        Node::Num(ExactNum::rational(n, d))
+    } else {
+        // Fallback for large numbers
+        Node::Num(ExactNum::from_f64(rational_to_f64(r)))
     }
 }
 

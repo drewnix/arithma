@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod algebra_tests {
     use arithma::{
-        build_expression_tree, solve_for_variable, solve_for_variable_exact, Environment,
-        Evaluator, Tokenizer,
+        build_expression_tree, solve_for_variable, solve_for_variable_exact,
+        solve_for_variable_nodes, Environment, Evaluator, Tokenizer,
     };
 
     fn evaluate_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
@@ -876,5 +876,48 @@ mod algebra_tests {
         let mut tokenizer = Tokenizer::new(latex);
         let tokens = tokenizer.tokenize();
         build_expression_tree(tokens).unwrap_or_else(|_| panic!("Failed to parse: {}", latex))
+    }
+
+    #[test]
+    fn test_solve_irrational_roots_exact() {
+        // x² - 2 = 0 → ±√2, not ±1.414...
+        let expr = parse_eq("x^2 - 2 = 0");
+        let solutions = solve_for_variable_nodes(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2, "Should have 2 roots");
+        for s in &solutions {
+            let display = format!("{}", s);
+            assert!(
+                !display.contains('.'),
+                "Should be exact, not float: {}",
+                display
+            );
+            assert!(
+                display.contains("\\sqrt{2}") || display.contains("sqrt"),
+                "Should contain sqrt(2): {}",
+                display
+            );
+        }
+    }
+
+    #[test]
+    fn test_solve_rational_roots_still_work() {
+        // x² - 5x + 6 = 0 → {2, 3}
+        let expr = parse_eq("x^2 - 5x + 6 = 0");
+        let solutions = solve_for_variable_nodes(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2);
+        let displays: Vec<String> = solutions.iter().map(|s| format!("{}", s)).collect();
+        assert!(displays.contains(&"2".to_string()) || displays.contains(&"3".to_string()));
+    }
+
+    #[test]
+    fn test_solve_irrational_quadratic_formula() {
+        // x² + x - 1 = 0 → (-1 ± √5)/2 (golden ratio related)
+        let expr = parse_eq("x^2 + x - 1 = 0");
+        let solutions = solve_for_variable_nodes(&expr, "x").unwrap();
+        assert_eq!(solutions.len(), 2);
+        for s in &solutions {
+            let display = format!("{}", s);
+            assert!(!display.contains('.'), "Should be exact: {}", display);
+        }
     }
 }

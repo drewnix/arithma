@@ -164,7 +164,7 @@ fn cmd_solve(args: &[String]) {
         }
     };
 
-    match arithma::expression::solve_for_variable_exact(&expr, &var) {
+    match arithma::expression::solve_for_variable_nodes(&expr, &var) {
         Ok(solutions) if solutions.is_empty() => println!("No solutions found"),
         Ok(solutions) => {
             for s in &solutions {

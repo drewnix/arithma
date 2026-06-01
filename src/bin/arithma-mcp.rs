@@ -13,7 +13,7 @@ use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
 use arithma::{
-    build_expression_tree, factor_over_q, partial_fractions_latex, solve_for_variable_exact,
+    build_expression_tree, factor_over_q, partial_fractions_latex, solve_for_variable_nodes,
     Environment, Evaluator, Polynomial, Tokenizer,
 };
 
@@ -546,7 +546,7 @@ fn tool_solve(args: &Value) -> Result<String, String> {
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
 
-    let solutions = solve_for_variable_exact(&expr, &var)?;
+    let solutions = solve_for_variable_nodes(&expr, &var)?;
     if solutions.is_empty() {
         Ok("No solutions found".to_string())
     } else {
