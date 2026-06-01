@@ -14,6 +14,55 @@ pub fn extract_variable(expr: &str) -> Option<String> {
         .find(|token| token.chars().all(char::is_alphabetic))
 }
 
+pub struct SolveResult {
+    pub solutions: Vec<Node>,
+    pub complex_omitted: usize,
+}
+
+pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> {
+    let equation_expr = if let Node::Equation(left, right) = expr {
+        Node::Subtract(left.clone(), right.clone())
+    } else {
+        expr.clone()
+    };
+
+    let env = crate::environment::Environment::new();
+    let simplified =
+        crate::simplify::Simplifiable::simplify(&equation_expr, &env).unwrap_or(equation_expr);
+
+    let poly = match Polynomial::from_node(&simplified, target_var) {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
+                let cleared_simplified =
+                    crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
+                Polynomial::from_node(&cleared_simplified, target_var)
+                    .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
+            } else {
+                return Err("Cannot convert to polynomial: variable in denominator".to_string());
+            }
+        }
+    };
+
+    let degree = poly.degree().unwrap_or(0);
+
+    if degree == 0 {
+        if poly.coeff(0).is_zero() {
+            return Err("Equation is trivially true for all values".to_string());
+        } else {
+            return Err("No solution (contradiction)".to_string());
+        }
+    }
+
+    let solutions = solve_polynomial_nodes(expr, target_var).unwrap_or_default();
+    let complex_omitted = degree.saturating_sub(solutions.len());
+
+    Ok(SolveResult {
+        solutions,
+        complex_omitted,
+    })
+}
+
 pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> {
     let solutions = solve_polynomial(expr, target_var)?;
     if solutions.is_empty() {

@@ -25,7 +25,8 @@ pub use crate::parser::{build_expression_tree, parse_latex, shunting_yard};
 
 pub mod expression;
 pub use crate::expression::{
-    solve_for_variable, solve_for_variable_exact, solve_for_variable_nodes,
+    solve_for_variable, solve_for_variable_exact, solve_for_variable_nodes, solve_full,
+    SolveResult,
 };
 
 mod wasm_bindings;

@@ -920,4 +920,31 @@ mod algebra_tests {
             assert!(!display.contains('.'), "Should be exact: {}", display);
         }
     }
+
+    #[test]
+    fn test_complex_roots_omitted_cubic() {
+        // x³ - 2 = 0 has 1 real root and 2 complex roots
+        let expr = parse_eq("x^3 - 2 = 0");
+        let result = arithma::expression::solve_full(&expr, "x").unwrap();
+        assert_eq!(result.solutions.len(), 1);
+        assert_eq!(result.complex_omitted, 2);
+    }
+
+    #[test]
+    fn test_complex_roots_omitted_all_complex() {
+        // x² + 1 = 0 has 0 real roots and 2 complex roots
+        let expr = parse_eq("x^2 + 1 = 0");
+        let result = arithma::expression::solve_full(&expr, "x").unwrap();
+        assert_eq!(result.solutions.len(), 0);
+        assert_eq!(result.complex_omitted, 2);
+    }
+
+    #[test]
+    fn test_complex_roots_omitted_none() {
+        // x² - 1 = 0 has 2 real roots and 0 complex roots
+        let expr = parse_eq("x^2 - 1 = 0");
+        let result = arithma::expression::solve_full(&expr, "x").unwrap();
+        assert_eq!(result.solutions.len(), 2);
+        assert_eq!(result.complex_omitted, 0);
+    }
 }
