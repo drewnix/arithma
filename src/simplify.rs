@@ -530,11 +530,8 @@ impl Simplifiable for Node {
                                                 Box::new(e2.clone()),
                                             )
                                         };
-                                        return Node::Divide(
-                                            Box::new(new_num),
-                                            Box::new(new_den),
-                                        )
-                                        .simplify(env);
+                                        return Node::Divide(Box::new(new_num), Box::new(new_den))
+                                            .simplify(env);
                                     }
                                 }
                             }
@@ -574,20 +571,14 @@ impl Simplifiable for Node {
                                 if fname1 == "sin" && fname2 == "cos" {
                                     return Node::Multiply(
                                         coeff.clone(),
-                                        Box::new(Node::Function(
-                                            "tan".to_string(),
-                                            args1.clone(),
-                                        )),
+                                        Box::new(Node::Function("tan".to_string(), args1.clone())),
                                     )
                                     .simplify(env);
                                 }
                                 if fname1 == "cos" && fname2 == "sin" {
                                     return Node::Multiply(
                                         coeff.clone(),
-                                        Box::new(Node::Function(
-                                            "cot".to_string(),
-                                            args1.clone(),
-                                        )),
+                                        Box::new(Node::Function("cot".to_string(), args1.clone())),
                                     )
                                     .simplify(env);
                                 }

@@ -1739,11 +1739,7 @@ mod test_simplify {
         let result = expr.simplify(&env).unwrap();
         let s = format!("{}", result);
         assert!(s.contains("2"), "6/3 should reduce to factor 2: {}", s);
-        assert!(
-            s.contains("\\tan"),
-            "sin/cos should become tan: {}",
-            s
-        );
+        assert!(s.contains("\\tan"), "sin/cos should become tan: {}", s);
     }
 
     #[test]

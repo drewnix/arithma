@@ -290,8 +290,7 @@ pub fn partial_fractions_latex(
 
     if !decomp.polynomial_part.is_zero() {
         let node = decomp.polynomial_part.to_node();
-        let simplified =
-            crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
+        let simplified = crate::simplify::Simplifiable::simplify(&node, &env).unwrap_or(node);
         parts.push(format!("{}", simplified));
     }
 
@@ -308,8 +307,7 @@ pub fn partial_fractions_latex(
             )
         };
         let frac = crate::node::Node::Divide(Box::new(num_node), Box::new(den_node));
-        let simplified =
-            crate::simplify::Simplifiable::simplify(&frac, &env).unwrap_or(frac);
+        let simplified = crate::simplify::Simplifiable::simplify(&frac, &env).unwrap_or(frac);
         parts.push(format!("{}", simplified));
     }
 
