@@ -9,6 +9,10 @@ fn is_variable_token(token: &str) -> bool {
         && FUNCTION_REGISTRY.get(token).is_none()
         && token != "NEG"
         && token != "sum"
+        && !matches!(
+            token,
+            "int" | "prod" | "oint" | "iint" | "iiint" | "lim" | "nabla" | "infty"
+        )
 }
 
 fn greek_letter(name: &str) -> Option<char> {
@@ -208,6 +212,18 @@ impl<'a> Tokenizer<'a> {
     /// Handle LaTeX commands like \frac, \pi, \mathrm{e}
     fn tokenize_latex_commands(&mut self, tokens: &mut Vec<String>, current_token: &mut String) {
         current_token.push('\\');
+
+        // LaTeX single-character spacing commands: \, \; \! \:
+        // These are non-alphabetic, so the loop below would leave stripped_token empty.
+        // Consume the character and return early.
+        if let Some(&next_char) = self.chars.peek() {
+            if matches!(next_char, ',' | ';' | '!' | ':') {
+                self.chars.next(); // consume the spacing character
+                current_token.clear();
+                return;
+            }
+        }
+
         while let Some(&next_char) = self.chars.peek() {
             if next_char.is_alphabetic() {
                 current_token.push(next_char);
@@ -375,6 +391,10 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
             }
+            // LaTeX spacing — silently ignore
+            "," | ";" | "!" | ":" | "quad" | "qquad" | "enspace" | "thinspace" => {
+                current_token.clear();
+            }
             _ => {
                 if let Some(ch) = greek_letter(&stripped_token) {
                     tokens.push(ch.to_string());
@@ -529,7 +549,7 @@ impl<'a> Tokenizer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::Tokenizer;
+    use super::{is_variable_token, Tokenizer};
 
     #[test]
     fn test_tokenize_numbers() {
@@ -799,5 +819,59 @@ mod tests {
         let mut tokenizer = Tokenizer::new("xy");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["xy"]);
+    }
+
+    #[test]
+    fn test_latex_operators_not_variables() {
+        assert!(!is_variable_token("int"));
+        assert!(!is_variable_token("prod"));
+        assert!(!is_variable_token("oint"));
+        assert!(!is_variable_token("lim"));
+        // These should still be variables
+        assert!(is_variable_token("x"));
+        assert!(is_variable_token("a"));
+        assert!(is_variable_token("alpha")); // Greek letters before lookup
+    }
+
+    #[test]
+    fn test_latex_spacing_stripped() {
+        // \, should be silently ignored, not produce empty token or error
+        let mut t = Tokenizer::new("x \\, y");
+        let tokens = t.tokenize();
+        assert!(
+            !tokens.contains(&String::new()),
+            "Empty token from \\,: {:?}",
+            tokens
+        );
+        assert!(
+            tokens.contains(&"x".to_string()),
+            "Should have x: {:?}",
+            tokens
+        );
+        assert!(
+            tokens.contains(&"y".to_string()),
+            "Should have y: {:?}",
+            tokens
+        );
+
+        // \quad should also be stripped
+        let mut t2 = Tokenizer::new("x \\quad y");
+        let tokens2 = t2.tokenize();
+        assert!(
+            !tokens2.contains(&String::new()),
+            "Empty token from \\quad: {:?}",
+            tokens2
+        );
+        assert!(tokens2.contains(&"x".to_string()));
+        assert!(tokens2.contains(&"y".to_string()));
+
+        // \; in a fraction should work
+        let mut t3 = Tokenizer::new("\\frac{1}{x \\; + \\; 1}");
+        let tokens3 = t3.tokenize();
+        assert!(
+            !tokens3.contains(&String::new()),
+            "Empty token from \\;: {:?}",
+            tokens3
+        );
     }
 }
