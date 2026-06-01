@@ -922,6 +922,29 @@ mod algebra_tests {
     }
 
     #[test]
+    fn test_factor_irreducible_annotation() {
+        use arithma::Polynomial;
+        use num_traits::One;
+        // x² - 2 is irreducible over Q — single factor, degree > 1
+        let expr = parse_eq("x^2 - 2");
+        let poly = Polynomial::from_node(&expr, "x").unwrap();
+        let (content, factors) = arithma::factor_over_q(&poly);
+        assert_eq!(factors.len(), 1, "should be a single irreducible factor");
+        assert!(content.is_one() || (-content.clone()).is_one());
+        assert!(factors[0].degree().unwrap() > 1);
+    }
+
+    #[test]
+    fn test_factor_reducible_no_annotation() {
+        use arithma::Polynomial;
+        // x² - 1 factors into (x-1)(x+1) — not irreducible
+        let expr = parse_eq("x^2 - 1");
+        let poly = Polynomial::from_node(&expr, "x").unwrap();
+        let (_, factors) = arithma::factor_over_q(&poly);
+        assert!(factors.len() > 1, "should have multiple factors");
+    }
+
+    #[test]
     fn test_complex_roots_omitted_cubic() {
         // x³ - 2 = 0 has 1 real root and 2 complex roots
         let expr = parse_eq("x^3 - 2 = 0");

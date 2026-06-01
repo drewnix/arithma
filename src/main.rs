@@ -260,7 +260,11 @@ fn cmd_factor(args: &[String]) {
     if parts.is_empty() {
         println!("1");
     } else {
-        println!("{}", parts.join(" * "));
+        let result = parts.join(" * ");
+        println!("{}", result);
+        if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
+            println!("(irreducible over \\mathbb{{Q}})");
+        }
     }
 }
 

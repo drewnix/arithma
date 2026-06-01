@@ -619,7 +619,11 @@ fn tool_factor(args: &Value) -> Result<String, String> {
     if parts.is_empty() {
         Ok("1".to_string())
     } else {
-        Ok(parts.join(" \\cdot "))
+        let mut result = parts.join(" \\cdot ");
+        if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
+            result.push_str("  \\quad\\text{(irreducible over }\\mathbb{Q}\\text{)}");
+        }
+        Ok(result)
     }
 }
 
