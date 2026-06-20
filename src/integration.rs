@@ -1,8 +1,11 @@
+use crate::environment::Environment;
 use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
 use crate::risch::{try_risch_tower, RischResult};
+use crate::simplify::Simplifiable;
+use crate::substitute::substitute_variable;
 use crate::tokenizer::Tokenizer;
 use num_traits::{One, ToPrimitive, Zero};
 
@@ -2570,6 +2573,41 @@ pub fn definite_integral_latex(
     Ok(format!("{}", result))
 }
 
+pub fn definite_integral_exact(
+    expr: &Node,
+    var_name: &str,
+    lower: &Node,
+    upper: &Node,
+) -> Result<Node, String> {
+    let antideriv = integrate(expr, var_name)?;
+    let env = Environment::new();
+    let f_upper = substitute_variable(&antideriv, var_name, upper)?;
+    let f_lower = substitute_variable(&antideriv, var_name, lower)?;
+    let f_upper = f_upper.simplify(&env)?;
+    let f_lower = f_lower.simplify(&env)?;
+    let diff = Node::Subtract(Box::new(f_upper), Box::new(f_lower));
+    diff.simplify(&env)
+}
+
+pub fn definite_integral_exact_latex(
+    latex_expr: &str,
+    var_name: &str,
+    lower_latex: &str,
+    upper_latex: &str,
+) -> Result<String, String> {
+    let mut tok = Tokenizer::new(latex_expr);
+    let expr = build_expression_tree(tok.tokenize())?;
+
+    let mut tok_lo = Tokenizer::new(lower_latex);
+    let lower = build_expression_tree(tok_lo.tokenize())?;
+
+    let mut tok_hi = Tokenizer::new(upper_latex);
+    let upper = build_expression_tree(tok_hi.tokenize())?;
+
+    let result = definite_integral_exact(&expr, var_name, &lower, &upper)?;
+    Ok(format!("{}", result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3050,5 +3088,41 @@ mod tests {
         assert!(result.is_ok(), "Should integrate 3/(2x²+c): {:?}", result);
         let r = result.unwrap();
         assert!(r.contains("arctan"), "Should contain arctan: {}", r);
+    }
+
+    #[test]
+    fn test_exact_definite_polynomial() {
+        let r = definite_integral_exact_latex("x^2", "x", "0", "1").unwrap();
+        assert_eq!(r, "\\frac{1}{3}");
+    }
+
+    #[test]
+    fn test_exact_definite_polynomial_26_3() {
+        let r = definite_integral_exact_latex("x^2", "x", "1", "3").unwrap();
+        assert_eq!(r, "\\frac{26}{3}");
+    }
+
+    #[test]
+    fn test_exact_definite_arctan_pi_4() {
+        let r = definite_integral_exact_latex("\\frac{1}{x^2+1}", "x", "0", "1").unwrap();
+        assert_eq!(r, "\\frac{\\pi}{4}");
+    }
+
+    #[test]
+    fn test_exact_definite_ln_1_to_e() {
+        let r = definite_integral_exact_latex("\\frac{1}{x}", "x", "1", "\\mathrm{e}").unwrap();
+        assert_eq!(r, "1");
+    }
+
+    #[test]
+    fn test_exact_definite_sin_0_to_pi() {
+        let r = definite_integral_exact_latex("\\sin(x)", "x", "0", "\\pi").unwrap();
+        assert_eq!(r, "2");
+    }
+
+    #[test]
+    fn test_exact_definite_cos_0_to_pi_2() {
+        let r = definite_integral_exact_latex("\\cos(x)", "x", "0", "\\frac{\\pi}{2}").unwrap();
+        assert_eq!(r, "1");
     }
 }

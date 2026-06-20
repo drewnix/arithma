@@ -51,7 +51,7 @@ Usage: arithma [command] [arguments]
 Commands:
   simplify <expr>                    Simplify an expression
   differentiate <expr> [var]         Differentiate (alias: diff)
-  integrate <expr> [var]             Indefinite integral
+  integrate <expr> [var] [lo hi]      Integral (definite with bounds)
   solve <equation> [var]             Solve an equation
   factor <expr> [var]                Factor a polynomial over Q
   partial-fractions <n> <d> [var]    Partial fraction decomposition (alias: pf)
@@ -126,7 +126,7 @@ fn cmd_differentiate(args: &[String]) {
 
 fn cmd_integrate(args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma integrate <expr> [var]");
+        eprintln!("Usage: arithma integrate <expr> [var] [lower upper]");
         std::process::exit(1);
     }
     let expr = &args[0];
@@ -134,6 +134,23 @@ fn cmd_integrate(args: &[String]) {
         .get(1)
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".to_string());
+
+    if args.len() >= 4 {
+        let lower = &args[2];
+        let upper = &args[3];
+        match arithma::integration::definite_integral_exact_latex(expr, &var, lower, upper) {
+            Ok(result) => println!("{}", result),
+            Err(e) if e.starts_with("NON_ELEMENTARY:") => {
+                println!("{}", e.replacen("NON_ELEMENTARY: ", "", 1));
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     match arithma::integration::integrate_latex(expr, &var) {
         Ok(result) => println!("{}", result),
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {

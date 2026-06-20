@@ -57,6 +57,13 @@ impl ExactNum {
         }
     }
 
+    pub fn to_rational(&self) -> Option<BigRational> {
+        match self {
+            ExactNum::Rational(r) => Some(r.clone()),
+            ExactNum::Float(_) => None,
+        }
+    }
+
     pub fn is_one(&self) -> bool {
         match self {
             ExactNum::Rational(r) => r.is_one(),

@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use arithma::assumptions::Assumptions;
 use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
-use arithma::integration::{definite_integral_latex, integrate_latex};
+use arithma::integration::{definite_integral_exact_latex, integrate_latex};
 use arithma::limits::limit_latex;
 use arithma::matrix::parse_latex_matrix;
 use arithma::series::{taylor_series_latex, taylor_series_latex_symbolic};
@@ -168,12 +168,12 @@ fn tools_schema() -> Value {
                         "default": "x"
                     },
                     "lower": {
-                        "type": "number",
-                        "description": "Lower bound for definite integral (omit for indefinite)"
+                        "type": "string",
+                        "description": "Lower bound for definite integral as LaTeX expression (e.g. \"0\", \"\\\\pi\", \"1/2\"). Omit for indefinite."
                     },
                     "upper": {
-                        "type": "number",
-                        "description": "Upper bound for definite integral (omit for indefinite)"
+                        "type": "string",
+                        "description": "Upper bound for definite integral as LaTeX expression (e.g. \"1\", \"\\\\pi/2\", \"\\\\infty\"). Omit for indefinite."
                     },
                     "assumptions": assumptions_schema()
                 },
@@ -512,11 +512,11 @@ fn tool_integrate(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_var(args, "x");
 
-    let has_lower = args.get("lower").and_then(|v| v.as_f64());
-    let has_upper = args.get("upper").and_then(|v| v.as_f64());
+    let has_lower = args.get("lower").and_then(|v| v.as_str());
+    let has_upper = args.get("upper").and_then(|v| v.as_str());
 
     let result = match (has_lower, has_upper) {
-        (Some(lower), Some(upper)) => definite_integral_latex(expr, &var, lower, upper),
+        (Some(lower), Some(upper)) => definite_integral_exact_latex(expr, &var, lower, upper),
         _ => integrate_latex(expr, &var),
     };
 

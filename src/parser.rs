@@ -196,8 +196,8 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
             // Handle variables directly (e.g., `x`, `y`)
             if token == "e" || token == "EULER" {
                 stack.push(Node::Num(ExactNum::Float(std::f64::consts::E)));
-            } else if token == "\\pi" || token == "PI" {
-                stack.push(Node::Num(ExactNum::Float(std::f64::consts::PI)));
+            } else if token == "\\pi" || token == "PI" || token == "π" {
+                stack.push(Node::Variable("π".to_string()));
             } else {
                 log::debug!("Pushing variable: {}", token);
                 stack.push(Node::Variable(token));

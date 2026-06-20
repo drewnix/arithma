@@ -17,6 +17,7 @@ fn is_variable_token(token: &str) -> bool {
 
 fn greek_letter(name: &str) -> Option<char> {
     match name {
+        "pi" => Some('π'),
         "alpha" => Some('α'),
         "beta" => Some('β'),
         "gamma" => Some('γ'),
@@ -54,6 +55,7 @@ fn greek_letter(name: &str) -> Option<char> {
 
 pub fn latex_name(c: char) -> Option<&'static str> {
     match c {
+        'π' => Some("\\pi"),
         'α' => Some("\\alpha"),
         'β' => Some("\\beta"),
         'γ' => Some("\\gamma"),
@@ -327,7 +329,6 @@ impl<'a> Tokenizer<'a> {
         }
 
         match stripped_token.as_str() {
-            "pi" => tokens.push(std::f64::consts::PI.to_string()),
             "mathrm" => {
                 if let Some('{') = self.chars.peek() {
                     self.chars.next(); // Consume the opening brace
@@ -592,11 +593,7 @@ mod tests {
         let tokens = tokenizer.tokenize();
         assert_eq!(
             tokens,
-            vec![
-                std::f64::consts::PI.to_string(),
-                "*".to_string(),
-                "2".to_string()
-            ]
+            vec!["π".to_string(), "*".to_string(), "2".to_string()]
         );
     }
 

@@ -3,8 +3,10 @@ use crate::exact::ExactNum;
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
+use num_bigint::BigInt;
 use num_integer::Integer;
-use num_traits::{Signed, ToPrimitive};
+use num_rational::BigRational;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::collections::HashMap;
 
 /// Extract square factors from `n` so that `√n = outside · √inside` with `inside` square-free.
@@ -22,6 +24,168 @@ fn extract_square_factors(mut n: u64) -> (u64, u64) {
         d += 1;
     }
     (outside, n)
+}
+
+fn pi_node() -> Node {
+    Node::Variable("π".to_string())
+}
+
+fn as_pi_multiple(node: &Node) -> Option<BigRational> {
+    match node {
+        Node::Variable(v) if v == "π" => Some(BigRational::one()),
+        Node::Negate(inner) => as_pi_multiple(inner).map(|r| -r),
+        Node::Divide(numer, denom) => {
+            if let Node::Num(ExactNum::Rational(d)) = denom.as_ref() {
+                if let Some(n_coeff) = as_pi_multiple(numer) {
+                    return Some(n_coeff / d);
+                }
+            }
+            None
+        }
+        Node::Multiply(left, right) => {
+            if let Node::Num(ExactNum::Rational(n)) = left.as_ref() {
+                if let Node::Variable(v) = right.as_ref() {
+                    if v == "π" {
+                        return Some(n.clone());
+                    }
+                }
+            }
+            if let Node::Num(ExactNum::Rational(n)) = right.as_ref() {
+                if let Node::Variable(v) = left.as_ref() {
+                    if v == "π" {
+                        return Some(n.clone());
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
+    if args.len() != 1 {
+        return None;
+    }
+    let arg = &args[0];
+
+    match name {
+        "ln" => {
+            if let Node::Num(n) = arg {
+                if n.is_one() {
+                    return Some(Node::Num(ExactNum::integer(0)));
+                }
+            }
+            None
+        }
+        "arctan" | "atan" => {
+            if let Node::Num(n) = arg {
+                let r = n.to_rational()?;
+                if r.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(0)));
+                }
+                if r.is_one() {
+                    return Some(Node::Divide(
+                        Box::new(pi_node()),
+                        Box::new(Node::Num(ExactNum::integer(4))),
+                    ));
+                }
+                if (-r.clone()).is_one() {
+                    return Some(Node::Negate(Box::new(Node::Divide(
+                        Box::new(pi_node()),
+                        Box::new(Node::Num(ExactNum::integer(4))),
+                    ))));
+                }
+            }
+            None
+        }
+        "arcsin" | "asin" => {
+            if let Node::Num(n) = arg {
+                let r = n.to_rational()?;
+                if r.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(0)));
+                }
+                if r.is_one() {
+                    return Some(Node::Divide(
+                        Box::new(pi_node()),
+                        Box::new(Node::Num(ExactNum::integer(2))),
+                    ));
+                }
+                if (-r.clone()).is_one() {
+                    return Some(Node::Negate(Box::new(Node::Divide(
+                        Box::new(pi_node()),
+                        Box::new(Node::Num(ExactNum::integer(2))),
+                    ))));
+                }
+            }
+            None
+        }
+        "sin" => {
+            let k = as_pi_multiple(arg)?;
+            let (numer, denom) = (k.numer().clone(), k.denom().clone());
+            let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
+            let half = BigInt::from(denom.to_i64()? / 2);
+            if n_mod.is_zero() {
+                return Some(Node::Num(ExactNum::integer(0)));
+            }
+            if denom == BigInt::from(2) && n_mod == BigInt::from(1) {
+                let quadrant = (numer / &denom) % BigInt::from(4);
+                let q = ((quadrant % 4) + 4) % 4;
+                if q == BigInt::from(0) {
+                    return Some(Node::Num(ExactNum::integer(1)));
+                } else if q == BigInt::from(2) {
+                    return Some(Node::Num(ExactNum::integer(-1)));
+                }
+            }
+            if denom == BigInt::from(1) && !n_mod.is_zero() {
+                return Some(Node::Num(ExactNum::integer(0)));
+            }
+            let _ = half;
+            None
+        }
+        "cos" => {
+            let k = as_pi_multiple(arg)?;
+            let (numer, denom) = (k.numer().clone(), k.denom().clone());
+            let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
+            if n_mod.is_zero() {
+                let full_periods = &numer / &denom;
+                let parity: BigInt = ((full_periods % 2) + 2) % 2;
+                if parity.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(1)));
+                } else {
+                    return Some(Node::Num(ExactNum::integer(-1)));
+                }
+            }
+            if denom == BigInt::from(2) && n_mod == BigInt::from(1) {
+                return Some(Node::Num(ExactNum::integer(0)));
+            }
+            None
+        }
+        "tan" => {
+            if let Node::Num(n) = arg {
+                if n.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(0)));
+                }
+            }
+            let k = as_pi_multiple(arg)?;
+            let (numer, denom) = (k.numer().clone(), k.denom().clone());
+            let n_mod = ((numer % &denom) + &denom) % &denom;
+            if n_mod.is_zero() {
+                return Some(Node::Num(ExactNum::integer(0)));
+            }
+            if denom == BigInt::from(4) {
+                let q = (n_mod.to_i64()?) % 4;
+                if q == 1 {
+                    return Some(Node::Num(ExactNum::integer(1)));
+                }
+                if q == 3 {
+                    return Some(Node::Num(ExactNum::integer(-1)));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 pub trait Simplifiable {
@@ -975,6 +1139,10 @@ impl Simplifiable for Node {
                     }
                 }
 
+                if let Some(exact) = try_exact_function_value(name, &simplified_args) {
+                    return Ok(exact);
+                }
+
                 let all_numeric = simplified_args.iter().all(|a| matches!(a, Node::Num(_)));
                 if all_numeric {
                     let f64_args: Vec<f64> = simplified_args
@@ -1782,5 +1950,91 @@ mod tests {
         assert_eq!(extract_square_factors(100), (10, 1));
         assert_eq!(extract_square_factors(50), (5, 2));
         assert_eq!(extract_square_factors(0), (0, 0));
+    }
+
+    fn simplify_latex(input: &str) -> String {
+        use super::Simplifiable;
+        use crate::environment::Environment;
+        use crate::parser::build_expression_tree;
+        use crate::tokenizer::Tokenizer;
+        let mut tok = Tokenizer::new(input);
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let env = Environment::new();
+        format!("{}", expr.simplify(&env).unwrap())
+    }
+
+    #[test]
+    fn test_sin_pi_is_zero() {
+        assert_eq!(simplify_latex("\\sin(\\pi)"), "0");
+    }
+
+    #[test]
+    fn test_cos_pi_is_neg_one() {
+        assert_eq!(simplify_latex("\\cos(\\pi)"), "-1");
+    }
+
+    #[test]
+    fn test_sin_pi_2_is_one() {
+        assert_eq!(simplify_latex("\\sin(\\frac{\\pi}{2})"), "1");
+    }
+
+    #[test]
+    fn test_cos_pi_2_is_zero() {
+        assert_eq!(simplify_latex("\\cos(\\frac{\\pi}{2})"), "0");
+    }
+
+    #[test]
+    fn test_arctan_one_is_pi_4() {
+        assert_eq!(simplify_latex("\\arctan(1)"), "\\frac{\\pi}{4}");
+    }
+
+    #[test]
+    fn test_arctan_zero_is_zero() {
+        assert_eq!(simplify_latex("\\arctan(0)"), "0");
+    }
+
+    #[test]
+    fn test_ln_one_is_zero() {
+        assert_eq!(simplify_latex("\\ln(1)"), "0");
+    }
+
+    #[test]
+    fn test_cos_zero_is_one() {
+        assert_eq!(simplify_latex("\\cos(0)"), "1");
+    }
+
+    #[test]
+    fn test_sin_zero_is_zero() {
+        assert_eq!(simplify_latex("\\sin(0)"), "0");
+    }
+
+    #[test]
+    fn test_tan_zero_is_zero() {
+        assert_eq!(simplify_latex("\\tan(0)"), "0");
+    }
+
+    #[test]
+    fn test_tan_pi_4_is_one() {
+        assert_eq!(simplify_latex("\\tan(\\frac{\\pi}{4})"), "1");
+    }
+
+    #[test]
+    fn test_cos_2pi_is_one() {
+        assert_eq!(simplify_latex("\\cos(2\\pi)"), "1");
+    }
+
+    #[test]
+    fn test_sin_2pi_is_zero() {
+        assert_eq!(simplify_latex("\\sin(2\\pi)"), "0");
+    }
+
+    #[test]
+    fn test_pi_displays_as_latex() {
+        assert_eq!(simplify_latex("\\pi"), "\\pi");
+    }
+
+    #[test]
+    fn test_pi_times_two() {
+        assert_eq!(simplify_latex("2\\pi"), "2\\pi");
     }
 }

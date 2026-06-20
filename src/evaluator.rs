@@ -17,6 +17,8 @@ impl Evaluator {
             Node::Variable(ref var) => {
                 if let Some(val) = env.get_exact(var) {
                     Ok(val.clone())
+                } else if var == "π" {
+                    Ok(ExactNum::Float(std::f64::consts::PI))
                 } else {
                     Err(format!("Variable '{}' is not defined.", var))
                 }
