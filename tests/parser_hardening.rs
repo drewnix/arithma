@@ -370,4 +370,50 @@ mod parser_hardening_tests {
         let result = parse_latex("\\frac{\\partial}{\\partial t}", &env);
         assert!(result.is_err(), "Partial ∂/∂t should produce an error");
     }
+
+    #[test]
+    fn test_parametric_solve_linear() {
+        let env = Environment::new();
+        let expr = parse_latex("a x + b = 0", &env).unwrap();
+        let result = arithma::solve_full(&expr, "x");
+        assert!(result.is_ok(), "Should solve ax+b=0: {:?}", result);
+        let sols = result.unwrap().solutions;
+        assert_eq!(sols.len(), 1);
+        let s = format!("{}", sols[0]);
+        assert!(
+            s.contains("b") && s.contains("a"),
+            "Solution should be -b/a: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_parametric_solve_quadratic() {
+        let env = Environment::new();
+        let expr = parse_latex("a x^2 + b x + c = 0", &env).unwrap();
+        let result = arithma::solve_full(&expr, "x");
+        assert!(result.is_ok(), "Should solve ax²+bx+c=0: {:?}", result);
+        let sols = result.unwrap().solutions;
+        assert_eq!(sols.len(), 2, "Quadratic should give 2 solutions");
+        let s0 = format!("{}", sols[0]);
+        assert!(
+            s0.contains("\\sqrt"),
+            "Should contain sqrt (discriminant): {}",
+            s0
+        );
+    }
+
+    #[test]
+    fn test_parametric_solve_rational() {
+        let env = Environment::new();
+        let expr = parse_latex("\\frac{3}{1 + 2\\alpha} = c", &env).unwrap();
+        let result = arithma::solve_full(&expr, "α");
+        assert!(
+            result.is_ok(),
+            "Should solve 3/(1+2α)=c for α: {:?}",
+            result
+        );
+        let sols = result.unwrap().solutions;
+        assert_eq!(sols.len(), 1, "Rational linear should give 1 solution");
+    }
 }

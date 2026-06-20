@@ -14,6 +14,7 @@ pub fn extract_variable(expr: &str) -> Option<String> {
         .find(|token| token.chars().all(char::is_alphabetic))
 }
 
+#[derive(Debug)]
 pub struct SolveResult {
     pub solutions: Vec<Node>,
     pub complex_omitted: usize,
@@ -31,36 +32,43 @@ pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> 
         crate::simplify::Simplifiable::simplify(&equation_expr, &env).unwrap_or(equation_expr);
 
     let poly = match Polynomial::from_node(&simplified, target_var) {
-        Ok(p) => p,
-        Err(orig_err) => {
+        Ok(p) => Some(p),
+        Err(_) => {
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
-                Polynomial::from_node(&cleared_simplified, target_var)
-                    .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
+                Polynomial::from_node(&cleared_simplified, target_var).ok()
             } else {
-                return Err(format!("Cannot convert to polynomial: {}", orig_err));
+                None
             }
         }
     };
 
-    let degree = poly.degree().unwrap_or(0);
+    if let Some(poly) = poly {
+        let degree = poly.degree().unwrap_or(0);
 
-    if degree == 0 {
-        if poly.coeff(0).is_zero() {
-            return Err("Equation is trivially true for all values".to_string());
-        } else {
-            return Err("No solution (contradiction)".to_string());
+        if degree == 0 {
+            if poly.coeff(0).is_zero() {
+                return Err("Equation is trivially true for all values".to_string());
+            } else {
+                return Err("No solution (contradiction)".to_string());
+            }
         }
+
+        let solutions = solve_polynomial_nodes(expr, target_var).unwrap_or_default();
+        let complex_omitted = degree.saturating_sub(solutions.len());
+
+        Ok(SolveResult {
+            solutions,
+            complex_omitted,
+        })
+    } else {
+        let solutions = solve_polynomial_nodes(expr, target_var)?;
+        Ok(SolveResult {
+            solutions,
+            complex_omitted: 0,
+        })
     }
-
-    let solutions = solve_polynomial_nodes(expr, target_var).unwrap_or_default();
-    let complex_omitted = degree.saturating_sub(solutions.len());
-
-    Ok(SolveResult {
-        solutions,
-        complex_omitted,
-    })
 }
 
 pub fn solve_for_variable(expr: &Node, target_var: &str) -> Result<f64, String> {
@@ -209,9 +217,19 @@ fn solve_polynomial_nodes(expr: &Node, target_var: &str) -> Result<Vec<Node>, St
             if let Some(cleared) = try_clear_denominators(&simplified, target_var) {
                 let cleared_simplified =
                     crate::simplify::Simplifiable::simplify(&cleared, &env).unwrap_or(cleared);
-                Polynomial::from_node(&cleared_simplified, target_var)
-                    .map_err(|e| format!("Cannot convert to polynomial: {}", e))?
+                match Polynomial::from_node(&cleared_simplified, target_var) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        if let Some(roots) = try_solve_parametric(&cleared_simplified, target_var) {
+                            return Ok(roots);
+                        }
+                        return Err(format!("Cannot convert to polynomial: {}", orig_err));
+                    }
+                }
             } else {
+                if let Some(roots) = try_solve_parametric(&simplified, target_var) {
+                    return Ok(roots);
+                }
                 return Err(format!("Cannot convert to polynomial: {}", orig_err));
             }
         }
@@ -579,6 +597,102 @@ fn exact_rational_sqrt(r: &BigRational) -> Option<BigRational> {
         Some(BigRational::new(BigInt::from(sn), BigInt::from(sd)))
     } else {
         None
+    }
+}
+
+fn is_effectively_zero(node: &Node) -> bool {
+    match node {
+        Node::Num(n) => n.is_zero(),
+        Node::Negate(inner) => is_effectively_zero(inner),
+        _ => false,
+    }
+}
+
+fn try_solve_parametric(expr: &Node, var: &str) -> Option<Vec<Node>> {
+    use crate::derivative::differentiate;
+    use crate::simplify::Simplifiable;
+    use crate::substitute::substitute_variable;
+
+    let env = crate::environment::Environment::new();
+    let zero = Node::Num(ExactNum::integer(0));
+
+    let c0 = substitute_variable(expr, var, &zero)
+        .ok()?
+        .simplify(&env)
+        .ok()?;
+
+    let d1 = differentiate(expr, var).ok()?;
+    let c1 = substitute_variable(&d1, var, &zero)
+        .ok()?
+        .simplify(&env)
+        .ok()?;
+
+    let d2 = differentiate(&d1, var).ok()?;
+    let d2_simp = d2.simplify(&env).ok()?;
+
+    if contains_var(&d2_simp, var) {
+        return None;
+    }
+
+    let c2_raw = substitute_variable(&d2_simp, var, &zero)
+        .ok()?
+        .simplify(&env)
+        .ok()?;
+
+    if is_effectively_zero(&c2_raw) {
+        if is_effectively_zero(&c1) {
+            return None;
+        }
+        let sol = Node::Divide(Box::new(Node::Negate(Box::new(c0))), Box::new(c1))
+            .simplify(&env)
+            .ok()?;
+        return Some(vec![sol]);
+    }
+
+    let c2 = Node::Divide(Box::new(c2_raw), Box::new(Node::Num(ExactNum::integer(2))))
+        .simplify(&env)
+        .ok()?;
+
+    let disc = Node::Subtract(
+        Box::new(Node::Power(
+            Box::new(c1.clone()),
+            Box::new(Node::Num(ExactNum::integer(2))),
+        )),
+        Box::new(Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(4))),
+            Box::new(Node::Multiply(Box::new(c2.clone()), Box::new(c0))),
+        )),
+    )
+    .simplify(&env)
+    .ok()?;
+
+    let sqrt_disc = Node::Sqrt(Box::new(disc));
+    let neg_c1 = Node::Negate(Box::new(c1));
+    let two_c2 = Node::Multiply(Box::new(Node::Num(ExactNum::integer(2))), Box::new(c2))
+        .simplify(&env)
+        .ok()?;
+
+    let sol1 = Node::Divide(
+        Box::new(Node::Add(
+            Box::new(neg_c1.clone()),
+            Box::new(sqrt_disc.clone()),
+        )),
+        Box::new(two_c2.clone()),
+    )
+    .simplify(&env)
+    .ok()?;
+
+    let sol2 = Node::Divide(
+        Box::new(Node::Subtract(Box::new(neg_c1), Box::new(sqrt_disc))),
+        Box::new(two_c2),
+    )
+    .simplify(&env)
+    .ok()?;
+
+    if format!("{}", sol1) == format!("{}", sol2) {
+        Some(vec![sol1])
+    } else {
+        Some(vec![sol1, sol2])
     }
 }
 
