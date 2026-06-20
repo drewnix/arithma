@@ -188,6 +188,76 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
     }
 }
 
+fn is_zero_node(node: &Node) -> bool {
+    match node {
+        Node::Num(n) => n.is_zero(),
+        Node::Negate(inner) => is_zero_node(inner),
+        _ => false,
+    }
+}
+
+fn extract_func_factor(node: &Node) -> Option<(Node, Node)> {
+    match node {
+        Node::Function(_, _) => Some((Node::Num(ExactNum::integer(1)), node.clone())),
+        Node::Multiply(a, b) => {
+            if matches!(b.as_ref(), Node::Function(_, _)) {
+                Some((*a.clone(), *b.clone()))
+            } else if matches!(a.as_ref(), Node::Function(_, _)) {
+                Some((*b.clone(), *a.clone()))
+            } else {
+                None
+            }
+        }
+        Node::Negate(inner) => {
+            let (coeff, func) = extract_func_factor(inner)?;
+            Some((Node::Negate(Box::new(coeff)), func))
+        }
+        Node::Divide(numer, denom) => {
+            if matches!(numer.as_ref(), Node::Function(_, _)) {
+                Some((
+                    Node::Divide(Box::new(Node::Num(ExactNum::integer(1))), denom.clone()),
+                    *numer.clone(),
+                ))
+            } else {
+                let (coeff, func) = extract_func_factor(numer)?;
+                Some((Node::Divide(Box::new(coeff), denom.clone()), func))
+            }
+        }
+        _ => None,
+    }
+}
+
+fn try_combine_function_terms(
+    left: &Node,
+    right: &Node,
+    is_sub: bool,
+    env: &Environment,
+) -> Option<Node> {
+    let (lc, lf) = extract_func_factor(left)?;
+    let (rc, rf) = extract_func_factor(right)?;
+
+    if format!("{}", lf) != format!("{}", rf) {
+        return None;
+    }
+
+    let combined_coeff = if is_sub {
+        Node::Subtract(Box::new(lc), Box::new(rc))
+    } else {
+        Node::Add(Box::new(lc), Box::new(rc))
+    };
+    let simplified_coeff = combined_coeff.simplify(env).ok()?;
+
+    if is_zero_node(&simplified_coeff) {
+        return Some(Node::Num(ExactNum::integer(0)));
+    }
+    if matches!(&simplified_coeff, Node::Num(n) if n.is_one()) {
+        return Some(lf);
+    }
+    Node::Multiply(Box::new(simplified_coeff), Box::new(lf))
+        .simplify(env)
+        .ok()
+}
+
 pub trait Simplifiable {
     fn simplify(&self, env: &Environment) -> Result<Node, String>;
 }
@@ -218,6 +288,13 @@ impl Simplifiable for Node {
                 // sin²(x) + cos²(x) → 1
                 if let Some(result) = try_pythagorean(&left_simplified, &right_simplified) {
                     return Ok(result);
+                }
+
+                // a·f(x) + b·f(x) → (a+b)·f(x) (before fraction combination)
+                if let Some(combined) =
+                    try_combine_function_terms(&left_simplified, &right_simplified, false, env)
+                {
+                    return Ok(combined);
                 }
 
                 // a/d + b/d → (a+b)/d
@@ -497,6 +574,13 @@ impl Simplifiable for Node {
                             ))));
                         }
                     }
+                }
+
+                // a·f(x) - b·f(x) → (a-b)·f(x) (before fraction combination)
+                if let Some(combined) =
+                    try_combine_function_terms(&left_simplified, &right_simplified, true, env)
+                {
+                    return Ok(combined);
                 }
 
                 // a/d - b/d → (a-b)/d
@@ -2036,5 +2120,40 @@ mod tests {
     #[test]
     fn test_pi_times_two() {
         assert_eq!(simplify_latex("2\\pi"), "2\\pi");
+    }
+
+    #[test]
+    fn test_combine_numeric_coeff_functions() {
+        assert_eq!(simplify_latex("3\\exp(x) + 5\\exp(x)"), "8\\exp(x)");
+    }
+
+    #[test]
+    fn test_combine_symbolic_coeff_functions() {
+        assert_eq!(
+            simplify_latex("a \\cdot \\sin(x) + b \\cdot \\sin(x)"),
+            "(a + b) \\cdot \\sin(x)"
+        );
+    }
+
+    #[test]
+    fn test_combine_rational_coeff_functions() {
+        let r = simplify_latex("\\frac{-1}{x} \\cdot \\exp(x) + \\frac{\\exp(x)}{x^2}");
+        assert!(r.contains("\\exp(x)"), "Should factor out exp(x): {}", r);
+        assert_eq!(
+            r.matches("\\exp").count(),
+            1,
+            "exp(x) should appear exactly once (factored out): {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_subtract_same_function() {
+        assert_eq!(simplify_latex("\\sin(x) - \\sin(x)"), "0");
+    }
+
+    #[test]
+    fn test_combine_function_subtract() {
+        assert_eq!(simplify_latex("5\\cos(x) - 3\\cos(x)"), "2\\cos(x)");
     }
 }
