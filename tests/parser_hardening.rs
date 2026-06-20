@@ -347,4 +347,27 @@ mod parser_hardening_tests {
         let result = parse_latex("\\frac{d}{dt}", &env);
         assert!(result.is_err(), "Leibniz d/dt should produce an error");
     }
+
+    #[test]
+    fn test_partial_derivative_detection() {
+        let env = Environment::new();
+        let result = parse_latex("\\frac{\\partial}{\\partial x}(x^2)", &env);
+        assert!(
+            result.is_err(),
+            "Partial derivative notation should produce an error"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("differentiate"),
+            "Error should mention the differentiate tool: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_partial_derivative_other_var() {
+        let env = Environment::new();
+        let result = parse_latex("\\frac{\\partial}{\\partial t}", &env);
+        assert!(result.is_err(), "Partial ∂/∂t should produce an error");
+    }
 }

@@ -374,6 +374,13 @@ impl<'a> Tokenizer<'a> {
                                         ));
                                         return;
                                     }
+                                    if nt == "\\partial" && dt.starts_with("\\partial") {
+                                        self.errors.push(format!(
+                                            "Partial derivative notation \\frac{{\\partial}}{{{}}} is not supported as an expression. Use the 'differentiate' tool instead.",
+                                            dt
+                                        ));
+                                        return;
+                                    }
                                     let numer_tokens = Tokenizer::new(&numer_str).tokenize();
                                     let denom_tokens = Tokenizer::new(&denom_str).tokenize();
                                     tokens.push("(".to_string());
