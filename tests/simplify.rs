@@ -1774,4 +1774,56 @@ mod test_simplify {
         let s = format!("{}", result);
         assert!(!s.contains("5"), "5/5 should cancel completely: {}", s);
     }
+
+    // --- Negated product display normalization ---
+
+    #[test]
+    fn test_neg_one_times_var_display() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("(-1) \\cdot x", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", result), "-x");
+    }
+
+    #[test]
+    fn test_neg_one_times_func_display() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("(-1) \\cdot \\sin(x)", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", result), "-\\sin(x)");
+    }
+
+    #[test]
+    fn test_sin_times_neg_sin_display() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sin(x) \\cdot (-\\sin(x))", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(
+            s.starts_with('-') && s.contains("sin"),
+            "sin(x)·(-sin(x)) should display as -sin²(x), got: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_double_negation_product() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("(-x) \\cdot (-y)", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        let s = format!("{}", result);
+        assert!(
+            !s.starts_with('-'),
+            "(-x)·(-y) should not start with minus: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_coeff_times_neg_var() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("2 \\cdot (-x)", &env).unwrap();
+        let result = expr.simplify(&env).unwrap();
+        assert_eq!(format!("{}", result), "-2x");
+    }
 }
