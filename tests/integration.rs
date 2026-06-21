@@ -761,4 +761,66 @@ mod integration_tests {
             val
         );
     }
+
+    // --- Higher-power irreducible quadratic integration ---
+
+    #[test]
+    fn test_irreducible_quadratic_squared() {
+        // ∫1/(x²+1)² dx — reduction formula produces an antiderivative
+        let result = integrate_latex("\\frac{1}{(x^2+1)^2}", "x").unwrap();
+        assert!(
+            !result.contains("not yet implemented"),
+            "Should integrate 1/(x²+1)²"
+        );
+        assert!(
+            result.contains("arctan"),
+            "Result should contain arctan term"
+        );
+    }
+
+    #[test]
+    fn test_irreducible_quadratic_squared_definite() {
+        // ∫₀¹ 1/(x²+1)² dx = (π+2)/8
+        let result = definite_integral_latex("\\frac{1}{(x^2 + 1)^2}", "x", 0.0, 1.0).unwrap();
+        let val: f64 = result.parse().unwrap();
+        assert!(
+            (val - 0.642699).abs() < 0.001,
+            "∫₀¹ 1/(x²+1)² dx = (π+2)/8 ≈ 0.6427, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_x_over_quadratic_squared() {
+        // ∫x/(x²+1)² dx = -1/(2(x²+1)) — power rule case
+        let result = integrate_latex("\\frac{x}{(x^2+1)^2}", "x").unwrap();
+        assert!(
+            !result.contains("not yet implemented"),
+            "Should integrate x/(x²+1)²"
+        );
+    }
+
+    #[test]
+    fn test_irreducible_quadratic_cubed() {
+        // ∫₀¹ 1/(x²+1)³ dx = (3π+8)/32 ≈ 0.5445
+        let result = definite_integral_latex("\\frac{1}{(x^2 + 1)^3}", "x", 0.0, 1.0).unwrap();
+        let val: f64 = result.parse().unwrap();
+        assert!(
+            (val - 0.54452).abs() < 0.001,
+            "∫₀¹ 1/(x²+1)³ dx = (3π+8)/32 ≈ 0.5445, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_completing_square_squared() {
+        // ∫₀¹ 1/(x²+2x+2)² dx ≈ 0.110875
+        let result = definite_integral_latex("\\frac{1}{(x^2 + 2x + 2)^2}", "x", 0.0, 1.0).unwrap();
+        let val: f64 = result.parse().unwrap();
+        assert!(
+            (val - 0.110875).abs() < 0.001,
+            "∫₀¹ 1/(x²+2x+2)² dx ≈ 0.1109, got {}",
+            val
+        );
+    }
 }

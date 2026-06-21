@@ -2398,6 +2398,137 @@ fn integrate_pf_term(
         }
         let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
         Ok(result)
+    } else if q_deg == 2 && k > 1 {
+        // Irreducible quadratic to power k: (Ax+B)/(x²+bx+c)^k
+        // Split: (A/2)·(2x+b)/(x²+bx+c)^k + (B-Ab/2)/(x²+bx+c)^k
+        // First part → power rule. Second → reduction formula J_k.
+        //
+        // Complete the square: x²+bx+c = (x+h)²+α²  where h=b/2, α²=c-b²/4
+        //
+        // J_1 = (1/α)·arctan((x+h)/α)
+        // J_j = (x+h) / (2α²(j-1)(x²+bx+c)^{j-1}) + (2j-3)/(2α²(j-1))·J_{j-1}
+
+        let a_coeff = n.coeff(1);
+        let b_coeff = n.coeff(0);
+        let b_denom = q.coeff(1);
+        let c_denom = q.coeff(0);
+
+        let env = crate::environment::Environment::new();
+        let two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+
+        // h = b/2, α² = c - b²/4
+        let h = &b_denom / &two;
+        let alpha_sq = &c_denom - &h * &h;
+
+        use num_traits::ToPrimitive;
+        let alpha_sq_f64 =
+            alpha_sq.numer().to_f64().unwrap_or(0.0) / alpha_sq.denom().to_f64().unwrap_or(1.0);
+
+        if alpha_sq_f64 <= 0.0 {
+            return Err("Quadratic factor has non-positive discriminant".to_string());
+        }
+
+        let alpha_f64 = alpha_sq_f64.sqrt();
+
+        let mut terms: Vec<Node> = Vec::new();
+
+        // Power rule: (A/2)·(x²+bx+c)^{1-k}/(1-k)
+        if !a_coeff.is_zero() {
+            let half_a = &a_coeff / &two;
+            let exp = 1i64 - k as i64;
+            let power_term = Node::Power(
+                Box::new(q.to_node()),
+                Box::new(Node::Num(ExactNum::integer(exp))),
+            );
+            let coeff =
+                &half_a / &num_rational::BigRational::from_integer(num_bigint::BigInt::from(exp));
+            terms.push(Node::Multiply(
+                Box::new(rational_to_node(&coeff)),
+                Box::new(power_term),
+            ));
+        }
+
+        // Residual: (B - Ab/2)·J_k
+        let residual = &b_coeff - &a_coeff * &h;
+
+        if !residual.is_zero() {
+            // x + h node
+            let xh_node = if h.is_zero() {
+                Node::Variable(var.to_string())
+            } else {
+                Node::Add(
+                    Box::new(Node::Variable(var.to_string())),
+                    Box::new(rational_to_node(&h)),
+                )
+            };
+
+            // J_1 = (1/α)·arctan((x+h)/α)
+            let arctan_arg = Node::Divide(
+                Box::new(xh_node.clone()),
+                Box::new(Node::Num(ExactNum::from_f64(alpha_f64))),
+            );
+            let mut j_prev = Node::Multiply(
+                Box::new(Node::Num(ExactNum::from_f64(1.0 / alpha_f64))),
+                Box::new(Node::Function("arctan".to_string(), vec![arctan_arg])),
+            );
+
+            // Build J_j for j = 2..=k
+            for j in 2..=k {
+                let jm1 = j - 1;
+                let two_alpha_sq_jm1 = &two
+                    * &alpha_sq
+                    * &num_rational::BigRational::from_integer(num_bigint::BigInt::from(jm1));
+
+                // Rational part: (x+h) / (2α²(j-1)·(x²+bx+c)^{j-1})
+                let denom_power = if jm1 == 1 {
+                    q.to_node()
+                } else {
+                    Node::Power(
+                        Box::new(q.to_node()),
+                        Box::new(Node::Num(ExactNum::integer(jm1 as i64))),
+                    )
+                };
+                let rat_coeff = num_rational::BigRational::one() / &two_alpha_sq_jm1;
+                let rational_part = Node::Multiply(
+                    Box::new(rational_to_node(&rat_coeff)),
+                    Box::new(Node::Divide(
+                        Box::new(xh_node.clone()),
+                        Box::new(denom_power),
+                    )),
+                );
+
+                // Recursive part: (2j-3)/(2α²(j-1))·J_{j-1}
+                let rec_numer = num_rational::BigRational::from_integer(num_bigint::BigInt::from(
+                    2 * j as i64 - 3,
+                ));
+                let rec_coeff = rec_numer / &two_alpha_sq_jm1;
+                let recursive_part = Node::Multiply(
+                    Box::new(rational_to_node(&rec_coeff)),
+                    Box::new(j_prev.clone()),
+                );
+
+                j_prev = Node::Add(Box::new(rational_part), Box::new(recursive_part));
+            }
+
+            if residual == num_rational::BigRational::one() {
+                terms.push(j_prev);
+            } else {
+                terms.push(Node::Multiply(
+                    Box::new(rational_to_node(&residual)),
+                    Box::new(j_prev),
+                ));
+            }
+        }
+
+        if terms.is_empty() {
+            return Ok(Node::Num(ExactNum::zero()));
+        }
+        let mut result = terms.remove(0);
+        for t in terms {
+            result = Node::Add(Box::new(result), Box::new(t));
+        }
+        let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+        Ok(result)
     } else if q_deg == 4 && k == 1 {
         if let Some((bval, dval)) = try_factor_biquadratic(q) {
             let p_coeff = q.coeff(2);
