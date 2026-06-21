@@ -100,6 +100,9 @@ pub use crate::systems::{solve_linear_system, solve_system, SystemSolution};
 pub mod inequality;
 pub use crate::inequality::solve_inequality;
 
+pub mod verify;
+pub use crate::verify::verify_identity;
+
 pub use crate::risch::{
     build_tower, hermite_reduce, try_risch_tower, DifferentialExtension, HermiteResult, RischResult,
 };

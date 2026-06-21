@@ -403,6 +403,29 @@ fn tools_schema() -> Value {
             }
         },
         {
+            "name": "verify",
+            "description": "Numerically verify that two expressions are equal by evaluating both at multiple test points. Returns PASS with the number of points tested, or FAIL with a specific counterexample showing where the expressions disagree. Use this to cross-check symbolic results.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expr_a": {
+                        "type": "string",
+                        "description": "First LaTeX expression (LHS)"
+                    },
+                    "expr_b": {
+                        "type": "string",
+                        "description": "Second LaTeX expression (RHS)"
+                    },
+                    "variables": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Variables in the expressions. Defaults to [\"x\"] if not provided."
+                    }
+                },
+                "required": ["expr_a", "expr_b"]
+            }
+        },
+        {
             "name": "solve_ode",
             "description": "Solve an ordinary differential equation. First-order: provide expr where dy/dx = expr, and the solver auto-classifies as separable or linear. Second-order constant-coefficient: provide a, b, c for ay''+by'+cy=0.",
             "inputSchema": {
@@ -459,6 +482,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "evaluate" => tool_evaluate(&args),
         "matrix" => tool_matrix(&args),
         "equivalent" => tool_equivalent(&args),
+        "verify" => tool_verify(&args),
         "solve_ode" => tool_solve_ode(&args),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
@@ -936,6 +960,30 @@ fn tool_equivalent(args: &Value) -> Result<String, String> {
             mismatches.join("\n")
         ))
     }
+}
+
+fn tool_verify(args: &Value) -> Result<String, String> {
+    let a_str = get_str(args, "expr_a").ok_or("Missing required parameter: expr_a")?;
+    let b_str = get_str(args, "expr_b").ok_or("Missing required parameter: expr_b")?;
+
+    let a_tokens = Tokenizer::new(a_str).tokenize();
+    let a_expr = build_expression_tree(a_tokens)?;
+
+    let b_tokens = Tokenizer::new(b_str).tokenize();
+    let b_expr = build_expression_tree(b_tokens)?;
+
+    let variables: Vec<String> = args
+        .get("variables")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_else(|| vec!["x".to_string()]);
+
+    let result = arithma::verify_identity(&a_expr, &b_expr, &variables);
+    Ok(format!("{}", result))
 }
 
 fn tool_solve_ode(args: &Value) -> Result<String, String> {
