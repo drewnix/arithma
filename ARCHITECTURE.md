@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1004 tests. 0 failures. 14 MCP tools. ~26K lines of Rust. Binary under 2 MB. Zero clippy warnings.**
+**1062 tests. 0 failures. 15 MCP tools. ~31K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -95,6 +95,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - Linear denominators: `∫1/(x+a)dx = ln|x+a|`
 - Quadratic denominators: `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)`, completing-the-square for `∫(px+q)/(ax²+bx+c)dx`
 - Biquadratic: `∫1/(x⁴+px²+q)dx` with exact radical coefficients
+- General quartic: `∫1/(x⁴+x+1)dx` via Ferrari's method and algebraic number fields Q(s)
+- Higher-power irreducible quadratic: `∫1/(x²+1)²dx`, `∫1/(x²+1)³dx` via Ostrogradsky reduction
+- Hyperbolic substitution: `∫1/√(x²±a²)dx = ln|x+√(x²±a²)|`
 
 **Definite integration:**
 - Exact via FTC: symbolic substitution of bounds, special-value evaluation.
@@ -108,6 +111,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Exact radical roots**: `solve(x²-2=0)` → `±√2`, not `±1.414...`.
 - **Rational equations**: automatic denominator clearing: `1/x = 2` → `x = 1/2`.
 - **Parametric equations**: `solve(ax²+bx+c=0, x)` → `(-b ± √(b²-4ac))/(2a)`. Differentiation-based coefficient extraction for symbolic coefficients.
+- **Systems of equations**: linear systems via exact Gaussian elimination over Q (unique, parametric, inconsistent). Polynomial systems via recursive substitution when at least one equation is linear. CLI: `arithma solve "eq1, eq2" "x, y"`. MCP: `solve_system` tool.
 - **Complex root reporting**: `solve_full()` returns solution count and omitted-complex-root count.
 
 ### Polynomial Algebra
@@ -123,7 +127,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - Determinant, inverse, eigenvalues, eigenvectors.
 - Characteristic polynomial computation.
 - Symbolic eigenvalues for 2×2 and 3×3 matrices with variable entries (candidate search + deflation).
-- Numerical eigenvalues up to 4×4 (characteristic polynomial + solver).
+- Numerical eigenvalues up to 4×4 (characteristic polynomial + Cardano/Ferrari).
 - Decimal matrix entries supported via float-to-rational conversion.
 
 ### Series and Limits
@@ -140,7 +144,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ### MCP Server
 
-14 tools with LaTeX I/O: `simplify`, `differentiate`, `integrate`, `solve`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`. Hand-rolled JSON-RPC, under 2 MB binary. All tools accept optional `assumptions` parameter.
+15 tools with LaTeX I/O: `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter.
 
 ### CLI
 
@@ -172,6 +176,8 @@ Two variants: `Rational(BigRational)` for exact computation, `Float(f64)` for nu
 - `ExtPoly` — polynomial in tower variable θ with Q(x) rational function coefficients, for the Risch algorithm.
 - `RationalFunction` — p(x)/q(x) with full arithmetic, for Hermite reduction and Rothstein-Trager.
 - `ModPoly` — polynomials over Z/pZ, for Berlekamp factoring.
+- `NumberField` — algebraic number field Q(α) with exact BigRational arithmetic, for quartic integration and Risch extensions.
+- `AlgPoly` — univariate polynomials with Q(α) coefficients, with GCD and Hermite reduction.
 
 ### Integration Pipeline
 
@@ -186,7 +192,7 @@ input expression
 
 ### Crate Structure
 
-Currently a single crate. Workspace split planned when compile times become a bottleneck (~26K lines, approaching threshold):
+Currently a single crate. Workspace split planned when compile times become a bottleneck (~31K lines, approaching threshold):
 
 ```
 arithma/

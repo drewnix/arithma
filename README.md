@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**969 tests, zero failures.** Every algorithm is verified against known results.
+**1062 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -59,13 +59,19 @@ integrands like ∫((1-x)/x²)·e^x dx), logarithmic extensions
 (∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption),
 **multi-extension towers** (integrands with both exp and ln, like
 ∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)) via two-level Risch
-towers with inner DE solving over Q(x)[ln(x)], and **biquadratic
+towers with inner DE solving over Q(x)[ln(x)], **biquadratic
 integration** (∫1/(ax⁴+bx²+c)dx via quadratic-in-x² factoring with
-exact radical coefficients). All via Hermite reduction and the
-Rothstein-Trager resultant method.
+exact radical coefficients), **general quartic integration** via
+Ferrari's method and algebraic number fields (∫1/(x⁴+x+1)dx works),
+**higher-power irreducible quadratic** integration via the Ostrogradsky
+reduction formula (∫1/(x²+1)²dx, ∫1/(x²+1)³dx, etc.), and
+**hyperbolic substitution** (∫1/√(x²±a²)dx = ln|x+√(x²±a²)|).
+All via Hermite reduction and the Rothstein-Trager resultant method.
 Parametric integration for linear and **quadratic** denominators
 (`∫1/(x+a)dx = ln|x+a|`, `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)`,
 `∫(px+q)/(ax²+bx+c)dx` with the full completing-the-square formula).
+**Exact definite integration** via FTC with symbolic special-value
+evaluation: `∫₀¹ 1/(x²+1)dx = π/4`.
 Taylor/Maclaurin series with exact rational coefficients, including
 symbolic-center expansion (`f(x)` around `x=a` with symbolic `a`).
 Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's
@@ -78,7 +84,11 @@ Rational equations with the variable in a denominator (`1/x = 2` → `x = 1/2`)
 via automatic denominator clearing. **Complex root reporting** — when a
 polynomial has complex roots that can't be expressed in reals, the solver
 reports how many were omitted (e.g., `x³-2=0` → `x = ∛2 (2 complex roots
-omitted)`).
+omitted)`). **Parametric solving** — `solve(ax²+bx+c=0, x)` returns the
+quadratic formula with symbolic coefficients. **Systems of equations** —
+linear systems via exact Gaussian elimination over Q (handles unique,
+parametric, and inconsistent systems), polynomial systems via
+substitution when at least one equation is linear.
 
 **ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
 (`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
@@ -89,11 +99,13 @@ complex roots). Returns general solutions with arbitrary constants.
 4×4 via characteristic polynomial + Cardano/Ferrari, including matrices
 with decimal entries; symbolic for 2×2 and 3×3 matrices with variable
 entries), rank, transpose, multiplication, Ax = b, and RREF.
+**Algebraic number fields** — exact arithmetic in Q(α) for algebraic α,
+used for quartic integration and Risch algorithm extensions.
 
 ## MCP server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. It gives Claude or any MCP-compatible AI agent access to 14 tools:
+stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -101,7 +113,8 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 14 tools:
 | `differentiate` | Symbolic derivative with respect to any variable |
 | `integrate` | Indefinite/definite integrals; proves non-elementary when applicable |
 | `substitute` | Replace a variable with an expression |
-| `solve` | Solve equations (any degree, via factoring) |
+| `solve` | Solve a single equation (any degree, via factoring) |
+| `solve_system` | Solve systems of linear/polynomial equations |
 | `factor` | Irreducible factoring over Q (Berlekamp-Zassenhaus) |
 | `partial_fractions` | Decompose P(x)/Q(x) into partial fractions |
 | `limit` | Symbolic limits |
@@ -174,6 +187,18 @@ x = -2
 $ arithma solve "x^2 - 2 = 0"
 x = \sqrt{2}
 x = -\sqrt{2}
+
+$ arithma solve "x + y = 3, x - y = 1" "x, y"
+x = 2
+y = 1
+
+$ arithma solve "x + y = 5, x * y = 6" "x, y"
+Solution 1:
+  x = 3
+  y = 2
+Solution 2:
+  x = 2
+  y = 3
 
 $ arithma simplify "\sqrt{12}"
 2\sqrt{3}
@@ -260,7 +285,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 969 tests
+cargo test                                # run all 1062 tests
 ```
 
 ## Design principles
@@ -301,11 +326,13 @@ src/
   limits.rs            -- symbolic limits
   matrix.rs            -- matrix operations
   expression.rs        -- equation solving (degree 1-4 + factoring)
+  systems.rs           -- systems of linear/polynomial equations (Gaussian elimination)
+  algebraic.rs         -- algebraic number fields Q(α), AlgPoly, Hermite reduction
   evaluator.rs         -- numerical evaluation
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-~26K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~31K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
