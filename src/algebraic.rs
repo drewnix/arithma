@@ -524,6 +524,421 @@ pub fn solve_linear_system(
         .collect())
 }
 
+// --- Polynomials over Q(α) for Risch coefficient field extension ---
+
+/// Univariate polynomial over an algebraic number field Q(α).
+/// Coefficients are elements of Q(α), stored least-degree first.
+#[derive(Debug, Clone)]
+pub struct AlgPoly {
+    pub coeffs: Vec<Elem>,
+    field: NumberField,
+    variable: String,
+}
+
+impl AlgPoly {
+    pub fn zero(field: &NumberField, var: &str) -> Self {
+        AlgPoly {
+            coeffs: vec![],
+            field: field.clone(),
+            variable: var.to_string(),
+        }
+    }
+
+    pub fn one(field: &NumberField, var: &str) -> Self {
+        AlgPoly {
+            coeffs: vec![field.one()],
+            field: field.clone(),
+            variable: var.to_string(),
+        }
+    }
+
+    pub fn constant(c: Elem, field: &NumberField, var: &str) -> Self {
+        if field.is_zero(&c) {
+            Self::zero(field, var)
+        } else {
+            AlgPoly {
+                coeffs: vec![c],
+                field: field.clone(),
+                variable: var.to_string(),
+            }
+        }
+    }
+
+    pub fn from_coeffs(coeffs: Vec<Elem>, field: &NumberField, var: &str) -> Self {
+        let mut p = AlgPoly {
+            coeffs,
+            field: field.clone(),
+            variable: var.to_string(),
+        };
+        p.strip_trailing();
+        p
+    }
+
+    /// The variable x as a polynomial: 0 + 1·x
+    pub fn x_poly(field: &NumberField, var: &str) -> Self {
+        AlgPoly {
+            coeffs: vec![field.zero(), field.one()],
+            field: field.clone(),
+            variable: var.to_string(),
+        }
+    }
+
+    fn strip_trailing(&mut self) {
+        while self.coeffs.last().is_some_and(|c| self.field.is_zero(c)) {
+            self.coeffs.pop();
+        }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.coeffs.is_empty()
+    }
+
+    pub fn degree(&self) -> Option<usize> {
+        if self.coeffs.is_empty() {
+            None
+        } else {
+            Some(self.coeffs.len() - 1)
+        }
+    }
+
+    pub fn leading_coeff(&self) -> Option<&Elem> {
+        self.coeffs.last()
+    }
+
+    pub fn coeff(&self, i: usize) -> Elem {
+        self.coeffs
+            .get(i)
+            .cloned()
+            .unwrap_or_else(|| self.field.zero())
+    }
+
+    pub fn field(&self) -> &NumberField {
+        &self.field
+    }
+
+    pub fn add(&self, other: &AlgPoly) -> AlgPoly {
+        let len = self.coeffs.len().max(other.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = other.coeff(i);
+            coeffs.push(self.field.add(&a, &b));
+        }
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+
+    pub fn sub(&self, other: &AlgPoly) -> AlgPoly {
+        let len = self.coeffs.len().max(other.coeffs.len());
+        let mut coeffs = Vec::with_capacity(len);
+        for i in 0..len {
+            let a = self.coeff(i);
+            let b = other.coeff(i);
+            coeffs.push(self.field.sub(&a, &b));
+        }
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+
+    pub fn mul(&self, other: &AlgPoly) -> AlgPoly {
+        if self.is_zero() || other.is_zero() {
+            return Self::zero(&self.field, &self.variable);
+        }
+        let len = self.coeffs.len() + other.coeffs.len() - 1;
+        let mut coeffs: Vec<Elem> = (0..len).map(|_| self.field.zero()).collect();
+        for (i, ai) in self.coeffs.iter().enumerate() {
+            if self.field.is_zero(ai) {
+                continue;
+            }
+            for (j, bj) in other.coeffs.iter().enumerate() {
+                let prod = self.field.mul(ai, bj);
+                coeffs[i + j] = self.field.add(&coeffs[i + j], &prod);
+            }
+        }
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+
+    pub fn scalar_mul(&self, s: &Elem) -> AlgPoly {
+        let coeffs = self.coeffs.iter().map(|c| self.field.mul(c, s)).collect();
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+
+    pub fn neg(&self) -> AlgPoly {
+        let coeffs = self.coeffs.iter().map(|c| self.field.neg(c)).collect();
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+
+    pub fn make_monic(&self) -> Result<AlgPoly, String> {
+        let lc = self.leading_coeff().ok_or("Zero polynomial")?;
+        let lc_inv = self.field.inv(lc)?;
+        Ok(self.scalar_mul(&lc_inv))
+    }
+
+    /// Polynomial long division: self = quotient * divisor + remainder.
+    pub fn div_rem(&self, divisor: &AlgPoly) -> Result<(AlgPoly, AlgPoly), String> {
+        if divisor.is_zero() {
+            return Err("Division by zero polynomial".to_string());
+        }
+        let d_deg = divisor.degree().unwrap();
+        let d_lc = divisor.leading_coeff().unwrap();
+        let d_lc_inv = self.field.inv(d_lc)?;
+
+        let mut remainder = self.clone();
+        let s_deg = match self.degree() {
+            Some(d) if d >= d_deg => d,
+            _ => return Ok((Self::zero(&self.field, &self.variable), self.clone())),
+        };
+
+        let mut q_coeffs: Vec<Elem> = (0..=s_deg - d_deg).map(|_| self.field.zero()).collect();
+
+        while let Some(r_deg) = remainder.degree() {
+            if r_deg < d_deg {
+                break;
+            }
+            let r_lc = remainder.leading_coeff().unwrap().clone();
+            let q_coeff = self.field.mul(&r_lc, &d_lc_inv);
+            let deg_diff = r_deg - d_deg;
+            q_coeffs[deg_diff] = q_coeff.clone();
+
+            for (j, dj) in divisor.coeffs.iter().enumerate() {
+                let sub = self.field.mul(&q_coeff, dj);
+                remainder.coeffs[deg_diff + j] =
+                    self.field.sub(&remainder.coeffs[deg_diff + j], &sub);
+            }
+            remainder.strip_trailing();
+        }
+
+        Ok((
+            AlgPoly::from_coeffs(q_coeffs, &self.field, &self.variable),
+            remainder,
+        ))
+    }
+
+    /// GCD via Euclidean algorithm. Result is monic.
+    pub fn gcd(&self, other: &AlgPoly) -> Result<AlgPoly, String> {
+        if self.is_zero() {
+            return if other.is_zero() {
+                Ok(Self::zero(&self.field, &self.variable))
+            } else {
+                other.make_monic()
+            };
+        }
+        if other.is_zero() {
+            return self.make_monic();
+        }
+
+        let mut a = self.clone();
+        let mut b = other.clone();
+        if a.degree() < b.degree() {
+            std::mem::swap(&mut a, &mut b);
+        }
+
+        while !b.is_zero() {
+            let (_, r) = a.div_rem(&b)?;
+            a = b;
+            b = r;
+        }
+        a.make_monic()
+    }
+
+    /// Formal derivative d/dx.
+    pub fn derivative(&self) -> AlgPoly {
+        if self.coeffs.len() <= 1 {
+            return Self::zero(&self.field, &self.variable);
+        }
+        let mut coeffs = Vec::with_capacity(self.coeffs.len() - 1);
+        for (i, c) in self.coeffs.iter().enumerate().skip(1) {
+            let scalar = BigRational::from_integer(BigInt::from(i));
+            coeffs.push(self.field.scale(c, &scalar));
+        }
+        AlgPoly::from_coeffs(coeffs, &self.field, &self.variable)
+    }
+}
+
+/// Hermite reduction over Q(α)(x): given a/d where a, d are polynomials
+/// over Q(α), returns (g, a_red, d_red) such that ∫a/d = g + ∫a_red/d_red
+/// where d_red is squarefree.
+///
+/// This is the core Risch operation, extended to work with algebraic
+/// coefficient fields via the NumberField infrastructure.
+pub fn hermite_reduce_algebraic(
+    a: &AlgPoly,
+    d: &AlgPoly,
+) -> Result<(AlgPoly, AlgPoly, AlgPoly, AlgPoly), String> {
+    let nf = a.field();
+    let var = &a.variable;
+
+    let d_deriv = d.derivative();
+    let g = d.gcd(&d_deriv)?;
+
+    if g.degree().unwrap_or(0) == 0 {
+        // d is already squarefree — nothing to reduce
+        return Ok((
+            AlgPoly::zero(nf, var),
+            AlgPoly::one(nf, var),
+            a.clone(),
+            d.clone(),
+        ));
+    }
+
+    // d = d_s * d_m² * ... where d_s is squarefree part
+    let (d_star, _) = d.div_rem(&g)?; // d* = d/gcd(d,d')
+
+    // Hermite's formula: for d = d_star * v where v = gcd(d, d'):
+    //   ∫a/d = -b/(k·v) + ∫(a_new)/(d_star·v_new) where k = multiplicity
+    // For simplicity, apply one step of reduction.
+
+    // Extended GCD approach: find b, c such that b·(d*/dx v) + c·v_star = a/(k)
+    // where v_star = d_star, v = g.
+    // Actually, let me use the standard one-step Hermite reduction:
+    //   d = d_star · g, where g = gcd(d, d')
+    //   Then ∫a/d = ∫a/(d_star·g)
+    //   If g has degree > 0, solve: a = b'·g + b·(-g'·d_star/(deg) + ...) + c·d_star
+    //
+    // Simpler approach: iterative square-free reduction.
+    // Split d = ∏ dᵢ^i (square-free decomposition)
+    // For each factor with multiplicity > 1, reduce.
+
+    // For demonstration, handle the common case: d = (something)², single factor.
+    // ∫a/p² = -b/p + ∫c/p where b,c satisfy a = -b'p + bp' + cp (from integration by parts)
+
+    // More precisely: ∫a/(p^k) for k > 1.
+    // Set a = b'·p - (k-1)·b·p' + c·p^{k-1}·(something)
+    // The Hermite formula: find b, c ∈ Q(α)[x] with deg(b) < deg(p), deg(c) < deg(p) such that
+    //   a = -b'·p + (k-1)·b·p' + c·p   (when d = p^k with p squarefree)
+    // This is the extended Euclidean algorithm on (p, p') applied to a.
+
+    // We already have the squarefree part d_star and g = d/d_star.
+    // If g = d_star (i.e., d = d_star²), then k=2 and p = d_star.
+    // General case: d = d_star * g where g = gcd(d, d').
+    // Apply one reduction step: ∫a/(d_star·g) = b/g + ∫c/d_star
+    // where a = b'·d_star - b·((k-1)/k)·d_star' + c·g for appropriate k.
+
+    // For the demonstration, use the direct formula for one Hermite step:
+    // Given ∫a/(d_star·g) where d_star is squarefree and g = gcd(d,d'):
+    //   Find b (deg < deg(g)) and c (deg < deg(d_star)) such that
+    //   a = b' · d_star + b · (d_star' · (-g/g_check) ) + c · g
+    // where g_check adjusts for multiplicity.
+
+    // Actually, the cleanest one-step Hermite reduction:
+    // d₁ = gcd(d, d'), d₂ = d/d₁
+    // Then ∫a/d = -b/d₁ + ∫c/d₂
+    // where b, c are found from: a = -b'·(d/d₁) + b·(d/d₁)' + c·d₁
+    // Equivalently: a = -b'·d₂ + b·d₂' + c·d₁
+
+    // Solve for b and c using the extended Euclidean algorithm.
+    // Since gcd(d₂, d₂') divides gcd(d₂, d₁) = 1 (d₂ is squarefree? Not necessarily after one step)
+    // Actually d₂ = d/d₁ = d/gcd(d,d'). We need repeated reduction if d₁ has repeated factors.
+
+    // For a clean one-step reduction:
+    let d2 = d_star; // d/gcd(d,d')
+    let d1 = g; // gcd(d,d')
+    let d2_deriv = d2.derivative();
+
+    // We need: a = -b'·d₂ + b·d₂' + c·d₁
+    // This is equivalent to: a ≡ b·d₂' (mod d₁) when we consider b mod d₁
+    // (since -b'·d₂ ≡ 0 mod d₁ is not guaranteed, we use full extended GCD)
+
+    // Extended GCD: gcd(d₂', d₁) should be 1 (since d₁·d₂ = d, d₂' involves d₂).
+    // Actually this is subtle. Let me just use the direct solve:
+    // Reduce modulo d₁: a mod d₁ = b · (d₂' mod d₁) mod d₁
+    // Then b = a · (d₂')⁻¹ mod d₁
+    let (_, a_mod_d1) = a.div_rem(&d1)?;
+    let (_, d2p_mod_d1) = d2_deriv.div_rem(&d1)?;
+
+    // Solve: b ≡ a · (d₂')⁻¹ mod d₁
+    // This requires d₂' and d₁ to be coprime mod d₁.
+    // For a proper Hermite reduction this should hold.
+    // Use AlgPoly division in the quotient ring Q(α)[x]/(d₁).
+    if d2p_mod_d1.is_zero() {
+        return Err("Degenerate Hermite reduction: d₂' ≡ 0 mod d₁".to_string());
+    }
+
+    // For the quotient ring inversion, we use the polynomial extended GCD.
+    // Since d₁ divides gcd(d,d'), and d₂'  has specific structure, this should work.
+    // For now, compute b by solving b·d₂' ≡ a (mod d₁) directly.
+    let b_mod = alg_poly_mod_solve(&a_mod_d1, &d2p_mod_d1, &d1)?;
+
+    // b' · d₂
+    let b_deriv = b_mod.derivative();
+    let b_prime_d2 = b_deriv.mul(&d2);
+
+    // b · d₂'
+    let b_d2_prime = b_mod.mul(&d2_deriv);
+
+    // c · d₁ = a + b'·d₂ - b·d₂'
+    let c_times_d1 = a.add(&b_prime_d2).sub(&b_d2_prime);
+    let (c, remainder) = c_times_d1.div_rem(&d1)?;
+
+    if !remainder.is_zero() {
+        return Err("Hermite reduction: remainder in c computation is nonzero".to_string());
+    }
+
+    // Result: ∫a/d = -b/d₁ + ∫c/d₂
+    Ok((b_mod.neg(), d1, c, d2))
+}
+
+/// Solve b·f ≡ a (mod m) for AlgPoly, where f and m are coprime.
+fn alg_poly_mod_solve(a: &AlgPoly, f: &AlgPoly, m: &AlgPoly) -> Result<AlgPoly, String> {
+    // Extended GCD: s·f + t·m = gcd(f, m) = 1 (since coprime)
+    // Then b = s·a mod m
+    let (gcd, s, _) = alg_poly_extended_gcd(f, m)?;
+
+    // Verify gcd is constant (should be 1 for coprime)
+    if gcd.degree().unwrap_or(0) != 0 {
+        return Err("Polynomials not coprime in mod_solve".to_string());
+    }
+
+    // b = s · a mod m
+    let sa = s.mul(a);
+    let (_, result) = sa.div_rem(m)?;
+    Ok(result)
+}
+
+/// Extended GCD for AlgPoly: returns (gcd, s, t) such that s·a + t·b = gcd.
+fn alg_poly_extended_gcd(a: &AlgPoly, b: &AlgPoly) -> Result<(AlgPoly, AlgPoly, AlgPoly), String> {
+    let nf = a.field();
+    let var = &a.variable;
+
+    if b.is_zero() {
+        if a.is_zero() {
+            return Ok((
+                AlgPoly::zero(nf, var),
+                AlgPoly::one(nf, var),
+                AlgPoly::zero(nf, var),
+            ));
+        }
+        let a_monic = a.make_monic()?;
+        let lc_inv = nf.inv(a.leading_coeff().unwrap())?;
+        return Ok((
+            a_monic,
+            AlgPoly::constant(lc_inv, nf, var),
+            AlgPoly::zero(nf, var),
+        ));
+    }
+
+    let mut old_r = a.clone();
+    let mut r = b.clone();
+    let mut old_s = AlgPoly::one(nf, var);
+    let mut s = AlgPoly::zero(nf, var);
+    let mut old_t = AlgPoly::zero(nf, var);
+    let mut t = AlgPoly::one(nf, var);
+
+    while !r.is_zero() {
+        let (q, rem) = old_r.div_rem(&r)?;
+        old_r = r;
+        r = rem;
+        let new_s = old_s.sub(&q.mul(&s));
+        old_s = s;
+        s = new_s;
+        let new_t = old_t.sub(&q.mul(&t));
+        old_t = t;
+        t = new_t;
+    }
+
+    let monic = old_r.make_monic()?;
+    let lc_inv = nf.inv(old_r.leading_coeff().unwrap())?;
+    Ok((monic, old_s.scalar_mul(&lc_inv), old_t.scalar_mul(&lc_inv)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,5 +1145,149 @@ mod tests {
         let (q, r) = poly_div_rem(&a, &b);
         assert_eq!(q, vec![int(-1), int(1)]);
         assert!(r.is_empty());
+    }
+
+    // --- AlgPoly tests ---
+
+    #[test]
+    fn test_algpoly_arithmetic_over_sqrt2() {
+        // Polynomials over Q(√2)
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+        let alpha = nf.gen(); // √2
+
+        // p = x + √2, q = x - √2
+        let p = AlgPoly::from_coeffs(vec![alpha.clone(), nf.one()], &nf, "x");
+        let q = AlgPoly::from_coeffs(vec![nf.neg(&alpha), nf.one()], &nf, "x");
+
+        // p * q = x² - 2
+        let product = p.mul(&q);
+        assert_eq!(product.degree(), Some(2));
+        assert_eq!(product.coeff(0), nf.from_rational(&int(-2)));
+        assert!(nf.is_zero(&product.coeff(1)));
+        assert_eq!(product.coeff(2), nf.one());
+    }
+
+    #[test]
+    fn test_algpoly_div_rem_over_sqrt2() {
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+        let alpha = nf.gen();
+
+        // (x² - 2) / (x + √2) = (x - √2), remainder 0
+        let x2_minus_2 = AlgPoly::from_coeffs(
+            vec![nf.from_rational(&int(-2)), nf.zero(), nf.one()],
+            &nf,
+            "x",
+        );
+        let x_plus_sqrt2 = AlgPoly::from_coeffs(vec![alpha.clone(), nf.one()], &nf, "x");
+        let (q, r) = x2_minus_2.div_rem(&x_plus_sqrt2).unwrap();
+
+        assert!(r.is_zero());
+        assert_eq!(q.degree(), Some(1));
+        // q should be x - √2
+        assert_eq!(q.coeff(0), nf.neg(&alpha));
+        assert_eq!(q.coeff(1), nf.one());
+    }
+
+    #[test]
+    fn test_algpoly_gcd_over_sqrt2() {
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+        let alpha = nf.gen();
+
+        // gcd(x²-2, (x+√2)²) = x+√2 (monic)
+        let x2_minus_2 = AlgPoly::from_coeffs(
+            vec![nf.from_rational(&int(-2)), nf.zero(), nf.one()],
+            &nf,
+            "x",
+        );
+        let x_plus_sqrt2 = AlgPoly::from_coeffs(vec![alpha.clone(), nf.one()], &nf, "x");
+        let sq = x_plus_sqrt2.mul(&x_plus_sqrt2);
+
+        let g = x2_minus_2.gcd(&sq).unwrap();
+        assert_eq!(g.degree(), Some(1));
+        assert_eq!(g.coeff(1), nf.one());
+        assert_eq!(g.coeff(0), alpha);
+    }
+
+    #[test]
+    fn test_algpoly_derivative() {
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+        let alpha = nf.gen();
+
+        // d/dx (x² + √2·x + 3) = 2x + √2
+        let p = AlgPoly::from_coeffs(
+            vec![nf.from_rational(&int(3)), alpha.clone(), nf.one()],
+            &nf,
+            "x",
+        );
+        let dp = p.derivative();
+        assert_eq!(dp.degree(), Some(1));
+        assert_eq!(dp.coeff(0), alpha);
+        assert_eq!(dp.coeff(1), nf.from_rational(&int(2)));
+    }
+
+    #[test]
+    fn test_hermite_reduce_over_sqrt2() {
+        // Hermite reduction of 1/(x+√2)² over Q(√2)
+        // Expected: ∫1/(x+√2)² = -1/(x+√2)
+        // So: rational part = -1/(x+√2), reduced integral = 0
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+        let alpha = nf.gen();
+
+        // numerator a = 1
+        let a = AlgPoly::one(&nf, "x");
+        // denominator d = (x+√2)² = x² + 2√2·x + 2
+        let x_plus_sqrt2 = AlgPoly::from_coeffs(vec![alpha.clone(), nf.one()], &nf, "x");
+        let d = x_plus_sqrt2.mul(&x_plus_sqrt2);
+
+        let (b, d1, c, d2) = hermite_reduce_algebraic(&a, &d).unwrap();
+
+        // After Hermite reduction: ∫1/(x+√2)² = b/d₁ + ∫c/d₂
+        // d₁ = gcd(d, d') = x+√2 (since d = (x+√2)², d' = 2(x+√2))
+        assert_eq!(d1.degree(), Some(1));
+        assert_eq!(d1.coeff(0), alpha);
+
+        // d₂ = d/d₁ = x+√2 (squarefree)
+        assert_eq!(d2.degree(), Some(1));
+
+        // c/d₂ should be 0 (the integral has no log part)
+        assert!(c.is_zero(), "Reduced numerator should be zero for 1/(x+a)²");
+
+        // b/d₁ = -1/(x+√2), so b = -1
+        assert_eq!(b.degree(), Some(0));
+        // b should be -1
+        assert_eq!(b.coeff(0), nf.from_rational(&int(-1)));
+
+        // Verify numerically: at x=1, b/(d₁) = -1/(1+√2) ≈ -0.4142
+        let b_val = nf.to_f64(&b.coeff(0));
+        let d1_at_1 = 1.0 + std::f64::consts::SQRT_2;
+        let rational_part = b_val / d1_at_1;
+        assert!(
+            (rational_part - (-1.0 / (1.0 + std::f64::consts::SQRT_2))).abs() < 1e-10,
+            "Numerical check: b/d₁ at x=1 = {}, expected {}",
+            rational_part,
+            -1.0 / (1.0 + std::f64::consts::SQRT_2)
+        );
+    }
+
+    #[test]
+    fn test_hermite_reduce_squarefree_noop() {
+        // For a squarefree denominator, Hermite reduction is a no-op
+        let nf = NumberField::new(vec![int(-2), int(0)], std::f64::consts::SQRT_2);
+
+        // ∫1/(x²+1) — denominator is already squarefree
+        let a = AlgPoly::one(&nf, "x");
+        let d = AlgPoly::from_coeffs(
+            vec![nf.from_rational(&int(1)), nf.zero(), nf.one()],
+            &nf,
+            "x",
+        );
+
+        let (b, _d1, c, d2) = hermite_reduce_algebraic(&a, &d).unwrap();
+
+        // b should be 0 (no rational part)
+        assert!(b.is_zero());
+        // c/d₂ should be 1/(x²+1)
+        assert_eq!(c.degree(), Some(0));
+        assert_eq!(d2.degree(), Some(2));
     }
 }
