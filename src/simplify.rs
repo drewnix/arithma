@@ -2273,6 +2273,199 @@ fn try_telescoping_sum(
     None
 }
 
+/// Collect additive terms, flattening Add/Subtract into a list.
+/// Subtracted terms are wrapped in Negate.
+fn collect_additive_terms(node: &Node) -> Vec<Node> {
+    match node {
+        Node::Add(left, right) => {
+            let mut terms = collect_additive_terms(left);
+            terms.extend(collect_additive_terms(right));
+            terms
+        }
+        Node::Subtract(left, right) => {
+            let mut terms = collect_additive_terms(left);
+            let right_terms = collect_additive_terms(right);
+            for t in right_terms {
+                terms.push(Node::Negate(Box::new(t)));
+            }
+            terms
+        }
+        _ => vec![node.clone()],
+    }
+}
+
+/// Separate a multiplicative expression into (symbolic_coeff, index_part)
+/// where symbolic_coeff does not contain index_var.
+fn separate_index_factors(node: &Node, index_var: &str) -> (Node, Node) {
+    match node {
+        Node::Multiply(left, right) => {
+            let (l_coeff, l_index) = separate_index_factors(left, index_var);
+            let (r_coeff, r_index) = separate_index_factors(right, index_var);
+            let coeff = mul_nodes(l_coeff, r_coeff);
+            let index = mul_nodes(l_index, r_index);
+            (coeff, index)
+        }
+        Node::Negate(inner) => {
+            let (coeff, index) = separate_index_factors(inner, index_var);
+            (Node::Negate(Box::new(coeff)), index)
+        }
+        Node::Divide(num, den) if !den.contains_variable(index_var) => {
+            let (n_coeff, n_index) = separate_index_factors(num, index_var);
+            (Node::Divide(Box::new(n_coeff), den.clone()), n_index)
+        }
+        _ => {
+            if node.contains_variable(index_var) {
+                (Node::Num(ExactNum::one()), node.clone())
+            } else {
+                (node.clone(), Node::Num(ExactNum::one()))
+            }
+        }
+    }
+}
+
+/// Multiply two nodes, simplifying away multiplication by 1.
+fn mul_nodes(a: Node, b: Node) -> Node {
+    let a_is_one = matches!(&a, Node::Num(n) if n.is_one());
+    let b_is_one = matches!(&b, Node::Num(n) if n.is_one());
+    if a_is_one {
+        b
+    } else if b_is_one {
+        a
+    } else {
+        Node::Multiply(Box::new(a), Box::new(b))
+    }
+}
+
+/// Symbolic coefficient summation: Σ (a·k² + b·k) → a·Faulhaber(k²) + b·Faulhaber(k).
+/// Handles bodies where each additive term is a symbolic coefficient times a polynomial in the index var.
+fn try_symbolic_coeff_summation(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    let terms = collect_additive_terms(body);
+    if terms.is_empty() {
+        return None;
+    }
+
+    let mut result_terms: Vec<Node> = Vec::new();
+    let mut any_symbolic = false;
+
+    for term in &terms {
+        let (coeff, index_part) = separate_index_factors(term, index_var);
+
+        // If the coefficient has no symbolic content, and the index part is
+        // the whole term, the pure polynomial path would have handled it already
+        let coeff_is_one = matches!(&coeff, Node::Num(n) if n.is_one());
+        if !coeff_is_one {
+            any_symbolic = true;
+        }
+
+        let poly = Polynomial::from_node(&index_part, index_var).ok()?;
+        let faulhaber_result = try_faulhaber_sum(&poly, start, end, env)?;
+        let faulhaber_node = match faulhaber_result {
+            Ok(node) => node,
+            Err(e) => return Some(Err(e)),
+        };
+
+        let term_result = mul_nodes(coeff, faulhaber_node);
+        result_terms.push(term_result);
+    }
+
+    if !any_symbolic || result_terms.is_empty() {
+        return None;
+    }
+
+    let mut result = result_terms.remove(0);
+    for term in result_terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Some(result.simplify(env))
+}
+
+/// Telescoping via partial fractions: decompose a rational body like 1/(k(k+1))
+/// into partial fractions, then check if the result telescopes.
+/// The PF body is NOT simplified — the simplifier would recombine fractions.
+fn try_telescoping_via_partial_fractions(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    use crate::partial_fractions::partial_fraction_decomposition;
+
+    let (num_node, den_node) = match body {
+        Node::Divide(n, d) => (n.as_ref(), d.as_ref()),
+        _ => return None,
+    };
+
+    let num_poly = Polynomial::from_node(num_node, index_var).ok()?;
+    let den_poly = Polynomial::from_node(den_node, index_var).ok()?;
+
+    if den_poly.degree()? < 2 {
+        return None;
+    }
+
+    let decomp = partial_fraction_decomposition(&num_poly, &den_poly).ok()?;
+
+    if !decomp.polynomial_part.is_zero() || decomp.terms.len() < 2 {
+        return None;
+    }
+
+    // Build PF body with Add/Subtract structure (not simplification-safe Add-of-negatives).
+    // Terms with negative numerators become Subtract nodes so the telescoping detector sees them.
+    let mut pf_body: Option<Node> = None;
+
+    for term in &decomp.terms {
+        let den = if term.power == 1 {
+            term.denominator.to_node()
+        } else {
+            Node::Power(
+                Box::new(term.denominator.to_node()),
+                Box::new(Node::Num(ExactNum::integer(term.power as i64))),
+            )
+        };
+
+        let is_negative = term
+            .numerator
+            .leading_coeff()
+            .is_some_and(|c| c < &BigRational::zero());
+
+        let (abs_num, subtract) = if is_negative {
+            ((-&term.numerator).to_node(), true)
+        } else {
+            (term.numerator.to_node(), false)
+        };
+
+        let frac = Node::Divide(Box::new(abs_num), Box::new(den));
+
+        pf_body = Some(match pf_body {
+            None => {
+                if subtract {
+                    Node::Negate(Box::new(frac))
+                } else {
+                    frac
+                }
+            }
+            Some(existing) => {
+                if subtract {
+                    Node::Subtract(Box::new(existing), Box::new(frac))
+                } else {
+                    Node::Add(Box::new(existing), Box::new(frac))
+                }
+            }
+        });
+    }
+
+    let pf_body = pf_body?;
+
+    try_telescoping_sum(index_var, start, end, &pf_body, env)
+}
+
 /// Try to find a symbolic closed form for a summation.
 fn try_symbolic_summation(
     index_var: &str,
@@ -2301,6 +2494,11 @@ fn try_symbolic_summation(
         }
     }
 
+    // Symbolic coefficient summation: Σ a·k² + b·k → a·Faulhaber(k²) + b·Faulhaber(k)
+    if let Some(result) = try_symbolic_coeff_summation(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
     // Geometric series: a · r^k
     if let Some(result) = try_geometric_sum(index_var, start, end, body, env) {
         return Some(result);
@@ -2308,6 +2506,11 @@ fn try_symbolic_summation(
 
     // Telescoping sum
     if let Some(result) = try_telescoping_sum(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
+    // Telescoping via partial fractions: 1/(k(k+1)) → PF → 1/k - 1/(k+1) → telescoping
+    if let Some(result) = try_telescoping_via_partial_fractions(index_var, start, end, body, env) {
         return Some(result);
     }
 

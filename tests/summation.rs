@@ -228,6 +228,118 @@ mod summation_tests {
         assert_eq!(simplify_latex("\\sum_{k=1}^{3} k^2"), "14");
     }
 
+    // ── Symbolic coefficient summation ─────────────────────────
+
+    #[test]
+    fn symbolic_coeff_sum_a_times_k_squared() {
+        // Σ_{k=1}^{n} a·k² = a·n(n+1)(2n+1)/6
+        let closed = simplify_latex("\\sum_{k=1}^{n} a \\cdot k^2");
+        assert!(
+            !closed.contains("\\sum"),
+            "Should produce closed form, got: {}",
+            closed
+        );
+        // Verify numerically: at n=10, a=3 → 3·385 = 1155
+        let mut env = Environment::new();
+        env.set("n", 10.0);
+        env.set("a", 3.0);
+        let mut tokenizer = Tokenizer::new(&closed);
+        let expr = build_expression_tree(tokenizer.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &env).unwrap();
+        assert_eq!(val, 1155.0, "a·Σk² at a=3,n=10 should be 1155, got {}", val);
+    }
+
+    #[test]
+    fn symbolic_coeff_sum_a_k2_plus_b_k() {
+        // Σ_{k=1}^{n} (a·k² + b·k) = a·n(n+1)(2n+1)/6 + b·n(n+1)/2
+        let closed = simplify_latex("\\sum_{k=1}^{n} {a \\cdot k^2 + b \\cdot k}");
+        assert!(
+            !closed.contains("\\sum"),
+            "Should produce closed form, got: {}",
+            closed
+        );
+        // Verify: a=2, b=3, n=5 → 2·55 + 3·15 = 110+45 = 155
+        let mut env = Environment::new();
+        env.set("n", 5.0);
+        env.set("a", 2.0);
+        env.set("b", 3.0);
+        let mut tokenizer = Tokenizer::new(&closed);
+        let expr = build_expression_tree(tokenizer.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &env).unwrap();
+        assert_eq!(
+            val, 155.0,
+            "a·Σk²+b·Σk at a=2,b=3,n=5 should be 155, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn symbolic_coeff_no_regression_pure_numeric() {
+        // Pure numeric coefficient sums still work via the polynomial path
+        let closed = simplify_latex("\\sum_{k=1}^{n} 3k^2");
+        let val = eval_with(&closed, "n", 10.0);
+        assert_eq!(val, 1155.0, "3·Σk² at n=10 should be 1155, got {}", val);
+    }
+
+    // ── Telescoping via partial fractions ─────────────────────
+
+    #[test]
+    fn telescoping_pf_reciprocal_product() {
+        // Σ_{k=1}^{n} 1/(k(k+1)) = n/(n+1)
+        let closed = simplify_latex("\\sum_{k=1}^{n} \\frac{1}{k(k+1)}");
+        assert!(
+            !closed.contains("\\sum"),
+            "Should produce closed form, got: {}",
+            closed
+        );
+        let val = eval_with(&closed, "n", 100.0);
+        let expected = 100.0 / 101.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "1/(k(k+1)) sum at n=100 should be {}, got {} from: {}",
+            expected,
+            val,
+            closed
+        );
+    }
+
+    #[test]
+    fn telescoping_pf_shifted_product() {
+        // Σ_{k=1}^{n} 1/(k(k+2)) = 1/2 · (1 + 1/2 - 1/(n+1) - 1/(n+2))
+        //   = 1/2 · (3/2 - (2n+3)/((n+1)(n+2)))
+        // Partial fractions: 1/(k(k+2)) = 1/2 · (1/k - 1/(k+2))
+        // This is a shift-by-2 telescoping, not shift-by-1 — may not be caught by our detector.
+        // Testing that PF at least runs without error.
+        let result = simplify_latex("\\sum_{k=1}^{n} \\frac{1}{k(k+2)}");
+        // If it produces a closed form, verify it; otherwise it returns unevaluated
+        if !result.contains("\\sum") {
+            let val = eval_with(&result, "n", 10.0);
+            // Σ_{k=1}^{10} 1/(k(k+2)) ≈ 0.6590909...
+            let expected: f64 = (1..=10).map(|k| 1.0 / (k as f64 * (k as f64 + 2.0))).sum();
+            assert!(
+                (val - expected).abs() < 1e-10,
+                "1/(k(k+2)) sum at n=10 should be {}, got {} from: {}",
+                expected,
+                val,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn telescoping_pf_no_regression_explicit_difference() {
+        // The existing telescoping detector still works on explicit differences
+        let result = simplify_latex("\\sum_{k=1}^{n} {\\frac{1}{k} - \\frac{1}{k+1}}");
+        let val = eval_with(&result, "n", 100.0);
+        let expected = 100.0 / 101.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Explicit telescoping should still work, got {} from: {}",
+            val,
+            result
+        );
+    }
+
     // ── MCP path (simplify tool handles summation) ───────────
 
     #[test]

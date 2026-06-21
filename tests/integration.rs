@@ -858,4 +858,50 @@ mod integration_tests {
         let result = integrate_latex("\\frac{1}{\\sqrt{x^2-1}}", "x").unwrap();
         assert!(result.contains("ln"), "Should produce ln term: {}", result);
     }
+
+    // ── Exact irrational coefficients (Carl's Bug #6) ─────────
+
+    #[test]
+    fn test_exact_irrational_x3_minus_1() {
+        // ∫1/(x³-1)dx should have √3 coefficients, not f64 approximations
+        let result = integrate_latex("\\frac{1}{x^3-1}", "x").unwrap();
+        assert!(
+            !result.contains("0.5773"),
+            "Should not contain f64 approximation of 1/√3, got: {}",
+            result
+        );
+        assert!(
+            result.contains("\\sqrt{3}"),
+            "Should contain exact √3, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_exact_irrational_x2_plus_x_plus_1() {
+        // ∫1/(x²+x+1)dx should have exact √3 arctan coefficient
+        let result = integrate_latex("\\frac{1}{x^2+x+1}", "x").unwrap();
+        assert!(
+            result.contains("\\sqrt{3}"),
+            "Should contain exact √3, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("0.577"),
+            "Should not contain f64 approximation, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_exact_irrational_no_regression_perfect_square() {
+        // ∫1/(x²+1)dx = arctan(x) — discriminant 4 is a perfect square
+        let result = integrate_latex("\\frac{1}{x^2+1}", "x").unwrap();
+        assert_eq!(
+            result.replace(" ", ""),
+            "\\arctan(x)+C",
+            "Perfect square case should remain exact: {}",
+            result
+        );
+    }
 }

@@ -2380,38 +2380,40 @@ fn integrate_pf_term(
             // discriminant = 4c - b²
             let four = num_rational::BigRational::from_integer(num_bigint::BigInt::from(4));
             let disc = &four * &c_denom - &b_denom * &b_denom;
-            let disc_f64 = disc.numer().to_string().parse::<f64>().unwrap_or(0.0)
-                / disc.denom().to_string().parse::<f64>().unwrap_or(1.0);
 
-            if disc_f64 > 0.0 {
-                let sqrt_disc = disc_f64.sqrt();
-                // coeff = residual · 2 / sqrt_disc
-                let _two = num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
-                let overall_coeff_f64 = {
-                    let res_f64 = residual.numer().to_string().parse::<f64>().unwrap_or(0.0)
-                        / residual.denom().to_string().parse::<f64>().unwrap_or(1.0);
-                    res_f64 * 2.0 / sqrt_disc
-                };
+            if disc > num_rational::BigRational::zero() {
+                let sqrt_disc = node_sqrt_rat(&disc);
+
+                // coeff = residual · 2 / sqrt(disc)
+                let two_residual = &residual
+                    * &num_rational::BigRational::from_integer(num_bigint::BigInt::from(2));
+                let arctan_coeff = Node::Divide(
+                    Box::new(rational_to_node(&two_residual)),
+                    Box::new(sqrt_disc.clone()),
+                );
+                let arctan_coeff = crate::simplify::Simplifiable::simplify(&arctan_coeff, &env)
+                    .unwrap_or(arctan_coeff);
 
                 // arctan arg: (2x + b) / sqrt(4c - b²)
                 let two_x_plus_b = Node::Add(
                     Box::new(Node::Multiply(
-                        Box::new(Node::Num(ExactNum::from_f64(2.0))),
+                        Box::new(Node::Num(ExactNum::integer(2))),
                         Box::new(Node::Variable(var.to_string())),
                     )),
                     Box::new(rational_to_node(&b_denom)),
                 );
-                let arctan_arg = Node::Divide(
-                    Box::new(two_x_plus_b),
-                    Box::new(Node::Num(ExactNum::from_f64(sqrt_disc))),
-                );
+                let arctan_arg = Node::Divide(Box::new(two_x_plus_b), Box::new(sqrt_disc));
+                let arctan_arg = crate::simplify::Simplifiable::simplify(&arctan_arg, &env)
+                    .unwrap_or(arctan_arg);
+
                 let arctan_term = Node::Function("arctan".to_string(), vec![arctan_arg]);
 
-                if (overall_coeff_f64 - 1.0).abs() < 1e-14 {
+                let coeff_is_one = matches!(&arctan_coeff, Node::Num(n) if n.is_one());
+                if coeff_is_one {
                     terms.push(arctan_term);
                 } else {
                     terms.push(Node::Multiply(
-                        Box::new(Node::Num(ExactNum::from_f64(overall_coeff_f64))),
+                        Box::new(arctan_coeff),
                         Box::new(arctan_term),
                     ));
                 }
@@ -2449,15 +2451,11 @@ fn integrate_pf_term(
         let h = &b_denom / &two;
         let alpha_sq = &c_denom - &h * &h;
 
-        use num_traits::ToPrimitive;
-        let alpha_sq_f64 =
-            alpha_sq.numer().to_f64().unwrap_or(0.0) / alpha_sq.denom().to_f64().unwrap_or(1.0);
-
-        if alpha_sq_f64 <= 0.0 {
+        if alpha_sq <= num_rational::BigRational::zero() {
             return Err("Quadratic factor has non-positive discriminant".to_string());
         }
 
-        let alpha_f64 = alpha_sq_f64.sqrt();
+        let alpha_node = node_sqrt_rat(&alpha_sq);
 
         let mut terms: Vec<Node> = Vec::new();
 
@@ -2492,12 +2490,13 @@ fn integrate_pf_term(
             };
 
             // J_1 = (1/α)·arctan((x+h)/α)
-            let arctan_arg = Node::Divide(
-                Box::new(xh_node.clone()),
-                Box::new(Node::Num(ExactNum::from_f64(alpha_f64))),
+            let arctan_arg = Node::Divide(Box::new(xh_node.clone()), Box::new(alpha_node.clone()));
+            let inv_alpha = Node::Divide(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(alpha_node.clone()),
             );
             let mut j_prev = Node::Multiply(
-                Box::new(Node::Num(ExactNum::from_f64(1.0 / alpha_f64))),
+                Box::new(inv_alpha),
                 Box::new(Node::Function("arctan".to_string(), vec![arctan_arg])),
             );
 

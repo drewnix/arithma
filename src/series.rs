@@ -16,7 +16,24 @@ use crate::tokenizer::Tokenizer;
 ///
 /// Returns a polynomial in (var - center). When center = 0 (Maclaurin),
 /// the result is a polynomial in var directly.
+/// Falls back to symbolic coefficient extraction when the expression
+/// contains parameters (variables other than the expansion variable).
 pub fn taylor_series(
+    expr: &Node,
+    var: &str,
+    center: &ExactNum,
+    order: usize,
+) -> Result<Node, String> {
+    match taylor_series_numeric(expr, var, center, order) {
+        Ok(result) => Ok(result),
+        Err(_) => {
+            let center_node = Node::Num(center.clone());
+            taylor_series_symbolic(expr, var, &center_node, order)
+        }
+    }
+}
+
+fn taylor_series_numeric(
     expr: &Node,
     var: &str,
     center: &ExactNum,
@@ -461,6 +478,55 @@ mod tests {
             result.contains('a'),
             "Result should contain symbolic center 'a', got: {}",
             result
+        );
+    }
+
+    #[test]
+    fn test_taylor_parametric_fallback() {
+        // n/(1+(n-1)a) expanded in a around 0, order 3
+        // f(a) = n/(1+(n-1)a), f(0) = n
+        // f'(a) = -n(n-1)/(1+(n-1)a)^2, f'(0) = -n(n-1)
+        // Coefficients: n, -n(n-1), n(n-1)^2, -n(n-1)^3
+        let result = taylor_series_latex("\\frac{n}{1+(n-1)a}", "a", 0.0, 3).unwrap();
+        assert!(
+            result.contains('n'),
+            "Result should contain parameter 'n', got: {}",
+            result
+        );
+        assert!(
+            !result.contains("Error") && !result.contains("not defined"),
+            "Should not error on parametric expression, got: {}",
+            result
+        );
+        // Verify: at n=4, a=0.1 the original is 4/(1+3·0.1) = 4/1.3 ≈ 3.07692
+        let mut tokenizer = Tokenizer::new(&result);
+        let expr = build_expression_tree(tokenizer.tokenize()).unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("n", 4.0);
+        eval_env.set("a", 0.1);
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        let exact = 4.0 / (1.0 + 3.0 * 0.1);
+        assert!(
+            (val - exact).abs() < 0.05,
+            "Parametric Taylor at n=4,a=0.1: expected ~{}, got {}",
+            exact,
+            val
+        );
+    }
+
+    #[test]
+    fn test_taylor_parametric_preserves_numeric_path() {
+        // Pure numeric case still works via the fast path
+        let result = taylor_series_latex("\\frac{1}{1-x}", "x", 0.0, 4).unwrap();
+        let mut tokenizer = Tokenizer::new(&result);
+        let expr = build_expression_tree(tokenizer.tokenize()).unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 0.5);
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        assert!(
+            (val - 1.9375).abs() < 1e-10,
+            "1/(1-x) Taylor at x=0.5 should be 1.9375, got {}",
+            val
         );
     }
 }
