@@ -93,6 +93,10 @@ pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode
 pub mod risch;
 
 pub mod algebraic;
+
+pub mod systems;
+pub use crate::systems::{solve_linear_system, solve_system, SystemSolution};
+
 pub use crate::risch::{
     build_tower, hermite_reduce, try_risch_tower, DifferentialExtension, HermiteResult, RischResult,
 };

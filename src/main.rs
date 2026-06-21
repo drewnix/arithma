@@ -53,6 +53,7 @@ Commands:
   differentiate <expr> [var]         Differentiate (alias: diff)
   integrate <expr> [var] [lo hi]      Integral (definite with bounds)
   solve <equation> [var]             Solve an equation
+  solve \"eq1, eq2\" \"x, y\"           Solve a system of linear equations
   factor <expr> [var]                Factor a polynomial over Q
   partial-fractions <n> <d> [var]    Partial fraction decomposition (alias: pf)
   evaluate <expr> [var=val ...]      Evaluate numerically (alias: eval)
@@ -166,9 +167,22 @@ fn cmd_integrate(args: &[String]) {
 fn cmd_solve(args: &[String]) {
     if args.is_empty() {
         eprintln!("Usage: arithma solve <equation> [var]");
+        eprintln!("       arithma solve \"eq1, eq2, ...\" \"x, y, ...\"");
         std::process::exit(1);
     }
     let equation = &args[0];
+
+    if let Some(vars_arg) = args.get(1) {
+        let vars: Vec<String> = vars_arg
+            .split(',')
+            .map(|s| normalize_var(s.trim()))
+            .collect();
+        if vars.len() > 1 || equation.contains(',') {
+            cmd_solve_system(equation, &vars);
+            return;
+        }
+    }
+
     let var = args
         .get(1)
         .map(|s| normalize_var(s))
@@ -206,6 +220,62 @@ fn cmd_solve(args: &[String]) {
                     );
                 }
             }
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_solve_system(equations_str: &str, vars: &[String]) {
+    let eq_strings: Vec<&str> = equations_str.split(',').collect();
+    let mut equations = Vec::new();
+
+    for eq_str in &eq_strings {
+        let mut tokenizer = Tokenizer::new(eq_str.trim());
+        let tokens = tokenizer.tokenize();
+        match build_expression_tree(tokens) {
+            Ok(e) => equations.push(e),
+            Err(e) => {
+                eprintln!("Error parsing '{}': {}", eq_str.trim(), e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    match arithma::solve_system(&equations, vars) {
+        Ok(arithma::SystemSolution::Unique(solutions)) => {
+            for (var, val) in &solutions {
+                println!("{} = {}", var, val);
+            }
+        }
+        Ok(arithma::SystemSolution::Multiple(sets)) => {
+            for (i, solutions) in sets.iter().enumerate() {
+                if sets.len() > 1 {
+                    println!("Solution {}:", i + 1);
+                }
+                for (var, val) in solutions {
+                    let prefix = if sets.len() > 1 { "  " } else { "" };
+                    println!("{}{} = {}", prefix, var, val);
+                }
+            }
+        }
+        Ok(arithma::SystemSolution::Parametric {
+            solutions,
+            free_vars,
+        }) => {
+            println!(
+                "Parametric solution (free variable{}: {}):",
+                if free_vars.len() > 1 { "s" } else { "" },
+                free_vars.join(", ")
+            );
+            for (var, val) in &solutions {
+                println!("  {} = {}", var, val);
+            }
+        }
+        Ok(arithma::SystemSolution::NoSolution) => {
+            println!("No solution (inconsistent system)");
         }
         Err(e) => {
             eprintln!("Error: {}", e);

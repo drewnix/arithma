@@ -205,7 +205,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "solve",
-            "description": "Solve an equation for a variable. Input should contain '=' sign. Returns exact solutions when possible (rational roots, quadratic formula, Cardano's formula for cubics, Ferrari's method for quartics).",
+            "description": "Solve a single equation for a variable. Input should contain '=' sign. Returns exact solutions when possible (rational roots, quadratic formula, Cardano's formula for cubics, Ferrari's method for quartics). For systems of equations, use solve_system instead.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -221,6 +221,26 @@ fn tools_schema() -> Value {
                     "assumptions": assumptions_schema()
                 },
                 "required": ["equation"]
+            }
+        },
+        {
+            "name": "solve_system",
+            "description": "Solve a system of equations. Linear systems use exact Gaussian elimination over Q. Polynomial systems (where at least one equation is linear) use substitution. Returns exact solutions. Handles unique, multiple, parametric, and inconsistent systems.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "equations": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "List of equations, each containing '='. E.g. [\"x + y = 3\", \"2x - y = 1\"]"
+                    },
+                    "variables": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Variables to solve for. E.g. [\"x\", \"y\"]"
+                    }
+                },
+                "required": ["equations", "variables"]
             }
         },
         {
@@ -431,6 +451,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
         "integrate" => tool_integrate(&args),
         "substitute" => tool_substitute(&args),
         "solve" => tool_solve(&args),
+        "solve_system" => tool_solve_system(&args),
         "factor" => tool_factor(&args),
         "partial_fractions" => tool_partial_fractions(&args),
         "limit" => tool_limit(&args),
@@ -569,6 +590,74 @@ fn tool_solve(args: &Value) -> Result<String, String> {
         Ok("No solutions found".to_string())
     } else {
         Ok(parts.join(", "))
+    }
+}
+
+fn tool_solve_system(args: &Value) -> Result<String, String> {
+    let eq_arr = args
+        .get("equations")
+        .and_then(|v| v.as_array())
+        .ok_or("Missing required parameter: equations (array of strings)")?;
+    let var_arr = args
+        .get("variables")
+        .and_then(|v| v.as_array())
+        .ok_or("Missing required parameter: variables (array of strings)")?;
+
+    let mut equations = Vec::new();
+    for eq_val in eq_arr {
+        let eq_str = eq_val.as_str().ok_or("Each equation must be a string")?;
+        let mut tokenizer = Tokenizer::new(eq_str);
+        let tokens = tokenizer.tokenize();
+        if let Some(err) = tokenizer.errors.into_iter().next() {
+            return Err(format!("Parse error in '{}': {}", eq_str, err));
+        }
+        let expr = build_expression_tree(tokens)
+            .map_err(|e| format!("Parse error in '{}': {}", eq_str, e))?;
+        equations.push(expr);
+    }
+
+    let vars: Vec<String> = var_arr
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .map(normalize_var)
+                .unwrap_or_else(|| "x".to_string())
+        })
+        .collect();
+
+    match arithma::solve_system(&equations, &vars)? {
+        arithma::SystemSolution::Unique(solutions) => {
+            let parts: Vec<String> = solutions
+                .iter()
+                .map(|(var, val)| format!("{} = {}", var, val))
+                .collect();
+            Ok(parts.join(", "))
+        }
+        arithma::SystemSolution::Multiple(sets) => {
+            let mut lines: Vec<String> = Vec::new();
+            for (i, solutions) in sets.iter().enumerate() {
+                let parts: Vec<String> = solutions
+                    .iter()
+                    .map(|(var, val)| format!("{} = {}", var, val))
+                    .collect();
+                lines.push(format!("Solution {}: {}", i + 1, parts.join(", ")));
+            }
+            Ok(lines.join("\n"))
+        }
+        arithma::SystemSolution::Parametric {
+            solutions,
+            free_vars,
+        } => {
+            let mut parts = vec![format!(
+                "Parametric solution (free: {})",
+                free_vars.join(", ")
+            )];
+            for (var, val) in &solutions {
+                parts.push(format!("{} = {}", var, val));
+            }
+            Ok(parts.join(", "))
+        }
+        arithma::SystemSolution::NoSolution => Ok("No solution (inconsistent system)".to_string()),
     }
 }
 
