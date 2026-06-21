@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**1062 tests, zero failures.** Every algorithm is verified against known results.
+**1116 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -88,7 +88,18 @@ omitted)`). **Parametric solving** — `solve(ax²+bx+c=0, x)` returns the
 quadratic formula with symbolic coefficients. **Systems of equations** —
 linear systems via exact Gaussian elimination over Q (handles unique,
 parametric, and inconsistent systems), polynomial systems via
-substitution when at least one equation is linear.
+substitution when at least one equation is linear. **Inequality solving** —
+polynomial and rational inequalities via root-finding + sign chart analysis,
+returning solutions in standard interval notation
+(`x²-4 > 0` → `(-∞, -2) ∪ (2, ∞)`).
+
+**Symbolic summation.** Closed-form evaluation of Σ expressions:
+polynomial sums via Faulhaber's formulas (Σk, Σk², Σk³, Σk⁴),
+geometric series (Σr^k), telescoping sums (Σ(1/k - 1/(k+1))),
+and general polynomial bodies via linearity (Σ(2k-1) = n²).
+Works with symbolic bounds (`Σ_{k=1}^{n} k = n(n+1)/2`)
+and evaluates to exact numbers when bounds are constant
+(`Σ_{k=1}^{100} k = 5050`).
 
 **ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
 (`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
@@ -105,7 +116,7 @@ used for quartic integration and Risch algorithm extensions.
 ## MCP server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
+stdio. It gives Claude or any MCP-compatible AI agent access to 16 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -113,7 +124,7 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
 | `differentiate` | Symbolic derivative with respect to any variable |
 | `integrate` | Indefinite/definite integrals; proves non-elementary when applicable |
 | `substitute` | Replace a variable with an expression |
-| `solve` | Solve a single equation (any degree, via factoring) |
+| `solve` | Solve equations or inequalities (any degree, interval notation for inequalities) |
 | `solve_system` | Solve systems of linear/polynomial equations |
 | `factor` | Irreducible factoring over Q (Berlekamp-Zassenhaus) |
 | `partial_fractions` | Decompose P(x)/Q(x) into partial fractions |
@@ -122,6 +133,7 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
 | `evaluate` | Numerical evaluation with variable assignments |
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
 | `equivalent` | Check if two expressions are mathematically equal |
+| `verify` | Numerically cross-check two expressions at multiple test points |
 | `solve_ode` | Solve first-order and second-order constant-coeff ODEs |
 
 Every tool accepts LaTeX and returns LaTeX. Nine tools accept an optional
@@ -223,6 +235,18 @@ y = C_{1} + \frac{1}{3} \cdot x^{3}
 
 $ arithma ode --cc 1 0 1
 y = C_{1} \cdot \cos(x) + C_{2} \cdot \sin(x)
+
+$ arithma simplify "\sum_{k=1}^{n} k^2"
+\frac{n \cdot (n + 1) \cdot (2n + 1)}{6}
+
+$ arithma simplify "\sum_{k=0}^{n} 2^k"
+2^{n + 1} - 1
+
+$ arithma solve "x^2 - 4 > 0"
+(-∞, -2) ∪ (2, ∞)
+
+$ arithma solve "\frac{x-1}{x+2} > 0"
+(-∞, -2) ∪ (1, ∞)
 
 $ arithma integrate "\exp(-x^2)" x
 No elementary antiderivative exists. The Risch algorithm proves that

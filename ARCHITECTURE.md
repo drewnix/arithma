@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1062 tests. 0 failures. 15 MCP tools. ~31K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
+**1116 tests. 0 failures. 16 MCP tools. ~32K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -63,6 +63,8 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Factored display**: repeated/multiple factors shown in factored form: `48/(16α³+24α²+12α+2)` → `24/(2α+1)³`.
 - **Negation normalization**: `f·(-g) → -(f·g)`, nested negations eliminated.
 - **Assumption system**: 6 property types (positive, nonneg, negative, nonzero, real, integer). `√(x²) → x` when x ≥ 0. Conservative default.
+- **f64 → rational canonicalization**: float coefficients near simple rationals (denominators ≤ 100) are converted to exact BigRational. `0.5·x → (1/2)·x`, `0.333...·x → (1/3)·x`. Improves equivalence detection.
+- **Numeric verification**: `verify` tool evaluates two expressions at 10 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support.
 - **Idempotency contract**: simplification is stable — applying it twice gives the same result.
 
 ### Differentiation
@@ -112,6 +114,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Rational equations**: automatic denominator clearing: `1/x = 2` → `x = 1/2`.
 - **Parametric equations**: `solve(ax²+bx+c=0, x)` → `(-b ± √(b²-4ac))/(2a)`. Differentiation-based coefficient extraction for symbolic coefficients.
 - **Systems of equations**: linear systems via exact Gaussian elimination over Q (unique, parametric, inconsistent). Polynomial systems via recursive substitution when at least one equation is linear. CLI: `arithma solve "eq1, eq2" "x, y"`. MCP: `solve_system` tool.
+- **Inequality solving**: polynomial and rational inequalities via root-finding + sign chart. Returns standard interval notation: `x²-4 > 0` → `(-∞, -2) ∪ (2, ∞)`. Handles >, >=, <, <= with proper endpoint inclusion. Rational inequalities exclude poles from solution set.
 - **Complex root reporting**: `solve_full()` returns solution count and omitted-complex-root count.
 
 ### Polynomial Algebra
@@ -129,6 +132,14 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - Symbolic eigenvalues for 2×2 and 3×3 matrices with variable entries (candidate search + deflation).
 - Numerical eigenvalues up to 4×4 (characteristic polynomial + Cardano/Ferrari).
 - Decimal matrix entries supported via float-to-rational conversion.
+
+### Symbolic Summation
+
+- **Faulhaber's formulas**: closed-form evaluation of Σk^p for p=0..4. `Σ_{k=1}^{n} k² = n(n+1)(2n+1)/6`.
+- **Geometric series**: `Σ_{k=0}^{n} r^k = (r^{n+1}-1)/(r-1)`. Handles coefficients.
+- **Telescoping sums**: detects g(k)-g(k+1) pattern before body simplification. `Σ(1/k - 1/(k+1)) = n/(n+1)`.
+- **General polynomial bodies**: linearity decomposition. `Σ(2k-1) = n²`.
+- **Constant/numeric bounds**: evaluates to exact number when possible. `Σ_{k=1}^{100} k = 5050`.
 
 ### Series and Limits
 
