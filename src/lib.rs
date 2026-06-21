@@ -81,7 +81,8 @@ pub use crate::multipoly::MultiPoly;
 
 pub mod series;
 pub use crate::series::{
-    taylor_series, taylor_series_latex, taylor_series_latex_symbolic, taylor_series_symbolic,
+    taylor_series, taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
+    taylor_series_symbolic,
 };
 
 pub mod limits;

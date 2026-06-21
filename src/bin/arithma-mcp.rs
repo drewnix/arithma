@@ -8,7 +8,9 @@ use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_exact_latex, integrate_latex};
 use arithma::limits::limit_latex;
 use arithma::matrix::parse_latex_matrix;
-use arithma::series::{taylor_series_latex, taylor_series_latex_symbolic};
+use arithma::series::{
+    taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
+};
 use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
@@ -312,7 +314,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "taylor_series",
-            "description": "Compute the Taylor (or Maclaurin) series expansion of an expression around a center point. Returns exact rational coefficients when possible (e.g. 1/24 instead of 0.041666...).",
+            "description": "Compute the Taylor (or Maclaurin) series expansion of an expression around a center point. Returns exact rational coefficients when possible. Supports multivariate: pass comma-separated variables (e.g. \"x,y\") and centers (e.g. \"0,0\") for total-degree truncation.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -770,6 +772,25 @@ fn tool_taylor_series(args: &Value) -> Result<String, String> {
     let var = get_var(args, "x");
     let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
     let env = env_from_args(args)?;
+
+    // Multivariate: var contains comma (e.g., "x,y")
+    if var.contains(',') {
+        let vars: Vec<&str> = var.split(',').map(|s| s.trim()).collect();
+        let default_centers = vec!["0"; vars.len()].join(",");
+        let center_str = args
+            .get("center")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&default_centers);
+        let centers: Vec<&str> = center_str.split(',').map(|s| s.trim()).collect();
+        if centers.len() == 1 && vars.len() > 1 {
+            let c = centers[0];
+            let centers_expanded: Vec<&str> = vec![c; vars.len()];
+            let result = taylor_series_multivar_latex(expr, &vars, &centers_expanded, order)?;
+            return parse_and_simplify_with_env(&result, &env);
+        }
+        let result = taylor_series_multivar_latex(expr, &vars, &centers, order)?;
+        return parse_and_simplify_with_env(&result, &env);
+    }
 
     let center_val = args.get("center");
     let is_numeric = center_val

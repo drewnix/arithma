@@ -315,6 +315,189 @@ pub fn taylor_series_latex_symbolic(
     Ok(format!("{}", result))
 }
 
+/// Multivariate Taylor expansion: f(x₁,...,x_m) around (a₁,...,a_m) to total degree N.
+///
+/// Computes Σ (1/α!) · (∂^|α|f/∂x^α)|_{center} · ∏(x_i - a_i)^α_i
+/// summed over all multi-indices α with |α| ≤ N.
+pub fn taylor_series_multivar(
+    expr: &Node,
+    vars: &[&str],
+    centers: &[Node],
+    order: usize,
+) -> Result<Node, String> {
+    use crate::substitute::substitute_variable;
+
+    if vars.len() != centers.len() {
+        return Err(format!(
+            "Number of variables ({}) must match number of center points ({})",
+            vars.len(),
+            centers.len()
+        ));
+    }
+    if vars.is_empty() {
+        return Err("At least one variable required".to_string());
+    }
+
+    let m = vars.len();
+    let env = Environment::new();
+
+    let multi_indices = generate_multi_indices(m, order);
+    let mut terms: Vec<Node> = Vec::new();
+
+    for alpha in &multi_indices {
+        // Compute mixed partial derivative ∂^|α|f / ∂x₁^α₁ ··· ∂x_m^α_m
+        let mut deriv = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+        for (i, &a_i) in alpha.iter().enumerate() {
+            for _ in 0..a_i {
+                deriv = differentiate(&deriv, vars[i])?;
+                deriv = deriv.simplify(&env).unwrap_or(deriv);
+            }
+        }
+
+        // Evaluate at center: substitute each x_i = a_i
+        let mut value = deriv;
+        for (i, center) in centers.iter().enumerate() {
+            value = substitute_variable(&value, vars[i], center)?;
+        }
+        value = value.simplify(&env).unwrap_or(value);
+
+        if matches!(&value, Node::Num(n) if n.is_zero()) {
+            continue;
+        }
+
+        // Coefficient: value / α! where α! = α₁! · α₂! · ··· · α_m!
+        let mut alpha_fact = BigRational::one();
+        for &a_i in alpha {
+            for j in 2..=a_i {
+                alpha_fact *= BigRational::from_integer(BigInt::from(j));
+            }
+        }
+        let coeff = if alpha_fact.is_one() {
+            value
+        } else {
+            Node::Divide(
+                Box::new(value),
+                Box::new(Node::Num(ExactNum::Rational(alpha_fact))),
+            )
+            .simplify(&env)
+            .unwrap_or_else(|_| Node::Num(ExactNum::zero()))
+        };
+
+        if matches!(&coeff, Node::Num(n) if n.is_zero()) {
+            continue;
+        }
+
+        // Build monomial ∏(x_i - a_i)^α_i
+        let total_degree: usize = alpha.iter().sum();
+        let mut monomial: Option<Node> = None;
+        for (i, &a_i) in alpha.iter().enumerate() {
+            if a_i == 0 {
+                continue;
+            }
+            let shifted = if matches!(&centers[i], Node::Num(n) if n.is_zero()) {
+                Node::Variable(vars[i].to_string())
+            } else {
+                Node::Subtract(
+                    Box::new(Node::Variable(vars[i].to_string())),
+                    Box::new(centers[i].clone()),
+                )
+            };
+            let factor = if a_i == 1 {
+                shifted
+            } else {
+                Node::Power(
+                    Box::new(shifted),
+                    Box::new(Node::Num(ExactNum::integer(a_i as i64))),
+                )
+            };
+            monomial = Some(match monomial {
+                None => factor,
+                Some(prev) => Node::Multiply(Box::new(prev), Box::new(factor)),
+            });
+        }
+
+        let term = match (total_degree, monomial) {
+            (0, _) => coeff,
+            (_, Some(mono)) => {
+                if matches!(&coeff, Node::Num(n) if n.is_one()) {
+                    mono
+                } else {
+                    Node::Multiply(Box::new(coeff), Box::new(mono))
+                }
+            }
+            _ => coeff,
+        };
+
+        terms.push(term);
+    }
+
+    if terms.is_empty() {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    result.simplify(&env)
+}
+
+/// Generate all multi-indices (α₁,...,α_m) with α₁+...+α_m ≤ max_total,
+/// in graded lexicographic order.
+fn generate_multi_indices(m: usize, max_total: usize) -> Vec<Vec<usize>> {
+    let mut result = Vec::new();
+    let mut current = vec![0usize; m];
+    generate_multi_indices_inner(&mut result, &mut current, 0, max_total);
+    result
+}
+
+fn generate_multi_indices_inner(
+    result: &mut Vec<Vec<usize>>,
+    current: &mut Vec<usize>,
+    pos: usize,
+    remaining: usize,
+) {
+    if pos == current.len() {
+        result.push(current.clone());
+        return;
+    }
+    for k in 0..=remaining {
+        current[pos] = k;
+        generate_multi_indices_inner(result, current, pos + 1, remaining - k);
+    }
+}
+
+/// Multivariate Taylor from LaTeX input.
+pub fn taylor_series_multivar_latex(
+    latex_expr: &str,
+    vars: &[&str],
+    center_strs: &[&str],
+    order: usize,
+) -> Result<String, String> {
+    let expr = {
+        let mut tok = Tokenizer::new(latex_expr);
+        build_expression_tree(tok.tokenize())?
+    };
+
+    let centers: Vec<Node> = center_strs
+        .iter()
+        .map(|s| {
+            if *s == "0" {
+                Ok(Node::Num(ExactNum::zero()))
+            } else {
+                let mut tok = Tokenizer::new(s);
+                build_expression_tree(tok.tokenize())
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let result = taylor_series_multivar(&expr, vars, &centers, order)?;
+    let env = Environment::new();
+    let simplified = result.simplify(&env).unwrap_or(result);
+    Ok(format!("{}", simplified))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +710,96 @@ mod tests {
             (val - 1.9375).abs() < 1e-10,
             "1/(1-x) Taylor at x=0.5 should be 1.9375, got {}",
             val
+        );
+    }
+
+    #[test]
+    fn test_multivar_taylor_polynomial() {
+        // f(x,y) = x² + xy + y² around (0,0), order 2
+        // Should return exactly x² + xy + y² (polynomial of degree 2)
+        let result =
+            taylor_series_multivar_latex("x^2 + x \\cdot y + y^2", &["x", "y"], &["0", "0"], 2)
+                .unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 2.0);
+        eval_env.set("y", 3.0);
+        let mut tok = Tokenizer::new(&result);
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        // 4 + 6 + 9 = 19
+        assert!(
+            (val - 19.0).abs() < 1e-10,
+            "x²+xy+y² at (2,3) should be 19, got {} from: {}",
+            val,
+            result
+        );
+    }
+
+    #[test]
+    fn test_multivar_taylor_rational() {
+        // f(x,y) = 1/(1-x-y) around (0,0), order 2
+        // = 1 + (x+y) + (x+y)² + ... truncated at degree 2
+        // = 1 + x + y + x² + 2xy + y²
+        let result =
+            taylor_series_multivar_latex("\\frac{1}{1-x-y}", &["x", "y"], &["0", "0"], 2).unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 0.1);
+        eval_env.set("y", 0.2);
+        let mut tok = Tokenizer::new(&result);
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        // 1 + 0.1 + 0.2 + 0.01 + 0.04 + 0.04 = 1.4
+        let expected = 1.0 + 0.1 + 0.2 + 0.01 + 2.0 * 0.1 * 0.2 + 0.04;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "1/(1-x-y) Taylor(2) at (0.1,0.2): expected {}, got {} from: {}",
+            expected,
+            val,
+            result
+        );
+    }
+
+    #[test]
+    fn test_multivar_taylor_mixed_partials() {
+        // f(x,y) = sin(x)·cos(y) around (0,0), order 3
+        // = x - x³/6 - xy²/2 + ... (terms up to total degree 3)
+        let result =
+            taylor_series_multivar_latex("\\sin(x) \\cdot \\cos(y)", &["x", "y"], &["0", "0"], 3)
+                .unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 0.3);
+        eval_env.set("y", 0.2);
+        let mut tok = Tokenizer::new(&result);
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        let exact = 0.3_f64.sin() * 0.2_f64.cos();
+        assert!(
+            (val - exact).abs() < 0.001,
+            "sin(x)cos(y) Taylor(3) at (0.3,0.2): expected ~{}, got {} from: {}",
+            exact,
+            val,
+            result
+        );
+    }
+
+    #[test]
+    fn test_multivar_taylor_nonzero_center() {
+        // f(x,y) = x·y around (1,1), order 2
+        // f = 1 + (x-1) + (y-1) + (x-1)(y-1)
+        let result =
+            taylor_series_multivar_latex("x \\cdot y", &["x", "y"], &["1", "1"], 2).unwrap();
+        let mut eval_env = Environment::new();
+        eval_env.set("x", 3.0);
+        eval_env.set("y", 4.0);
+        let mut tok = Tokenizer::new(&result);
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let val = Evaluator::evaluate(&expr, &eval_env).unwrap();
+        // x·y at (3,4) = 12 (exact for bilinear at order 2)
+        assert!(
+            (val - 12.0).abs() < 1e-10,
+            "x·y at (3,4) should be 12, got {} from: {}",
+            val,
+            result
         );
     }
 }
