@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1123 tests. 0 failures. 16 MCP tools. ~32K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
+**1134 tests. 0 failures. 16 MCP tools. ~32K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -138,12 +138,14 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Faulhaber's formulas**: closed-form evaluation of Σk^p for p=0..4. `Σ_{k=1}^{n} k² = n(n+1)(2n+1)/6`.
 - **Geometric series**: `Σ_{k=0}^{n} r^k = (r^{n+1}-1)/(r-1)`. Handles coefficients.
 - **Telescoping sums**: detects g(k)-g(k+1) pattern before body simplification. `Σ(1/k - 1/(k+1)) = n/(n+1)`.
+- **Telescoping via partial fractions**: `Σ 1/(k(k+1))` decomposes to `1/k - 1/(k+1)` automatically.
+- **Symbolic coefficients**: `Σ a·k²` decomposes into symbolic coefficient × Faulhaber. Handles linear combinations: `Σ (a·k² + b·k)`.
 - **General polynomial bodies**: linearity decomposition. `Σ(2k-1) = n²`.
 - **Constant/numeric bounds**: evaluates to exact number when possible. `Σ_{k=1}^{100} k = 5050`.
 
 ### Series and Limits
 
-- **Taylor expansion**: univariate around numeric or symbolic center, with exact coefficients.
+- **Taylor expansion**: univariate around numeric or symbolic center, with exact coefficients. Parametric expressions (e.g., `n/(1+(n-1)a)` expanded in `a`) produce symbolic coefficients.
 - **Limits**: direct substitution, L'Hopital's rule.
 
 ### ODEs
