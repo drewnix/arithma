@@ -32,11 +32,7 @@ mod verify_tests {
 
     #[test]
     fn verify_trig_identity() {
-        let result = verify(
-            "\\sin(x)^2 + \\cos(x)^2",
-            "1",
-            &["x"],
-        );
+        let result = verify("\\sin(x)^2 + \\cos(x)^2", "1", &["x"]);
         assert!(result.passed, "sin²+cos²=1 should pass");
     }
 
@@ -86,12 +82,12 @@ mod verify_tests {
 
     #[test]
     fn greek_variable_names_normalized() {
-        let result = verify(
-            "\\frac{1}{1+\\alpha}",
-            "\\frac{1}{1+\\alpha}",
-            &["\\alpha"],
+        let result = verify("\\frac{1}{1+\\alpha}", "\\frac{1}{1+\\alpha}", &["\\alpha"]);
+        assert!(
+            result.passed,
+            "Greek var should be normalized, got: {}",
+            result
         );
-        assert!(result.passed, "Greek var should be normalized, got: {}", result);
         assert!(result.points_tested >= 5, "Should test at multiple points");
     }
 
@@ -102,6 +98,10 @@ mod verify_tests {
         assert!(!result.passed, "0 points tested should not be PASS");
         assert!(result.insufficient_points);
         let s = format!("{}", result);
-        assert!(s.contains("INCONCLUSIVE"), "Should say INCONCLUSIVE, got: {}", s);
+        assert!(
+            s.contains("INCONCLUSIVE"),
+            "Should say INCONCLUSIVE, got: {}",
+            s
+        );
     }
 }

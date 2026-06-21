@@ -600,10 +600,7 @@ fn tool_solve(args: &Value) -> Result<String, String> {
     // Check if it's an inequality
     if matches!(
         expr,
-        Node::Greater(_, _)
-            | Node::GreaterEqual(_, _)
-            | Node::Less(_, _)
-            | Node::LessEqual(_, _)
+        Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
     ) {
         return arithma::solve_inequality(&expr, &var);
     }

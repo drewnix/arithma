@@ -201,10 +201,7 @@ fn cmd_solve(args: &[String]) {
     // Check if it's an inequality
     if matches!(
         expr,
-        Node::Greater(_, _)
-            | Node::GreaterEqual(_, _)
-            | Node::Less(_, _)
-            | Node::LessEqual(_, _)
+        Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
     ) {
         match arithma::solve_inequality(&expr, &var) {
             Ok(result) => println!("{}", result),

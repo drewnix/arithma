@@ -175,7 +175,11 @@ mod summation_tests {
         // Σ_{k=0}^{n} k = n(n+1)/2 (k=0 contributes 0)
         let closed = simplify_latex("\\sum_{k=0}^{n} k");
         let val = eval_with(&closed, "n", 10.0);
-        assert_eq!(val, 55.0, "Σ_{{k=0}}^{{10}} k = 55, got {} from: {}", val, closed);
+        assert_eq!(
+            val, 55.0,
+            "Σ_{{k=0}}^{{10}} k = 55, got {} from: {}",
+            val, closed
+        );
     }
 
     #[test]
@@ -184,7 +188,11 @@ mod summation_tests {
         let closed = simplify_latex("\\sum_{k=2}^{n} k");
         let val = eval_with(&closed, "n", 10.0);
         // Σ_{k=2}^{10} k = 2+3+...+10 = 55-1 = 54
-        assert_eq!(val, 54.0, "Σ_{{k=2}}^{{10}} k = 54, got {} from: {}", val, closed);
+        assert_eq!(
+            val, 54.0,
+            "Σ_{{k=2}}^{{10}} k = 54, got {} from: {}",
+            val, closed
+        );
     }
 
     // ── Unbraced multi-term bodies (Bug #2 regression) ────────
@@ -195,7 +203,11 @@ mod summation_tests {
         let closed = simplify_latex("\\sum_{k=1}^{n} 3 \\cdot k^2");
         let val = eval_with(&closed, "n", 10.0);
         // 3·(10·11·21/6) = 3·385 = 1155
-        assert_eq!(val, 1155.0, "3·Σk² at n=10 should be 1155, got {} from: {}", val, closed);
+        assert_eq!(
+            val, 1155.0,
+            "3·Σk² at n=10 should be 1155, got {} from: {}",
+            val, closed
+        );
     }
 
     #[test]
@@ -203,7 +215,11 @@ mod summation_tests {
         let closed = simplify_latex("\\sum_{k=1}^{n} {k^2 + k}");
         let val = eval_with(&closed, "n", 5.0);
         // (5·6·11/6) + (5·6/2) = 55 + 15 = 70
-        assert_eq!(val, 70.0, "Σ(k²+k) at n=5 should be 70, got {} from: {}", val, closed);
+        assert_eq!(
+            val, 70.0,
+            "Σ(k²+k) at n=5 should be 70, got {} from: {}",
+            val, closed
+        );
     }
 
     #[test]

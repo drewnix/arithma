@@ -3,9 +3,7 @@ use crate::evaluator::Evaluator;
 use crate::node::Node;
 use crate::tokenizer::normalize_var;
 
-const TEST_POINTS: &[f64] = &[
-    0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0,
-];
+const TEST_POINTS: &[f64] = &[0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0];
 
 const TOLERANCE: f64 = 1e-8;
 const MIN_POINTS_FOR_PASS: usize = 3;
@@ -23,11 +21,7 @@ pub struct Counterexample {
     pub rhs_value: f64,
 }
 
-pub fn verify_identity(
-    lhs: &Node,
-    rhs: &Node,
-    variables: &[String],
-) -> VerifyResult {
+pub fn verify_identity(lhs: &Node, rhs: &Node, variables: &[String]) -> VerifyResult {
     let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
 
@@ -99,7 +93,11 @@ impl std::fmt::Display for VerifyResult {
             );
         }
         if self.passed {
-            write!(f, "Verified: PASS (tested at {} points)", self.points_tested)
+            write!(
+                f,
+                "Verified: PASS (tested at {} points)",
+                self.points_tested
+            )
         } else if let Some(ref cx) = self.counterexample {
             let point_str: Vec<String> = cx
                 .point

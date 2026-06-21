@@ -60,19 +60,13 @@ mod inequality_tests {
     #[test]
     fn rational_strict() {
         // (x-1)/(x+2) > 0 → (-∞,-2) ∪ (1,∞)
-        assert_eq!(
-            solve_ineq("\\frac{x-1}{x+2} > 0"),
-            "(-∞, -2) ∪ (1, ∞)"
-        );
+        assert_eq!(solve_ineq("\\frac{x-1}{x+2} > 0"), "(-∞, -2) ∪ (1, ∞)");
     }
 
     #[test]
     fn rational_nonstrict() {
         // (x-1)/(x+2) >= 0 → (-∞,-2) ∪ [1,∞)
-        assert_eq!(
-            solve_ineq("\\frac{x-1}{x+2} >= 0"),
-            "(-∞, -2) ∪ [1, ∞)"
-        );
+        assert_eq!(solve_ineq("\\frac{x-1}{x+2} >= 0"), "(-∞, -2) ∪ [1, ∞)");
     }
 
     // ── Linear inequalities ──────────────────────────────────
@@ -102,10 +96,7 @@ mod inequality_tests {
     #[test]
     fn cancelled_factor_excludes_pole() {
         // Bug #4: (x²-1)/(x-1) > 0 must exclude x=1 (undefined)
-        assert_eq!(
-            solve_ineq("\\frac{x^2-1}{x-1} > 0"),
-            "(-1, 1) ∪ (1, ∞)"
-        );
+        assert_eq!(solve_ineq("\\frac{x^2-1}{x-1} > 0"), "(-1, 1) ∪ (1, ∞)");
     }
 
     #[test]

@@ -18,7 +18,6 @@ impl IneqType {
     fn includes_zero(self) -> bool {
         matches!(self, IneqType::Ge | IneqType::Le)
     }
-
 }
 
 fn sign_satisfies(val: &BigRational, ineq: IneqType) -> bool {
@@ -84,7 +83,10 @@ pub fn solve_inequality(expr: &Node, target_var: &str) -> Result<String, String>
         return solve_poly_inequality(&poly, ineq_type);
     }
 
-    Err("Cannot solve this inequality (not polynomial or rational in the given variable)".to_string())
+    Err(
+        "Cannot solve this inequality (not polynomial or rational in the given variable)"
+            .to_string(),
+    )
 }
 
 fn find_rational_and_irrational_roots(poly: &Polynomial) -> Vec<CritPoint> {
@@ -271,11 +273,7 @@ where
     }
 
     for (i, pt) in points.iter().enumerate() {
-        let point_included = if pt.is_pole {
-            false
-        } else {
-            includes_eq
-        };
+        let point_included = if pt.is_pole { false } else { includes_eq };
 
         if in_interval {
             if point_included {

@@ -942,13 +942,9 @@ impl Simplifiable for Node {
 
                 // Try telescoping on the unsimplified body (before simplification
                 // merges the difference into a single fraction)
-                if let Some(result) = try_telescoping_sum(
-                    index_var,
-                    &start_simplified,
-                    &end_simplified,
-                    body,
-                    env,
-                ) {
+                if let Some(result) =
+                    try_telescoping_sum(index_var, &start_simplified, &end_simplified, body, env)
+                {
                     return result;
                 }
 
@@ -2069,15 +2065,9 @@ fn faulhaber_sum_node(p: usize, n: &Node) -> Option<Node> {
 
     match p {
         0 => Some(n.clone()),
-        1 => Some(Node::Divide(
-            Box::new(Node::Multiply(nb(), np1())),
-            int(2),
-        )),
+        1 => Some(Node::Divide(Box::new(Node::Multiply(nb(), np1())), int(2))),
         2 => {
-            let two_n_plus_1 = Box::new(Node::Add(
-                Box::new(Node::Multiply(int(2), nb())),
-                int(1),
-            ));
+            let two_n_plus_1 = Box::new(Node::Add(Box::new(Node::Multiply(int(2), nb())), int(1)));
             Some(Node::Divide(
                 Box::new(Node::Multiply(
                     Box::new(Node::Multiply(nb(), np1())),
@@ -2094,16 +2084,10 @@ fn faulhaber_sum_node(p: usize, n: &Node) -> Option<Node> {
             int(4),
         )),
         4 => {
-            let two_n_plus_1 = Box::new(Node::Add(
-                Box::new(Node::Multiply(int(2), nb())),
-                int(1),
-            ));
+            let two_n_plus_1 = Box::new(Node::Add(Box::new(Node::Multiply(int(2), nb())), int(1)));
             let poly = Box::new(Node::Subtract(
                 Box::new(Node::Add(
-                    Box::new(Node::Multiply(
-                        int(3),
-                        Box::new(Node::Power(nb(), int(2))),
-                    )),
+                    Box::new(Node::Multiply(int(3), Box::new(Node::Power(nb(), int(2))))),
                     Box::new(Node::Multiply(int(3), nb())),
                 )),
                 int(1),
@@ -2222,10 +2206,7 @@ fn try_geometric_sum(
         Box::new(Node::Power(Box::new(base.clone()), Box::new(end_plus_1))),
         Box::new(Node::Power(Box::new(base.clone()), Box::new(start.clone()))),
     );
-    let denominator = Node::Subtract(
-        Box::new(base),
-        Box::new(Node::Num(ExactNum::integer(1))),
-    );
+    let denominator = Node::Subtract(Box::new(base), Box::new(Node::Num(ExactNum::integer(1))));
 
     let result = Node::Multiply(
         Box::new(coeff),
@@ -2250,8 +2231,7 @@ fn try_telescoping_sum(
         );
 
         // Pattern: g(k) − g(k+1) → sum = g(start) − g(end+1)
-        if let Ok(left_shifted) =
-            crate::substitute::substitute_variable(left, index_var, &k_plus_1)
+        if let Ok(left_shifted) = crate::substitute::substitute_variable(left, index_var, &k_plus_1)
         {
             let ls = left_shifted.simplify(env).unwrap_or(left_shifted);
             let rs = right.simplify(env).unwrap_or(*right.clone());
