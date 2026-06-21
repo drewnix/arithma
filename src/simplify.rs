@@ -914,6 +914,19 @@ impl Simplifiable for Node {
             Node::Summation(index_var, start, end, body) => {
                 let start_simplified = start.simplify(env)?;
                 let end_simplified = end.simplify(env)?;
+
+                // Try telescoping on the unsimplified body (before simplification
+                // merges the difference into a single fraction)
+                if let Some(result) = try_telescoping_sum(
+                    index_var,
+                    &start_simplified,
+                    &end_simplified,
+                    body,
+                    env,
+                ) {
+                    return result;
+                }
+
                 let body_simplified = body.simplify(env)?;
 
                 // Try to evaluate if bounds are constant values
@@ -924,29 +937,23 @@ impl Simplifiable for Node {
                         let start_val = start_n.to_f64();
                         let end_val = end_n.to_f64();
 
-                        // For small ranges (fewer than 100 terms), we can expand inline
                         let range_size = (end_val - start_val + 1.0) as usize;
                         if range_size <= 10 {
                             let mut sum_node = Node::Num(ExactNum::zero());
-
-                            // Create a temporary environment for each iteration
                             let mut sum_env = env.clone();
 
                             let start_i = start_val as i64;
                             let end_i = end_val as i64;
 
-                            // Evaluate each term and add them together
                             for i in start_i..=end_i {
                                 sum_env.set_exact(index_var, ExactNum::integer(i));
 
-                                // Create a substituted body for this iteration
                                 let substituted_body = crate::substitute::substitute_variable(
                                     &body_simplified,
                                     index_var,
                                     &Node::Num(ExactNum::integer(i)),
                                 )?;
 
-                                // Add this term to our running sum
                                 sum_node =
                                     Node::Add(Box::new(sum_node), Box::new(substituted_body));
                             }
@@ -956,7 +963,18 @@ impl Simplifiable for Node {
                     }
                 }
 
-                // If we can't or shouldn't evaluate the summation, return it with simplified components
+                // Try symbolic closed form (Faulhaber, geometric, constant)
+                if let Some(result) = try_symbolic_summation(
+                    index_var,
+                    &start_simplified,
+                    &end_simplified,
+                    &body_simplified,
+                    env,
+                ) {
+                    return result;
+                }
+
+                // If we can't find a closed form, return with simplified components
                 Ok(Node::Summation(
                     index_var.clone(),
                     Box::new(start_simplified),
@@ -2016,6 +2034,279 @@ fn try_simplify_sqrt_product(
 
     let simplified = crate::simplify::Simplifiable::simplify(&result, env).unwrap_or(result);
     Some(simplified)
+}
+
+/// Build S_p(n) = Σ_{k=1}^{n} k^p as a Node tree using Faulhaber's formulas.
+fn faulhaber_sum_node(p: usize, n: &Node) -> Option<Node> {
+    let nb = || Box::new(n.clone());
+    let np1 = || Box::new(Node::Add(nb(), Box::new(Node::Num(ExactNum::integer(1)))));
+    let int = |v: i64| Box::new(Node::Num(ExactNum::integer(v)));
+
+    match p {
+        0 => Some(n.clone()),
+        1 => Some(Node::Divide(
+            Box::new(Node::Multiply(nb(), np1())),
+            int(2),
+        )),
+        2 => {
+            let two_n_plus_1 = Box::new(Node::Add(
+                Box::new(Node::Multiply(int(2), nb())),
+                int(1),
+            ));
+            Some(Node::Divide(
+                Box::new(Node::Multiply(
+                    Box::new(Node::Multiply(nb(), np1())),
+                    two_n_plus_1,
+                )),
+                int(6),
+            ))
+        }
+        3 => Some(Node::Divide(
+            Box::new(Node::Multiply(
+                Box::new(Node::Power(nb(), int(2))),
+                Box::new(Node::Power(np1(), int(2))),
+            )),
+            int(4),
+        )),
+        4 => {
+            let two_n_plus_1 = Box::new(Node::Add(
+                Box::new(Node::Multiply(int(2), nb())),
+                int(1),
+            ));
+            let poly = Box::new(Node::Subtract(
+                Box::new(Node::Add(
+                    Box::new(Node::Multiply(
+                        int(3),
+                        Box::new(Node::Power(nb(), int(2))),
+                    )),
+                    Box::new(Node::Multiply(int(3), nb())),
+                )),
+                int(1),
+            ));
+            Some(Node::Divide(
+                Box::new(Node::Multiply(
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Multiply(nb(), np1())),
+                        two_n_plus_1,
+                    )),
+                    poly,
+                )),
+                int(30),
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Evaluate a polynomial summation using Faulhaber's formulas.
+/// Σ_{k=start}^{end} f(k) = Σ_j c_j · [S_j(end) − S_j(start−1)]
+fn try_faulhaber_sum(
+    poly: &Polynomial,
+    start: &Node,
+    end: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    let degree = poly.degree()?;
+    if degree > 4 {
+        return None;
+    }
+
+    let start_minus_1 = Node::Subtract(
+        Box::new(start.clone()),
+        Box::new(Node::Num(ExactNum::integer(1))),
+    );
+
+    let mut terms: Vec<Node> = Vec::new();
+
+    for j in 0..=degree {
+        let c_j = poly.coeff(j);
+        if c_j.is_zero() {
+            continue;
+        }
+
+        let s_j_end = faulhaber_sum_node(j, end)?;
+        let s_j_start = faulhaber_sum_node(j, &start_minus_1)?;
+        let diff = Node::Subtract(Box::new(s_j_end), Box::new(s_j_start));
+
+        if c_j == BigRational::one() {
+            terms.push(diff);
+        } else {
+            let coeff_node = Node::Num(ExactNum::Rational(c_j));
+            terms.push(Node::Multiply(Box::new(coeff_node), Box::new(diff)));
+        }
+    }
+
+    if terms.is_empty() {
+        return Some(Ok(Node::Num(ExactNum::zero())));
+    }
+
+    let mut result = terms.remove(0);
+    for term in terms {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+
+    Some(result.simplify(env))
+}
+
+/// Detect geometric pattern: coefficient · base^index_var.
+fn detect_geometric(body: &Node, index_var: &str) -> Option<(Node, Node)> {
+    match body {
+        Node::Power(base, exp) => {
+            if let Node::Variable(v) = exp.as_ref() {
+                if v == index_var && !base.contains_variable(index_var) {
+                    return Some((Node::Num(ExactNum::one()), *base.clone()));
+                }
+            }
+            None
+        }
+        Node::Multiply(left, right) => {
+            if let Some((inner_coeff, base)) = detect_geometric(right, index_var) {
+                if !left.contains_variable(index_var) {
+                    let coeff = Node::Multiply(Box::new(*left.clone()), Box::new(inner_coeff));
+                    return Some((coeff, base));
+                }
+            }
+            if let Some((inner_coeff, base)) = detect_geometric(left, index_var) {
+                if !right.contains_variable(index_var) {
+                    let coeff = Node::Multiply(Box::new(inner_coeff), Box::new(*right.clone()));
+                    return Some((coeff, base));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Geometric series: Σ_{k=start}^{end} a·r^k = a·(r^{end+1} − r^{start})/(r − 1)
+fn try_geometric_sum(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    let (coeff, base) = detect_geometric(body, index_var)?;
+
+    let end_plus_1 = Node::Add(
+        Box::new(end.clone()),
+        Box::new(Node::Num(ExactNum::integer(1))),
+    );
+
+    let numerator = Node::Subtract(
+        Box::new(Node::Power(Box::new(base.clone()), Box::new(end_plus_1))),
+        Box::new(Node::Power(Box::new(base.clone()), Box::new(start.clone()))),
+    );
+    let denominator = Node::Subtract(
+        Box::new(base),
+        Box::new(Node::Num(ExactNum::integer(1))),
+    );
+
+    let result = Node::Multiply(
+        Box::new(coeff),
+        Box::new(Node::Divide(Box::new(numerator), Box::new(denominator))),
+    );
+
+    Some(result.simplify(env))
+}
+
+/// Telescoping: detect f(k) = g(k) − g(k±1) and collapse.
+fn try_telescoping_sum(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    if let Node::Subtract(ref left, ref right) = body {
+        let k_plus_1 = Node::Add(
+            Box::new(Node::Variable(index_var.to_string())),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+
+        // Pattern: g(k) − g(k+1) → sum = g(start) − g(end+1)
+        if let Ok(left_shifted) =
+            crate::substitute::substitute_variable(left, index_var, &k_plus_1)
+        {
+            let ls = left_shifted.simplify(env).unwrap_or(left_shifted);
+            let rs = right.simplify(env).unwrap_or(*right.clone());
+            if ls == rs {
+                let a_start =
+                    crate::substitute::substitute_variable(left, index_var, start).ok()?;
+                let end_plus_1 = Node::Add(
+                    Box::new(end.clone()),
+                    Box::new(Node::Num(ExactNum::integer(1))),
+                );
+                let a_end =
+                    crate::substitute::substitute_variable(left, index_var, &end_plus_1).ok()?;
+                let result = Node::Subtract(Box::new(a_start), Box::new(a_end));
+                return Some(result.simplify(env));
+            }
+        }
+
+        // Pattern: g(k+1) − g(k) → sum = g(end+1) − g(start)
+        if let Ok(right_shifted) =
+            crate::substitute::substitute_variable(right, index_var, &k_plus_1)
+        {
+            let rs = right_shifted.simplify(env).unwrap_or(right_shifted);
+            let ls = left.simplify(env).unwrap_or(*left.clone());
+            if rs == ls {
+                let end_plus_1 = Node::Add(
+                    Box::new(end.clone()),
+                    Box::new(Node::Num(ExactNum::integer(1))),
+                );
+                let b_end =
+                    crate::substitute::substitute_variable(right, index_var, &end_plus_1).ok()?;
+                let b_start =
+                    crate::substitute::substitute_variable(right, index_var, start).ok()?;
+                let result = Node::Subtract(Box::new(b_end), Box::new(b_start));
+                return Some(result.simplify(env));
+            }
+        }
+    }
+
+    None
+}
+
+/// Try to find a symbolic closed form for a summation.
+fn try_symbolic_summation(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    // Constant body: Σ_{k=a}^{b} c = c · (b − a + 1)
+    if !body.contains_variable(index_var) {
+        let count = Node::Add(
+            Box::new(Node::Subtract(
+                Box::new(end.clone()),
+                Box::new(start.clone()),
+            )),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+        let result = Node::Multiply(Box::new(body.clone()), Box::new(count));
+        return Some(result.simplify(env));
+    }
+
+    // Polynomial body: Faulhaber's formulas
+    if let Ok(poly) = Polynomial::from_node(body, index_var) {
+        if let Some(result) = try_faulhaber_sum(&poly, start, end, env) {
+            return Some(result);
+        }
+    }
+
+    // Geometric series: a · r^k
+    if let Some(result) = try_geometric_sum(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
+    // Telescoping sum
+    if let Some(result) = try_telescoping_sum(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
+    None
 }
 
 #[cfg(test)]

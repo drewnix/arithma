@@ -1,0 +1,206 @@
+#[cfg(test)]
+mod summation_tests {
+    use arithma::simplify::Simplifiable;
+    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+
+    fn simplify_latex(input: &str) -> String {
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        format!("{}", simplified)
+    }
+
+    fn eval_with(input: &str, var: &str, val: f64) -> f64 {
+        let mut env = Environment::new();
+        env.set(var, val);
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        Evaluator::evaluate(&expr, &env).unwrap()
+    }
+
+    // ── Polynomial sums (Faulhaber) ──────────────────────────
+
+    #[test]
+    fn sum_of_k() {
+        let result = simplify_latex("\\sum_{k=1}^{n} k");
+        assert!(
+            result.contains("n") && result.contains("n + 1") && result.contains("2"),
+            "Expected n(n+1)/2, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn sum_of_k_squared() {
+        let result = simplify_latex("\\sum_{k=1}^{n} k^2");
+        assert!(
+            result.contains("n") && result.contains("2n + 1"),
+            "Expected n(n+1)(2n+1)/6, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn sum_of_k_cubed() {
+        let result = simplify_latex("\\sum_{k=1}^{n} k^3");
+        assert!(
+            result.contains("n") && result.contains("4"),
+            "Expected n²(n+1)²/4, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn sum_of_k_fourth() {
+        let result = simplify_latex("\\sum_{k=1}^{n} k^4");
+        assert!(
+            result.contains("n") && result.contains("30"),
+            "Expected Faulhaber formula /30, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn sum_of_odd_numbers() {
+        // Σ_{k=1}^{n} (2k-1) = n²
+        let result = simplify_latex("\\sum_{k=1}^{n} {2k - 1}");
+        assert_eq!(result, "n^{2}");
+    }
+
+    #[test]
+    fn sum_of_polynomial_2k_plus_3() {
+        // Σ_{k=1}^{n} (2k+3) = 2·n(n+1)/2 + 3n = n²+n+3n = n²+4n
+        // = n(n+4)
+        let closed = simplify_latex("\\sum_{k=1}^{n} {2k + 3}");
+        // Verify numerically: at n=10, Σ(2k+3) = 2·55 + 30 = 140
+        let val = eval_with(&closed, "n", 10.0);
+        assert_eq!(val, 140.0, "Closed form {} at n=10 should be 140", closed);
+    }
+
+    // ── Constant sums ────────────────────────────────────────
+
+    #[test]
+    fn sum_of_constant() {
+        let result = simplify_latex("\\sum_{k=1}^{n} 1");
+        assert_eq!(result, "n");
+    }
+
+    #[test]
+    fn sum_of_constant_5() {
+        let result = simplify_latex("\\sum_{k=1}^{n} 5");
+        assert_eq!(result, "5n");
+    }
+
+    // ── Geometric series ─────────────────────────────────────
+
+    #[test]
+    fn geometric_sum_base_2() {
+        // Σ_{k=0}^{n} 2^k = 2^{n+1} - 1
+        let result = simplify_latex("\\sum_{k=0}^{n} 2^k");
+        assert_eq!(result, "2^{n + 1} - 1");
+    }
+
+    #[test]
+    fn geometric_sum_base_3() {
+        // Σ_{k=0}^{n} 3^k = (3^{n+1} - 1)/2
+        let closed = simplify_latex("\\sum_{k=0}^{n} 3^k");
+        // Verify: at n=4, 1+3+9+27+81 = 121 = (243-1)/2
+        let val = eval_with(&closed, "n", 4.0);
+        assert_eq!(val, 121.0, "Closed form {} at n=4 should be 121", closed);
+    }
+
+    #[test]
+    fn geometric_sum_with_coefficient() {
+        // Σ_{k=0}^{n} 5·2^k = 5·(2^{n+1} - 1)
+        let closed = simplify_latex("\\sum_{k=0}^{n} {5 \\cdot 2^k}");
+        // At n=3: 5(1+2+4+8) = 75 = 5·(16-1)
+        let val = eval_with(&closed, "n", 3.0);
+        assert_eq!(val, 75.0, "Closed form {} at n=3 should be 75", closed);
+    }
+
+    // ── Telescoping sums ─────────────────────────────────────
+
+    #[test]
+    fn telescoping_harmonic_difference() {
+        // Σ_{k=1}^{n} (1/k - 1/(k+1)) = 1 - 1/(n+1) = n/(n+1)
+        let result = simplify_latex("\\sum_{k=1}^{n} {\\frac{1}{k} - \\frac{1}{k+1}}");
+        let val = eval_with(&result, "n", 100.0);
+        let expected = 100.0 / 101.0;
+        assert!(
+            (val - expected).abs() < 1e-10,
+            "Expected {}, got {} from: {}",
+            expected,
+            val,
+            result
+        );
+    }
+
+    // ── Numeric verification of symbolic formulas ────────────
+
+    #[test]
+    fn faulhaber_verified_at_n_100() {
+        let n = 100.0;
+
+        // Σ_{k=1}^{100} k = 5050
+        let val = eval_with(&simplify_latex("\\sum_{k=1}^{n} k"), "n", n);
+        assert_eq!(val, 5050.0);
+
+        // Σ_{k=1}^{100} k² = 338350
+        let val = eval_with(&simplify_latex("\\sum_{k=1}^{n} k^2"), "n", n);
+        assert_eq!(val, 338350.0);
+
+        // Σ_{k=1}^{100} k³ = 25502500
+        let val = eval_with(&simplify_latex("\\sum_{k=1}^{n} k^3"), "n", n);
+        assert_eq!(val, 25502500.0);
+    }
+
+    #[test]
+    fn constant_bounds_evaluated() {
+        // When both bounds are constant, the symbolic form should evaluate
+        assert_eq!(simplify_latex("\\sum_{k=1}^{100} k"), "5050");
+    }
+
+    #[test]
+    fn large_constant_sum_via_closed_form() {
+        // Range > 10 uses closed form, not inline expansion
+        let result = simplify_latex("\\sum_{k=1}^{50} k^2");
+        assert_eq!(result, "42925");
+    }
+
+    #[test]
+    fn sum_from_zero() {
+        // Σ_{k=0}^{n} k = n(n+1)/2 (k=0 contributes 0)
+        let closed = simplify_latex("\\sum_{k=0}^{n} k");
+        let val = eval_with(&closed, "n", 10.0);
+        assert_eq!(val, 55.0, "Σ_{{k=0}}^{{10}} k = 55, got {} from: {}", val, closed);
+    }
+
+    #[test]
+    fn sum_from_2() {
+        // Σ_{k=2}^{n} k = n(n+1)/2 - 1
+        let closed = simplify_latex("\\sum_{k=2}^{n} k");
+        let val = eval_with(&closed, "n", 10.0);
+        // Σ_{k=2}^{10} k = 2+3+...+10 = 55-1 = 54
+        assert_eq!(val, 54.0, "Σ_{{k=2}}^{{10}} k = 54, got {} from: {}", val, closed);
+    }
+
+    // ── MCP path (simplify tool handles summation) ───────────
+
+    #[test]
+    fn simplify_path_handles_summation() {
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new("\\sum_{k=1}^{n} k");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        let simplified = expr.simplify(&env).unwrap();
+        // The result should not be a Summation node anymore
+        assert!(
+            !format!("{}", simplified).contains("\\sum"),
+            "Should produce closed form, got: {}",
+            simplified
+        );
+    }
+}

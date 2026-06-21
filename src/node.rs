@@ -38,6 +38,40 @@ pub enum Node {
 }
 
 impl Node {
+    pub fn contains_variable(&self, var: &str) -> bool {
+        match self {
+            Node::Num(_) => false,
+            Node::Variable(v) => v == var,
+            Node::Add(l, r)
+            | Node::Subtract(l, r)
+            | Node::Multiply(l, r)
+            | Node::Divide(l, r)
+            | Node::Power(l, r)
+            | Node::Greater(l, r)
+            | Node::Less(l, r)
+            | Node::GreaterEqual(l, r)
+            | Node::LessEqual(l, r)
+            | Node::Equal(l, r)
+            | Node::Equation(l, r) => l.contains_variable(var) || r.contains_variable(var),
+            Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+                inner.contains_variable(var)
+            }
+            Node::Function(_, args) => args.iter().any(|a| a.contains_variable(var)),
+            Node::Piecewise(cases) => cases
+                .iter()
+                .any(|(e, c)| e.contains_variable(var) || c.contains_variable(var)),
+            Node::Summation(idx, start, end, body) => {
+                if idx == var {
+                    start.contains_variable(var) || end.contains_variable(var)
+                } else {
+                    start.contains_variable(var)
+                        || end.contains_variable(var)
+                        || body.contains_variable(var)
+                }
+            }
+        }
+    }
+
     fn precedence(&self) -> u8 {
         match self {
             Node::Equation(_, _) => 0,
