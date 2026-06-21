@@ -9,6 +9,28 @@ use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use std::collections::HashMap;
 
+/// Attempt to convert an f64 to an exact rational p/q with small denominator.
+/// Checks denominators 1..100; returns the first match within 1e-10 tolerance.
+fn try_rationalize(f: f64) -> Option<BigRational> {
+    if !f.is_finite() {
+        return None;
+    }
+    if f.fract() == 0.0 && f.abs() < i64::MAX as f64 {
+        return Some(BigRational::from_integer(BigInt::from(f as i64)));
+    }
+    for denom in 2..=100i64 {
+        let numer_f = f * denom as f64;
+        let numer_rounded = numer_f.round();
+        if (numer_f - numer_rounded).abs() < 1e-10 && numer_rounded.abs() < i64::MAX as f64 {
+            return Some(BigRational::new(
+                BigInt::from(numer_rounded as i64),
+                BigInt::from(denom),
+            ));
+        }
+    }
+    None
+}
+
 /// Extract square factors from `n` so that `√n = outside · √inside` with `inside` square-free.
 fn extract_square_factors(mut n: u64) -> (u64, u64) {
     if n == 0 {
@@ -323,9 +345,12 @@ impl Simplifiable for Node {
                     Ok(result)
                 }
             }
-            Node::Num(_) => {
-                // ExactNum::Rational is already in lowest terms (BigRational handles reduction).
-                // Nothing to simplify for plain numbers.
+            Node::Num(n) => {
+                if let ExactNum::Float(f) = n {
+                    if let Some(r) = try_rationalize(*f) {
+                        return Ok(Node::Num(ExactNum::Rational(r)));
+                    }
+                }
                 Ok(self.clone())
             }
             Node::Multiply(left, right) => {
