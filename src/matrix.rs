@@ -569,6 +569,60 @@ impl Matrix {
                 }
                 r
             }
+            4 => {
+                let (a, b, c, d) = (vals[0][0], vals[0][1], vals[0][2], vals[0][3]);
+                let (e, f, g, h) = (vals[1][0], vals[1][1], vals[1][2], vals[1][3]);
+                let (i, j, k, l) = (vals[2][0], vals[2][1], vals[2][2], vals[2][3]);
+                let (m, nn, o, p) = (vals[3][0], vals[3][1], vals[3][2], vals[3][3]);
+
+                let trace = a + f + k + p;
+                let sum2 = (a * f - b * e)
+                    + (a * k - c * i)
+                    + (a * p - d * m)
+                    + (f * k - g * j)
+                    + (f * p - h * nn)
+                    + (k * p - l * o);
+                let det3sum = {
+                    let m3 = |r0: [f64; 3], r1: [f64; 3], r2: [f64; 3]| -> f64 {
+                        r0[0] * (r1[1] * r2[2] - r1[2] * r2[1])
+                            - r0[1] * (r1[0] * r2[2] - r1[2] * r2[0])
+                            + r0[2] * (r1[0] * r2[1] - r1[1] * r2[0])
+                    };
+                    m3([f, g, h], [j, k, l], [nn, o, p])
+                        + m3([a, c, d], [i, k, l], [m, o, p])
+                        + m3([a, b, d], [e, f, h], [m, nn, p])
+                        + m3([a, b, c], [e, f, g], [i, j, k])
+                };
+
+                let det4 = {
+                    let mat = [[a, b, c, d], [e, f, g, h], [i, j, k, l], [m, nn, o, p]];
+                    let minor_det = |r: [[f64; 3]; 3]| -> f64 {
+                        r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
+                            - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+                            + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0])
+                    };
+                    let mut det = 0.0;
+                    for col in 0..4 {
+                        let mut sub = [[0.0; 3]; 3];
+                        for row in 1..4 {
+                            let mut sc = 0;
+                            for (cc, &val) in mat[row].iter().enumerate() {
+                                if cc == col {
+                                    continue;
+                                }
+                                sub[row - 1][sc] = val;
+                                sc += 1;
+                            }
+                        }
+                        let sign = if col % 2 == 0 { 1.0 } else { -1.0 };
+                        det += sign * mat[0][col] * minor_det(sub);
+                    }
+                    det
+                };
+
+                // λ⁴ - trace·λ³ + sum2·λ² - det3sum·λ + det4 = 0
+                crate::expression::solve_quartic_f64_pub(1.0, -trace, sum2, -det3sum, det4)
+            }
             _ => return None,
         };
 
@@ -614,6 +668,13 @@ impl Matrix {
                 vec![(-b + disc) / (2.0 * a), (-b - disc) / (2.0 * a)]
             }
             3 => crate::expression::solve_cubic_f64_pub(coeff(3), coeff(2), coeff(1), coeff(0)),
+            4 => crate::expression::solve_quartic_f64_pub(
+                coeff(4),
+                coeff(3),
+                coeff(2),
+                coeff(1),
+                coeff(0),
+            ),
             _ => return None,
         };
         if roots.is_empty() {
@@ -1674,6 +1735,157 @@ mod tests {
             3,
             "3x3 diagonal should have 3 eigenvalues: {:?}",
             eigenvalues
+        );
+    }
+
+    #[test]
+    fn test_4x4_eigenvalues_symmetric() {
+        // [[2,-1,0,0],[-1,2,-1,0],[0,-1,2,-1],[0,0,-1,2]]
+        // Tridiagonal Toeplitz: eigenvalues = 2-2cos(kπ/5) for k=1..4
+        let env = Environment::new();
+        let two = Node::Num(ExactNum::integer(2));
+        let neg1 = Node::Num(-ExactNum::one());
+        let zero = Node::Num(ExactNum::zero());
+        let elements = vec![
+            two.clone(),
+            neg1.clone(),
+            zero.clone(),
+            zero.clone(),
+            neg1.clone(),
+            two.clone(),
+            neg1.clone(),
+            zero.clone(),
+            zero.clone(),
+            neg1.clone(),
+            two.clone(),
+            neg1.clone(),
+            zero.clone(),
+            zero.clone(),
+            neg1.clone(),
+            two.clone(),
+        ];
+        let matrix = Matrix::new(4, 4, elements).unwrap();
+        let mut eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(
+            eigenvalues.len(),
+            4,
+            "Expected 4 eigenvalues, got {:?}",
+            eigenvalues
+        );
+        eigenvalues.sort_by(|a, b| {
+            if let (Node::Num(x), Node::Num(y)) = (a, b) {
+                x.to_f64().partial_cmp(&y.to_f64()).unwrap()
+            } else {
+                panic!("Expected Num nodes")
+            }
+        });
+        let vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| {
+                if let Node::Num(n) = ev {
+                    n.to_f64()
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        let pi = std::f64::consts::PI;
+        for (i, &v) in vals.iter().enumerate() {
+            let expected = 2.0 - 2.0 * ((i as f64 + 1.0) * pi / 5.0).cos();
+            assert!(
+                (v - expected).abs() < 1e-6,
+                "Eigenvalue {} = {}, expected {}",
+                i,
+                v,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_4x4_eigenvalues_companion() {
+        // Companion matrix for x⁴-10x²+1=0 (roots: ±√(5±2√6) ≈ ±3.146, ±0.318)
+        let env = Environment::new();
+        let zero = Node::Num(ExactNum::zero());
+        let one = Node::Num(ExactNum::one());
+        let elements = vec![
+            zero.clone(),
+            zero.clone(),
+            zero.clone(),
+            Node::Num(-ExactNum::one()),
+            one.clone(),
+            zero.clone(),
+            zero.clone(),
+            zero.clone(),
+            zero.clone(),
+            one.clone(),
+            zero.clone(),
+            Node::Num(ExactNum::integer(10)),
+            zero.clone(),
+            zero.clone(),
+            one.clone(),
+            zero.clone(),
+        ];
+        let matrix = Matrix::new(4, 4, elements).unwrap();
+        let eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert!(
+            eigenvalues.len() == 4,
+            "Expected 4 eigenvalues for companion matrix, got {}",
+            eigenvalues.len()
+        );
+    }
+
+    #[test]
+    fn test_4x4_eigenvalues_integer() {
+        // [[5,4,1,1],[4,5,1,1],[1,1,4,2],[1,1,2,4]]
+        // All integer eigenvalues: 1, 2, 5, 10
+        let env = Environment::new();
+        let n = |v: i64| Node::Num(ExactNum::integer(v));
+        let elements = vec![
+            n(5),
+            n(4),
+            n(1),
+            n(1),
+            n(4),
+            n(5),
+            n(1),
+            n(1),
+            n(1),
+            n(1),
+            n(4),
+            n(2),
+            n(1),
+            n(1),
+            n(2),
+            n(4),
+        ];
+        let matrix = Matrix::new(4, 4, elements).unwrap();
+        let mut eigenvalues = matrix.eigenvalues(&env).unwrap();
+        assert_eq!(eigenvalues.len(), 4);
+        eigenvalues.sort_by(|a, b| {
+            if let (Node::Num(x), Node::Num(y)) = (a, b) {
+                x.to_f64().partial_cmp(&y.to_f64()).unwrap()
+            } else {
+                panic!()
+            }
+        });
+        let vals: Vec<f64> = eigenvalues
+            .iter()
+            .map(|ev| {
+                if let Node::Num(n) = ev {
+                    n.to_f64()
+                } else {
+                    panic!()
+                }
+            })
+            .collect();
+        assert!((vals[0] - 1.0).abs() < 1e-8, "Expected 1, got {}", vals[0]);
+        assert!((vals[1] - 2.0).abs() < 1e-8, "Expected 2, got {}", vals[1]);
+        assert!((vals[2] - 5.0).abs() < 1e-8, "Expected 5, got {}", vals[2]);
+        assert!(
+            (vals[3] - 10.0).abs() < 1e-8,
+            "Expected 10, got {}",
+            vals[3]
         );
     }
 }

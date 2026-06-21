@@ -436,6 +436,67 @@ pub fn solve_cubic_f64_pub(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
     solve_cubic_f64(a3, a2, a1, a0)
 }
 
+pub fn solve_quartic_f64_pub(a4: f64, a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
+    let b = a3 / a4;
+    let c = a2 / a4;
+    let d = a1 / a4;
+    let e = a0 / a4;
+
+    let shift = b / 4.0;
+    let p = c - 3.0 * b * b / 8.0;
+    let q = d - b * c / 2.0 + b * b * b / 8.0;
+    let r = e - b * d / 4.0 + b * b * c / 16.0 - 3.0 * b.powi(4) / 256.0;
+
+    if q.abs() < 1e-14 {
+        let disc = p * p - 4.0 * r;
+        let mut roots = Vec::new();
+        if disc >= -1e-10 {
+            let sqrt_disc = disc.max(0.0).sqrt();
+            let z1 = (-p + sqrt_disc) / 2.0;
+            let z2 = (-p - sqrt_disc) / 2.0;
+            for z in [z1, z2] {
+                if z >= -1e-10 {
+                    let y = z.max(0.0).sqrt();
+                    roots.push(y - shift);
+                    if y.abs() > 1e-10 {
+                        roots.push(-y - shift);
+                    }
+                }
+            }
+        }
+        return roots;
+    }
+
+    let resolvent = solve_cubic_f64(8.0, -4.0 * p, -8.0 * r, 4.0 * p * r - q * q);
+    let m = resolvent
+        .iter()
+        .copied()
+        .find(|&m| 2.0 * m - p > 1e-14)
+        .unwrap_or(resolvent[0]);
+
+    let alpha_sq = 2.0 * m - p;
+    if alpha_sq < 0.0 {
+        return vec![];
+    }
+    let alpha = alpha_sq.sqrt();
+    let beta = -q / (2.0 * alpha);
+
+    let mut roots = Vec::new();
+    let disc1 = alpha * alpha - 4.0 * (m - beta);
+    if disc1 >= -1e-10 {
+        let disc1 = disc1.max(0.0).sqrt();
+        roots.push((alpha + disc1) / 2.0 - shift);
+        roots.push((alpha - disc1) / 2.0 - shift);
+    }
+    let disc2 = alpha * alpha - 4.0 * (m + beta);
+    if disc2 >= -1e-10 {
+        let disc2 = disc2.max(0.0).sqrt();
+        roots.push((-alpha + disc2) / 2.0 - shift);
+        roots.push((-alpha - disc2) / 2.0 - shift);
+    }
+    roots
+}
+
 fn solve_cubic_f64(a3: f64, a2: f64, a1: f64, a0: f64) -> Vec<f64> {
     let shift = a2 / (3.0 * a3);
     let p = (a1 / a3) - (a2 * a2) / (3.0 * a3 * a3);
