@@ -1505,6 +1505,7 @@ fn try_inverse_trig_integral(denom: &Node, var: &str) -> Option<Node> {
                     && c1.is_zero()
                     && c0 > num_rational::BigRational::from_integer(0.into())
                 {
+                    // 1/√(a² - x²) → arcsin(x/a)
                     let a_sq_f64: f64 = c0.numer().to_string().parse::<f64>().unwrap_or(0.0)
                         / c0.denom().to_string().parse::<f64>().unwrap_or(1.0);
                     if (a_sq_f64 - 1.0).abs() < 1e-14 {
@@ -1522,6 +1523,34 @@ fn try_inverse_trig_integral(denom: &Node, var: &str) -> Option<Node> {
                             Box::new(a_node),
                         )],
                     ));
+                }
+
+                if c2 == num_rational::BigRational::from_integer(1.into()) && c1.is_zero() {
+                    // 1/√(x² + c₀): two sub-cases based on sign of c₀
+                    let c0_f64: f64 =
+                        c0.numer().to_f64().unwrap_or(0.0) / c0.denom().to_f64().unwrap_or(1.0);
+                    let x_var = Node::Variable(var.to_string());
+                    let sqrt_arg = Node::Sqrt(Box::new(inner.clone()));
+
+                    if c0_f64 > 0.0 {
+                        // 1/√(x² + a²) → ln(x + √(x² + a²))
+                        return Some(Node::Function(
+                            "ln".to_string(),
+                            vec![Node::Abs(Box::new(Node::Add(
+                                Box::new(x_var),
+                                Box::new(sqrt_arg),
+                            )))],
+                        ));
+                    } else if c0_f64 < 0.0 {
+                        // 1/√(x² - a²) → ln|x + √(x² - a²)|
+                        return Some(Node::Function(
+                            "ln".to_string(),
+                            vec![Node::Abs(Box::new(Node::Add(
+                                Box::new(x_var),
+                                Box::new(sqrt_arg),
+                            )))],
+                        ));
+                    }
                 }
             }
         }

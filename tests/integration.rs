@@ -823,4 +823,39 @@ mod integration_tests {
             val
         );
     }
+
+    // --- Hyperbolic substitution: 1/√(x²±a²) ---
+
+    #[test]
+    fn test_reciprocal_sqrt_x2_plus_1() {
+        // ∫ 1/√(x²+1) dx = ln(x + √(x²+1))
+        let result = integrate_latex("\\frac{1}{\\sqrt{x^2+1}}", "x").unwrap();
+        assert!(result.contains("ln"), "Should produce ln term: {}", result);
+    }
+
+    #[test]
+    fn test_reciprocal_sqrt_x2_plus_1_definite() {
+        // ∫₀¹ 1/√(x²+1) dx = ln(1+√2) ≈ 0.8814
+        let result = definite_integral_latex("\\frac{1}{\\sqrt{x^2+1}}", "x", 0.0, 1.0).unwrap();
+        let val: f64 = result.parse().unwrap();
+        assert!(
+            (val - 0.8814).abs() < 0.01,
+            "∫₀¹ 1/√(x²+1) dx = ln(1+√2) ≈ 0.8814, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_reciprocal_sqrt_x2_plus_4() {
+        // ∫ 1/√(x²+4) dx = ln(x + √(x²+4))
+        let result = integrate_latex("\\frac{1}{\\sqrt{x^2+4}}", "x").unwrap();
+        assert!(result.contains("ln"), "Should produce ln term: {}", result);
+    }
+
+    #[test]
+    fn test_reciprocal_sqrt_x2_minus_1() {
+        // ∫ 1/√(x²-1) dx = ln|x + √(x²-1)|
+        let result = integrate_latex("\\frac{1}{\\sqrt{x^2-1}}", "x").unwrap();
+        assert!(result.contains("ln"), "Should produce ln term: {}", result);
+    }
 }
