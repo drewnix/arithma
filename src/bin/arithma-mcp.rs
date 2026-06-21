@@ -13,7 +13,7 @@ use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
 use arithma::{
-    build_expression_tree, factor_over_q, partial_fractions_latex, Environment, Evaluator,
+    build_expression_tree, factor_over_q, partial_fractions_latex, Environment, Evaluator, Node,
     Polynomial, Tokenizer,
 };
 
@@ -572,6 +572,17 @@ fn tool_solve(args: &Value) -> Result<String, String> {
         return Err(err);
     }
     let expr = build_expression_tree(tokens)?;
+
+    // Check if it's an inequality
+    if matches!(
+        expr,
+        Node::Greater(_, _)
+            | Node::GreaterEqual(_, _)
+            | Node::Less(_, _)
+            | Node::LessEqual(_, _)
+    ) {
+        return arithma::solve_inequality(&expr, &var);
+    }
 
     let result = arithma::expression::solve_full(&expr, &var)?;
     let mut parts: Vec<String> = result

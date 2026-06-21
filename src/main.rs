@@ -1,6 +1,6 @@
 use arithma::simplify::Simplifiable;
 use arithma::tokenizer::normalize_var;
-use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+use arithma::{build_expression_tree, Environment, Evaluator, Node, Tokenizer};
 use std::io::{self, Write};
 
 fn main() {
@@ -197,6 +197,24 @@ fn cmd_solve(args: &[String]) {
             std::process::exit(1);
         }
     };
+
+    // Check if it's an inequality
+    if matches!(
+        expr,
+        Node::Greater(_, _)
+            | Node::GreaterEqual(_, _)
+            | Node::Less(_, _)
+            | Node::LessEqual(_, _)
+    ) {
+        match arithma::solve_inequality(&expr, &var) {
+            Ok(result) => println!("{}", result),
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
 
     match arithma::expression::solve_full(&expr, &var) {
         Ok(result) => {
