@@ -48,13 +48,11 @@ pub fn solve_inequality(expr: &Node, target_var: &str) -> Result<String, String>
 
     let diff = Node::Subtract(Box::new(lhs.clone()), Box::new(rhs.clone()));
     let env = Environment::new();
-    let simplified = diff.simplify(&env).unwrap_or(diff);
 
-    if let Ok(poly) = Polynomial::from_node(&simplified, target_var) {
-        return solve_poly_inequality(&poly, ineq_type);
-    }
-
-    if let Some((num, den)) = crate::expression::to_rational_form(&simplified) {
+    // Check the UNSIMPLIFIED expression for denominators first.
+    // This prevents GCD cancellation from hiding poles (e.g. (x²-1)/(x-1)
+    // simplifies to x+1, losing the pole at x=1).
+    if let Some((num, den)) = crate::expression::to_rational_form(&diff) {
         let num_s = num.simplify(&env).unwrap_or(num);
         let den_s = den.simplify(&env).unwrap_or(den);
 
@@ -78,6 +76,12 @@ pub fn solve_inequality(expr: &Node, target_var: &str) -> Result<String, String>
             }
             return solve_poly_inequality(&num_poly, ineq_type);
         }
+    }
+
+    let simplified = diff.simplify(&env).unwrap_or(diff);
+
+    if let Ok(poly) = Polynomial::from_node(&simplified, target_var) {
+        return solve_poly_inequality(&poly, ineq_type);
     }
 
     Err("Cannot solve this inequality (not polynomial or rational in the given variable)".to_string())

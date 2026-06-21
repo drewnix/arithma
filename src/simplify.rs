@@ -983,7 +983,7 @@ impl Simplifiable for Node {
                                     Node::Add(Box::new(sum_node), Box::new(substituted_body));
                             }
 
-                            return Ok(sum_node);
+                            return sum_node.simplify(env);
                         }
                     }
                 }

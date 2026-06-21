@@ -42,7 +42,7 @@ mod verify_tests {
 
     #[test]
     fn verify_multivar() {
-        let result = verify("(x+y)^2", "x^2 + 2xy + y^2", &["x", "y"]);
+        let result = verify("(x+y)^2", "x^2 + 2 \\cdot x \\cdot y + y^2", &["x", "y"]);
         assert!(result.passed, "(x+y)² = x²+2xy+y² should pass");
     }
 
@@ -80,5 +80,28 @@ mod verify_tests {
         assert!(s.contains("FAIL"), "Should say FAIL, got: {}", s);
         assert!(s.contains("LHS"), "Should show LHS value, got: {}", s);
         assert!(s.contains("RHS"), "Should show RHS value, got: {}", s);
+    }
+
+    // ── Bug #1 fixes ────────────────────────────────────────
+
+    #[test]
+    fn greek_variable_names_normalized() {
+        let result = verify(
+            "\\frac{1}{1+\\alpha}",
+            "\\frac{1}{1+\\alpha}",
+            &["\\alpha"],
+        );
+        assert!(result.passed, "Greek var should be normalized, got: {}", result);
+        assert!(result.points_tested >= 5, "Should test at multiple points");
+    }
+
+    #[test]
+    fn zero_points_is_not_pass() {
+        // Use a variable name that doesn't exist in the expression
+        let result = verify("x", "x", &["nonexistent_var_zzzz"]);
+        assert!(!result.passed, "0 points tested should not be PASS");
+        assert!(result.insufficient_points);
+        let s = format!("{}", result);
+        assert!(s.contains("INCONCLUSIVE"), "Should say INCONCLUSIVE, got: {}", s);
     }
 }

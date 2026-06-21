@@ -1,17 +1,20 @@
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::node::Node;
+use crate::tokenizer::normalize_var;
 
 const TEST_POINTS: &[f64] = &[
     0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0,
 ];
 
 const TOLERANCE: f64 = 1e-8;
+const MIN_POINTS_FOR_PASS: usize = 3;
 
 pub struct VerifyResult {
     pub passed: bool,
     pub points_tested: usize,
     pub counterexample: Option<Counterexample>,
+    pub insufficient_points: bool,
 }
 
 pub struct Counterexample {
@@ -25,13 +28,14 @@ pub fn verify_identity(
     rhs: &Node,
     variables: &[String],
 ) -> VerifyResult {
+    let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
 
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
         let mut point_values = Vec::new();
 
-        for (j, var) in variables.iter().enumerate() {
+        for (j, var) in normalized.iter().enumerate() {
             let val = base_point + 0.3 * j as f64 + 0.1 * i as f64;
             env.set(var, val);
             point_values.push((var.clone(), val));
@@ -57,14 +61,17 @@ pub fn verify_identity(
                     lhs_value: lhs_val,
                     rhs_value: rhs_val,
                 }),
+                insufficient_points: false,
             };
         }
     }
 
+    let insufficient = points_tested < MIN_POINTS_FOR_PASS;
     VerifyResult {
-        passed: true,
+        passed: !insufficient,
         points_tested,
         counterexample: None,
+        insufficient_points: insufficient,
     }
 }
 
@@ -82,6 +89,15 @@ fn values_match(a: f64, b: f64) -> bool {
 
 impl std::fmt::Display for VerifyResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.insufficient_points {
+            return write!(
+                f,
+                "Verified: INCONCLUSIVE (only {} point{} tested — need at least {}; check that variable names match the expressions)",
+                self.points_tested,
+                if self.points_tested == 1 { "" } else { "s" },
+                MIN_POINTS_FOR_PASS
+            );
+        }
         if self.passed {
             write!(f, "Verified: PASS (tested at {} points)", self.points_tested)
         } else if let Some(ref cx) = self.counterexample {

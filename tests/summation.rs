@@ -187,6 +187,31 @@ mod summation_tests {
         assert_eq!(val, 54.0, "Σ_{{k=2}}^{{10}} k = 54, got {} from: {}", val, closed);
     }
 
+    // ── Unbraced multi-term bodies (Bug #2 regression) ────────
+
+    #[test]
+    fn unbraced_coefficient() {
+        // Bug #2: \sum_{k=1}^{n} 3·k² should work without braces
+        let closed = simplify_latex("\\sum_{k=1}^{n} 3 \\cdot k^2");
+        let val = eval_with(&closed, "n", 10.0);
+        // 3·(10·11·21/6) = 3·385 = 1155
+        assert_eq!(val, 1155.0, "3·Σk² at n=10 should be 1155, got {} from: {}", val, closed);
+    }
+
+    #[test]
+    fn braced_linear_combination() {
+        let closed = simplify_latex("\\sum_{k=1}^{n} {k^2 + k}");
+        let val = eval_with(&closed, "n", 5.0);
+        // (5·6·11/6) + (5·6/2) = 55 + 15 = 70
+        assert_eq!(val, 70.0, "Σ(k²+k) at n=5 should be 70, got {} from: {}", val, closed);
+    }
+
+    #[test]
+    fn small_range_simplifies_to_number() {
+        assert_eq!(simplify_latex("\\sum_{k=1}^{5} k"), "15");
+        assert_eq!(simplify_latex("\\sum_{k=1}^{3} k^2"), "14");
+    }
+
     // ── MCP path (simplify tool handles summation) ───────────
 
     #[test]

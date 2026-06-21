@@ -424,97 +424,31 @@ fn parse_unbraced_summation_body(
     pos: &mut usize,
 ) {
     let mut i = 0;
-    let mut paren_depth = 0;
-    let mut collecting = true;
+    let mut paren_depth: i32 = 0;
 
-    // Handle empty tokens case
-    if tokens.is_empty() {
-        return;
-    }
-
-    // Special case for simple power expressions like i^2
-    // This is a common case that needs special handling
-    if tokens.len() >= 3
-        && tokens[0].chars().all(|c| c.is_alphabetic())
-        && tokens[1] == "^"
-        && tokens[2].parse::<i64>().is_ok()
-    {
-        // Add balanced power operation tokens
-        body_tokens.push(tokens[0].clone()); // variable
-        body_tokens.push("^".to_string()); // power operator
-        body_tokens.push(tokens[2].clone()); // exponent
-
-        // Update position and return early
-        *pos += 3;
-        return;
-    }
-
-    // First token (usually a variable)
-    body_tokens.push(tokens[i].clone());
-    i += 1;
-
-    // Now parse the rest of the expression with balanced operator tracking
-    while i < tokens.len() && collecting {
+    while i < tokens.len() {
         match tokens[i].as_str() {
-            // Opening parenthesis/brace increases depth
             "(" | "{" => {
                 paren_depth += 1;
                 body_tokens.push(tokens[i].clone());
             }
-            // Closing parenthesis/brace decreases depth
             ")" | "}" => {
                 if paren_depth > 0 {
                     paren_depth -= 1;
                     body_tokens.push(tokens[i].clone());
                 } else {
-                    // Unbalanced closing without open - this is not part of our expression
-                    collecting = false;
-                    continue;
+                    break;
                 }
             }
-            // Operators: keep collecting as long as we are in depth or have a meaningful continuation
-            "+" | "-" | "*" | "/" | "^" => {
-                // For operations at the top level (no open parens), collect if they're
-                // standard infix operations like i^2, i*3, etc.
-                if paren_depth == 0 && i < tokens.len() - 1 {
-                    body_tokens.push(tokens[i].clone());
-                } else if paren_depth > 0 {
-                    // If we're inside parentheses/braces, always collect
-                    body_tokens.push(tokens[i].clone());
-                } else {
-                    // Operator at top level with nothing after it - not our expression
-                    collecting = false;
-                    continue;
-                }
-            }
-            // Equation sign or another summation - definitely stop collecting
-            "=" | "sum" => {
-                collecting = false;
-                continue;
-            }
-            // Any other token - include in our expression as long as we're in a balanced state
+            "=" | "sum" | ">" | "<" | ">=" | "<=" => break,
+            "+" | "-" if paren_depth == 0 && !body_tokens.is_empty() => break,
             _ => {
                 body_tokens.push(tokens[i].clone());
             }
         }
-
         i += 1;
-
-        // If we're at the top level (no open parens) after an operation, check if we should stop
-        if paren_depth == 0 && i < tokens.len() {
-            // After including a term after an operator, we've completed a binary operation
-            // If the next token isn't another operator, we should stop unless in parentheses
-            if i < tokens.len()
-                && !matches!(tokens[i].as_str(), "+" | "-" | "*" | "/" | "^")
-                && body_tokens.len() >= 3
-            {
-                // We have at least a term-op-term sequence
-                collecting = false;
-            }
-        }
     }
 
-    // Update the position
     *pos += i;
 
     // Handle the case where we have a power operation that needs to be rewritten for RPN

@@ -100,6 +100,22 @@ mod inequality_tests {
     // ── MCP path (solve tool handles inequalities) ───────────
 
     #[test]
+    fn cancelled_factor_excludes_pole() {
+        // Bug #4: (x²-1)/(x-1) > 0 must exclude x=1 (undefined)
+        assert_eq!(
+            solve_ineq("\\frac{x^2-1}{x-1} > 0"),
+            "(-1, 1) ∪ (1, ∞)"
+        );
+    }
+
+    #[test]
+    fn latex_geq_leq() {
+        // Bug #3: \geq and \leq must be recognized
+        assert_eq!(solve_ineq("x^2 - 2x + 1 \\geq 0"), "(-∞, ∞)");
+        assert_eq!(solve_ineq("x \\leq 5"), "(-∞, 5]");
+    }
+
+    #[test]
     fn solve_tool_dispatches_inequality() {
         let mut tokenizer = Tokenizer::new("x^2 - 9 < 0");
         let tokens = tokenizer.tokenize();

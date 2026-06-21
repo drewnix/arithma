@@ -344,6 +344,18 @@ impl<'a> Tokenizer<'a> {
             "cdot" | "times" => {
                 tokens.push("*".to_string());
             }
+            "geq" | "ge" => {
+                tokens.push(">=".to_string());
+            }
+            "leq" | "le" => {
+                tokens.push("<=".to_string());
+            }
+            "gt" => {
+                tokens.push(">".to_string());
+            }
+            "lt" => {
+                tokens.push("<".to_string());
+            }
             "frac" => {
                 current_token.clear();
                 if let Some(&next_char) = self.chars.peek() {
