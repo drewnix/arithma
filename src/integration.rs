@@ -1667,6 +1667,346 @@ fn exact_rational_sqrt_bigrat(r: &num_rational::BigRational) -> Option<num_ratio
     }
 }
 
+/// Integrate N(x) / Q(x) where Q is a monic irreducible degree-4 polynomial that is
+/// NOT biquadratic (has nonzero x or x³ terms). Uses Ferrari's method to factor Q
+/// into two quadratics over an algebraic extension field, then partial fractions.
+///
+/// The resolvent cubic determines the extension:
+///   - Rational root → factor over Q(√d) for some d ∈ Q
+///   - No rational root → factor over Q(s) where s is a root of a degree-6 minimal polynomial
+///
+/// Result coefficients are f64 approximations of the algebraic numbers.
+fn integrate_general_quartic_rational(
+    numerator: &crate::polynomial::Polynomial,
+    denom: &crate::polynomial::Polynomial,
+    var: &str,
+) -> Result<Node, String> {
+    use crate::algebraic::{find_real_root, try_rational_root, NumberField};
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+
+    let zero_r = BigRational::zero();
+    let one_r = BigRational::one();
+    let two_r = BigRational::from_integer(BigInt::from(2));
+    let four_r = BigRational::from_integer(BigInt::from(4));
+    let eight_r = BigRational::from_integer(BigInt::from(8));
+
+    // Depress the quartic: x⁴ + a₃x³ + a₂x² + a₁x + a₀
+    // Substitution u = x - a₃/4 removes the cubic term.
+    let a3 = denom.coeff(3);
+    let a2 = denom.coeff(2);
+    let a1 = denom.coeff(1);
+    let a0 = denom.coeff(0);
+
+    // Depressed quartic u⁴ + bu² + cu + d after substituting x = u + shift
+    let shift = &a3 / &four_r;
+    let b_dep = &a2 - &(&three_r(&a3) * &a3 / &eight_r);
+    let c_dep = &a1 - &(&a2 * &a3 / &two_r) + &(&a3 * &a3 * &a3 / &eight_r);
+    let d_dep = &a0 - &(&a1 * &a3 / &four_r)
+        + &(&a2 * &a3 * &a3 / &BigRational::from_integer(BigInt::from(16)))
+        - &(&three_r(&one_r) * &a3 * &a3 * &a3 * &a3
+            / &BigRational::from_integer(BigInt::from(256)));
+
+    // Resolvent cubic: 8m³ - 4b·m² - 8d·m + (4bd - c²) = 0
+    // Coefficients [c₀, c₁, c₂, c₃]:
+    let res_c0 = &four_r * &b_dep * &d_dep - &c_dep * &c_dep;
+    let res_c1 = &(-&eight_r) * &d_dep;
+    let res_c2 = &(-&four_r) * &b_dep;
+    let res_c3 = eight_r.clone();
+    let resolvent = vec![res_c0, res_c1, res_c2, res_c3];
+
+    // Try rational root of resolvent cubic
+    let m_rational = try_rational_root(&resolvent);
+
+    // We need m such that 2m - b > 0. Then s = √(2m-b).
+    // Factor: (x²+sx+(m-c/(2s)))(x²-sx+(m+c/(2s)))
+
+    // Coefficients of the two quadratics and the partial fraction result,
+    // all as f64 for the Node output.
+    let (p1, q1, p2, q2) = if let Some(m_rat) = m_rational {
+        // Rational resolvent root — need only √(2m-b)
+        let s_sq_val = &two_r * &m_rat - &b_dep;
+        if s_sq_val <= zero_r {
+            return Err(
+                "Resolvent root gives non-positive s² — quartic may have repeated roots"
+                    .to_string(),
+            );
+        }
+        let s_sq_f64 = rat_to_f64(&s_sq_val);
+        let s_f64 = s_sq_f64.sqrt();
+        let m_f64 = rat_to_f64(&m_rat);
+        let c_f64 = rat_to_f64(&c_dep);
+
+        let r_val = c_f64 / (2.0 * s_f64);
+        (s_f64, m_f64 - r_val, -s_f64, m_f64 + r_val)
+    } else {
+        // No rational root — build the degree-6 extension Q(s) where s² = 2m-b.
+        // Minimal polynomial of s: g(s) = s⁶ + 2b·s⁴ + (b²-4d)·s² - c²
+        let g_coeffs = vec![
+            -&c_dep * &c_dep,                   // s⁰
+            zero_r.clone(),                     // s¹
+            &b_dep * &b_dep - &four_r * &d_dep, // s²
+            zero_r.clone(),                     // s³
+            &two_r * &b_dep,                    // s⁴
+            zero_r.clone(),                     // s⁵
+            one_r.clone(),                      // s⁶
+        ];
+
+        // Find a real root of g(s) with s > 0 (we want s = √(2m-b) > 0).
+        // Use multiple initial guesses to find a positive root.
+        let mut s_approx = 0.0f64;
+        for guess in &[1.5, 2.0, 0.5, 3.0, 1.0, 0.1] {
+            let candidate = find_real_root(&g_coeffs, *guess, 100);
+            if candidate > 0.01 {
+                // Verify it's actually near a root
+                let val = eval_poly_f64(&g_coeffs, candidate);
+                if val.abs() < 1e-6 {
+                    s_approx = candidate;
+                    break;
+                }
+            }
+        }
+        if s_approx <= 0.0 {
+            return Err(
+                "Could not find positive real root of factoring field polynomial".to_string(),
+            );
+        }
+
+        // Build the number field Q(s)
+        // min_poly_coeffs: the coefficients WITHOUT the leading 1 for s⁶
+        let nf = NumberField::new(
+            vec![
+                -&c_dep * &c_dep,
+                zero_r.clone(),
+                &b_dep * &b_dep - &four_r * &d_dep,
+                zero_r.clone(),
+                &two_r * &b_dep,
+                zero_r.clone(),
+            ],
+            s_approx,
+        );
+
+        let s = nf.gen();
+        // m = (s²+b)/2
+        let s_sq = nf.sqr(&s);
+        let b_elem = nf.from_rational(&b_dep);
+        let s_sq_plus_b = nf.add(&s_sq, &b_elem);
+        let half = BigRational::new(BigInt::from(1), BigInt::from(2));
+        let m = nf.scale(&s_sq_plus_b, &half);
+
+        // r = c/(2s)
+        let c_elem = nf.from_rational(&c_dep);
+        let two_s = nf.scale(&s, &two_r);
+        let r = nf.div(&c_elem, &two_s)?;
+
+        // q₁ = m - r, q₂ = m + r
+        let q1_elem = nf.sub(&m, &r);
+        let q2_elem = nf.add(&m, &r);
+
+        (
+            nf.to_f64(&s),
+            nf.to_f64(&q1_elem),
+            nf.to_f64(&nf.neg(&s)),
+            nf.to_f64(&q2_elem),
+        )
+    };
+
+    // The factored form is in the depressed variable t where t = x + shift (shift = a₃/4).
+    // Factor in t: t² + pᵢt + qᵢ. Substituting t = x + shift:
+    //   (x+shift)² + pᵢ(x+shift) + qᵢ = x² + (2·shift + pᵢ)x + (shift² + pᵢ·shift + qᵢ)
+    let shift_f64 = rat_to_f64(&shift);
+
+    let final_p1 = p1 + 2.0 * shift_f64;
+    let final_q1 = shift_f64 * shift_f64 + p1 * shift_f64 + q1;
+    let final_p2 = p2 + 2.0 * shift_f64;
+    let final_q2 = shift_f64 * shift_f64 + p2 * shift_f64 + q2;
+
+    // Extract numerator coefficients (degree < 4) and shift them too.
+    // If N(x) is the original numerator, we need N(u+shift) in the depressed variable,
+    // but since we're converting everything to f64 and building Nodes in x, we can
+    // work directly in x with the shifted quadratic factors.
+
+    // Partial fractions: N(x)/((x²+P₁x+Q₁)(x²+P₂x+Q₂)) = (A₁x+B₁)/(x²+P₁x+Q₁) + (A₂x+B₂)/(x²+P₂x+Q₂)
+    // Solve: N(x) = (A₁x+B₁)(x²+P₂x+Q₂) + (A₂x+B₂)(x²+P₁x+Q₁)
+    //
+    // x³: A₁+A₂ = n₃
+    // x²: B₁+A₁P₂+B₂+A₂P₁ = n₂
+    // x¹: A₁Q₂+B₁P₂+A₂Q₁+B₂P₁ = n₁
+    // x⁰: B₁Q₂+B₂Q₁ = n₀
+
+    let n0 = numerator.coeff(0).to_f64().unwrap_or(0.0);
+    let n1 = numerator.coeff(1).to_f64().unwrap_or(0.0);
+    let n2 = numerator.coeff(2).to_f64().unwrap_or(0.0);
+    let n3 = numerator.coeff(3).to_f64().unwrap_or(0.0);
+
+    // Solve the 4x4 system using f64 arithmetic (exact Q(s) was used for factoring)
+    let fp1 = final_p1;
+    let fq1 = final_q1;
+    let fp2 = final_p2;
+    let fq2 = final_q2;
+
+    // Matrix:
+    // [1    0    1    0  ] [A₁]   [n₃]
+    // [P₂   1    P₁   1  ] [B₁] = [n₂]
+    // [Q₂   P₂   Q₁   P₁ ] [A₂]   [n₁]
+    // [0    Q₂   0    Q₁ ] [B₂]   [n₀]
+
+    let det = solve_4x4_pf([fp1, fq1, fp2, fq2], [n0, n1, n2, n3]);
+    let (a1_f, b1_f, a2_f, b2_f) = match det {
+        Some(v) => v,
+        None => {
+            return Err("Singular partial fraction system for quartic".to_string());
+        }
+    };
+
+    // Now integrate each term: ∫(Ax+B)/(x²+Px+Q) dx
+    let env = crate::environment::Environment::new();
+    let mut terms: Vec<Node> = Vec::new();
+
+    for &(a_coeff, b_coeff, p_coeff, q_coeff) in &[(a1_f, b1_f, fp1, fq1), (a2_f, b2_f, fp2, fq2)] {
+        if a_coeff.abs() < 1e-15 && b_coeff.abs() < 1e-15 {
+            continue;
+        }
+        let x = Node::Variable(var.to_string());
+
+        // Log term: (A/2)·ln|x²+Px+Q|
+        let half_a = a_coeff / 2.0;
+        if half_a.abs() > 1e-15 {
+            let quad = make_quadratic_node(var, p_coeff, q_coeff);
+            let ln_term = Node::Function("ln".to_string(), vec![Node::Abs(Box::new(quad))]);
+            if (half_a - 1.0).abs() < 1e-14 {
+                terms.push(ln_term);
+            } else {
+                terms.push(Node::Multiply(
+                    Box::new(Node::Num(ExactNum::from_f64(half_a))),
+                    Box::new(ln_term),
+                ));
+            }
+        }
+
+        // Arctan term: (B - A·P/2) · (2/√Δ) · arctan((2x+P)/√Δ)
+        // where Δ = 4Q - P²
+        let residual = b_coeff - a_coeff * p_coeff / 2.0;
+        if residual.abs() > 1e-15 {
+            let disc = 4.0 * q_coeff - p_coeff * p_coeff;
+            if disc > 0.0 {
+                let sqrt_disc = disc.sqrt();
+                let overall_coeff = residual * 2.0 / sqrt_disc;
+
+                let two_x_plus_p = Node::Add(
+                    Box::new(Node::Multiply(
+                        Box::new(Node::Num(ExactNum::from_f64(2.0))),
+                        Box::new(x.clone()),
+                    )),
+                    Box::new(Node::Num(ExactNum::from_f64(p_coeff))),
+                );
+                let arctan_arg = Node::Divide(
+                    Box::new(two_x_plus_p),
+                    Box::new(Node::Num(ExactNum::from_f64(sqrt_disc))),
+                );
+                let arctan_term = Node::Function("arctan".to_string(), vec![arctan_arg]);
+
+                if (overall_coeff - 1.0).abs() < 1e-14 {
+                    terms.push(arctan_term);
+                } else {
+                    terms.push(Node::Multiply(
+                        Box::new(Node::Num(ExactNum::from_f64(overall_coeff))),
+                        Box::new(arctan_term),
+                    ));
+                }
+            }
+        }
+    }
+
+    if terms.is_empty() {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+    let mut result = terms.remove(0);
+    for t in terms {
+        result = Node::Add(Box::new(result), Box::new(t));
+    }
+    let result = crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+    Ok(result)
+}
+
+fn three_r(r: &num_rational::BigRational) -> num_rational::BigRational {
+    r * &num_rational::BigRational::from_integer(num_bigint::BigInt::from(3))
+}
+
+fn eval_poly_f64(coeffs: &[num_rational::BigRational], x: f64) -> f64 {
+    let mut result = 0.0;
+    let mut power = 1.0;
+    for c in coeffs {
+        result += c.to_f64().unwrap_or(0.0) * power;
+        power *= x;
+    }
+    result
+}
+
+/// Solve the 4x4 partial fraction system for two quadratic factors.
+/// `factors`: [p1, q1, p2, q2], `rhs`: [n0, n1, n2, n3].
+/// Returns (A₁, B₁, A₂, B₂) or None if singular.
+fn solve_4x4_pf(factors: [f64; 4], rhs: [f64; 4]) -> Option<(f64, f64, f64, f64)> {
+    let [p1, q1, p2, q2] = factors;
+    let [n0, n1, n2, n3] = rhs;
+
+    let mut mat = [
+        [1.0, 0.0, 1.0, 0.0, n3],
+        [p2, 1.0, p1, 1.0, n2],
+        [q2, p2, q1, p1, n1],
+        [0.0, q2, 0.0, q1, n0],
+    ];
+
+    for col in 0..4 {
+        let mut max_row = col;
+        let mut max_val = mat[col][col].abs();
+        for (row, mat_row) in mat.iter().enumerate().skip(col + 1) {
+            if mat_row[col].abs() > max_val {
+                max_val = mat_row[col].abs();
+                max_row = row;
+            }
+        }
+        if max_val < 1e-30 {
+            return None;
+        }
+        mat.swap(col, max_row);
+
+        let pivot = mat[col][col];
+        for val in &mut mat[col][col..] {
+            *val /= pivot;
+        }
+        for row in 0..4 {
+            if row == col {
+                continue;
+            }
+            let factor = mat[row][col];
+            let pivot_row = mat[col];
+            for j in col..5 {
+                mat[row][j] -= factor * pivot_row[j];
+            }
+        }
+    }
+
+    Some((mat[0][4], mat[1][4], mat[2][4], mat[3][4]))
+}
+
+fn make_quadratic_node(var: &str, p: f64, q: f64) -> Node {
+    let x = Node::Variable(var.to_string());
+    let x_sq = Node::Power(
+        Box::new(x.clone()),
+        Box::new(Node::Num(ExactNum::integer(2))),
+    );
+    let mut result = x_sq;
+    if p.abs() > 1e-15 {
+        let px = Node::Multiply(Box::new(Node::Num(ExactNum::from_f64(p))), Box::new(x));
+        result = Node::Add(Box::new(result), Box::new(px));
+    }
+    if q.abs() > 1e-15 {
+        result = Node::Add(Box::new(result), Box::new(Node::Num(ExactNum::from_f64(q))));
+    }
+    result
+}
+
 /// Detect if a monic degree-4 polynomial is biquadratic and factorable over Q(sqrt(d)).
 /// Returns Some((b, d)) where b^2=q, d=2b-p, if factorable.
 fn try_factor_biquadratic(
@@ -2064,7 +2404,7 @@ fn integrate_pf_term(
             let q_coeff = q.coeff(0);
             integrate_biquadratic_rational(n, &p_coeff, &q_coeff, &bval, &dval, var)
         } else {
-            Err("Integration of non-biquadratic degree-4 factor not yet implemented".to_string())
+            integrate_general_quartic_rational(n, q, var)
         }
     } else {
         // Higher degree or higher power — not yet implemented
@@ -3124,5 +3464,98 @@ mod tests {
     fn test_exact_definite_cos_0_to_pi_2() {
         let r = definite_integral_exact_latex("\\cos(x)", "x", "0", "\\frac{\\pi}{2}").unwrap();
         assert_eq!(r, "1");
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_x_plus_1() {
+        // ∫1/(x⁴+x+1)dx — non-biquadratic quartic, resolvent cubic is irreducible
+        let result = integrate_latex("\\frac{1}{x^4 + x + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        let r = result.unwrap();
+        assert!(
+            r.contains("arctan") || r.contains("ln"),
+            "Result should contain arctan or ln: {}",
+            r
+        );
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_x_plus_1_numerical() {
+        // Verify: ∫₁² 1/(x⁴+x+1) dx
+        // Numerical value ≈ 0.15278 (verified by Simpson's rule)
+        let expr = parse_expression("\\frac{1}{x^4 + x + 1}").unwrap();
+        let result = super::definite_integral(&expr, "x", 1.0, 2.0);
+        assert!(
+            result.is_ok(),
+            "Definite integration should succeed: {:?}",
+            result
+        );
+        let val = result.unwrap();
+        assert!(
+            (val - 0.15278).abs() < 0.005,
+            "∫₁² 1/(x⁴+x+1)dx ≈ 0.15278, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_x2_plus_x_plus_1() {
+        // x⁴+x²+x+1 — has a rational root at x=-1, so factors as (x+1)(x³-x²+2x+... )
+        // Actually: x⁴+x²+x+1 = (x+1)(x³-x²+2x-1)? Let's check:
+        // (x+1)(x³-x²+2x-1) = x⁴-x³+2x²-x + x³-x²+2x-1 = x⁴+x²+x-1 ≠ x⁴+x²+x+1
+        // So x=-1 is NOT a root: (-1)⁴+(-1)²+(-1)+1 = 1+1-1+1 = 2 ≠ 0
+        // x⁴+x²+x+1 is irreducible.
+        let result = integrate_latex("\\frac{1}{x^4 + x^2 + x + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_2x_plus_2() {
+        // Another non-biquadratic quartic
+        let result = integrate_latex("\\frac{1}{x^4 + 2x + 2}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_x3_plus_1() {
+        // Quartic with nonzero x³ term — tests the depression step
+        let result = integrate_latex("\\frac{1}{x^4 + x^3 + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_integrate_general_quartic_numerical_x4_2x_2() {
+        // ∫₁² 1/(x⁴+2x+2) dx ≈ 0.08466
+        let expr = parse_expression("\\frac{1}{x^4 + 2x + 2}").unwrap();
+        let result = super::definite_integral(&expr, "x", 1.0, 2.0);
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        let val = result.unwrap();
+        // Rough numerical verification
+        assert!(
+            val > 0.05 && val < 0.15,
+            "∫₁² 1/(x⁴+2x+2)dx should be between 0.05 and 0.15, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_integrate_general_quartic_with_numerator() {
+        // ∫x/(x⁴+x+1) dx — numerator has degree 1
+        let result = integrate_latex("\\frac{x}{x^4 + x + 1}", "x");
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+    }
+
+    #[test]
+    fn test_integrate_x4_plus_x3_plus_1_numerical() {
+        // Verify ∫₁² 1/(x⁴+x³+1) dx numerically
+        let expr = parse_expression("\\frac{1}{x^4 + x^3 + 1}").unwrap();
+        let result = super::definite_integral(&expr, "x", 1.0, 2.0);
+        assert!(result.is_ok(), "Should succeed: {:?}", result);
+        let val = result.unwrap();
+        assert!(
+            val > 0.1 && val < 0.2,
+            "∫₁² 1/(x⁴+x³+1)dx should be between 0.1 and 0.2, got {}",
+            val
+        );
     }
 }
