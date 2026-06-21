@@ -378,7 +378,8 @@ fn tools_schema() -> Value {
                     "matrix_b": {
                         "type": "string",
                         "description": "Second matrix for multiply (A*B) or solve (Ax=b). For solve, this is the column vector b."
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["operation", "matrix"]
             }
@@ -827,7 +828,7 @@ fn tool_evaluate(args: &Value) -> Result<String, String> {
 fn tool_matrix(args: &Value) -> Result<String, String> {
     let op = get_str(args, "operation").ok_or("Missing required parameter: operation")?;
     let matrix_str = get_str(args, "matrix").ok_or("Missing required parameter: matrix")?;
-    let env = Environment::new();
+    let env = env_from_args(args)?;
 
     let a = parse_latex_matrix(matrix_str, &env)?;
 

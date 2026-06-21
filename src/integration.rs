@@ -447,10 +447,13 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
         "sinh" => Ok(Node::Function("cosh".to_string(), vec![x()])),
         // ∫cosh(x) = sinh(x)
         "cosh" => Ok(Node::Function("sinh".to_string(), vec![x()])),
-        // ∫tanh(x) = ln(cosh(x))
+        // ∫tanh(x) = ln|cosh(x)| (cosh > 0, so |·| is redundant but consistent)
         "tanh" => Ok(Node::Function(
             "ln".to_string(),
-            vec![Node::Function("cosh".to_string(), vec![x()])],
+            vec![Node::Abs(Box::new(Node::Function(
+                "cosh".to_string(),
+                vec![x()],
+            )))],
         )),
         _ => Err(format!("Integration of {}(x) not implemented", name)),
     }

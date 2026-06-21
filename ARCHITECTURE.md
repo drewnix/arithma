@@ -101,6 +101,8 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - Higher-power irreducible quadratic: `∫1/(x²+1)²dx`, `∫1/(x²+1)³dx` via Ostrogradsky reduction
 - Hyperbolic substitution: `∫1/√(x²±a²)dx = ln|x+√(x²±a²)|`
 
+**Logarithm convention:** Indefinite integrals use `ln|·|` (real-valued convention). `∫1/x dx = ln|x| + C`, `∫tan(x) dx = -ln|cos(x)| + C`. The Risch algorithm produces complex logarithms without absolute value signs, following the differential algebra framework.
+
 **Definite integration:**
 - Exact via FTC: symbolic substitution of bounds, special-value evaluation.
 - `∫₀¹ 1/(x²+1)dx = π/4`, `∫₁ᵉ 1/x dx = 1`, `∫₀ᵖⁱ sin(x)dx = 2`.

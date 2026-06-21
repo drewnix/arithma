@@ -904,4 +904,46 @@ mod integration_tests {
             result
         );
     }
+
+    // ── ln|·| convention ──────────────────────────────────────
+
+    #[test]
+    fn test_ln_abs_convention_1_over_x() {
+        let result = integrate_latex("\\frac{1}{x}", "x").unwrap();
+        assert!(
+            result.contains("|x|"),
+            "∫1/x should use ln|x|, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ln_abs_convention_1_over_linear() {
+        let result = integrate_latex("\\frac{1}{x+a}", "x").unwrap();
+        assert!(
+            result.contains("|"),
+            "∫1/(x+a) should use ln|x+a|, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ln_abs_convention_tanh() {
+        let result = integrate_latex("\\tanh(x)", "x").unwrap();
+        assert!(
+            result.contains("|"),
+            "∫tanh(x) should use ln|cosh(x)|, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_ln_abs_convention_tan() {
+        let result = integrate_latex("\\tan(x)", "x").unwrap();
+        assert!(
+            result.contains("|"),
+            "∫tan(x) should use -ln|cos(x)|, got: {}",
+            result
+        );
+    }
 }

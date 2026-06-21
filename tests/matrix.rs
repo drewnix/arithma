@@ -460,3 +460,75 @@ fn test_rref() {
         }
     }
 }
+
+// ── Assumption-aware eigenvalues ────────────────────────────
+
+#[test]
+fn test_eigenvalues_symbolic_2x2_no_assumptions() {
+    // [[1, a], [a, 1]] → eigenvalues 1±|a| (without assumptions)
+    let env = Environment::new();
+    let a = Node::Variable("a".to_string());
+    let one = Node::Num(ExactNum::integer(1));
+    let m = Matrix::new(2, 2, vec![one.clone(), a.clone(), a.clone(), one.clone()]).unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    assert_eq!(vals.len(), 2, "Should have 2 eigenvalues");
+    let s: Vec<String> = vals.iter().map(|v| format!("{}", v)).collect();
+    let joined = s.join(", ");
+    assert!(
+        joined.contains("|a|") || joined.contains("\\sqrt"),
+        "Without assumptions, eigenvalues should contain |a| or √, got: {}",
+        joined
+    );
+}
+
+#[test]
+fn test_eigenvalues_symbolic_2x2_with_positive_assumption() {
+    // [[1, a], [a, 1]] with a > 0 → eigenvalues 1+a, 1-a
+    use arithma::assumptions::{Assumption, Assumptions};
+    let mut assumptions = Assumptions::new();
+    assumptions.assume("a", Assumption::Positive);
+    let env = Environment::with_assumptions(assumptions);
+    let a = Node::Variable("a".to_string());
+    let one = Node::Num(ExactNum::integer(1));
+    let m = Matrix::new(2, 2, vec![one.clone(), a.clone(), a.clone(), one.clone()]).unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    assert_eq!(vals.len(), 2, "Should have 2 eigenvalues");
+    let s: Vec<String> = vals.iter().map(|v| format!("{}", v)).collect();
+    let joined = s.join(", ");
+    assert!(
+        !joined.contains("|a|") && !joined.contains("\\sqrt"),
+        "With a > 0, eigenvalues should not contain |a| or √, got: {}",
+        joined
+    );
+    // Should contain 1+a and 1-a (or a+1 and 1-a, etc.)
+    assert!(
+        joined.contains('a'),
+        "Eigenvalues should contain 'a', got: {}",
+        joined
+    );
+}
+
+#[test]
+fn test_eigenvalues_no_regression_numeric() {
+    // [[2, 1], [1, 2]] → eigenvalues 3, 1
+    let env = Environment::new();
+    let m = Matrix::new(
+        2,
+        2,
+        vec![
+            Node::Num(ExactNum::integer(2)),
+            Node::Num(ExactNum::integer(1)),
+            Node::Num(ExactNum::integer(1)),
+            Node::Num(ExactNum::integer(2)),
+        ],
+    )
+    .unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    let mut numeric: Vec<f64> = vals
+        .iter()
+        .map(|v| Evaluator::evaluate(v, &env).unwrap())
+        .collect();
+    numeric.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    assert!((numeric[0] - 3.0).abs() < 1e-10);
+    assert!((numeric[1] - 1.0).abs() < 1e-10);
+}
