@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
@@ -6,6 +9,7 @@ use crate::derivative::differentiate;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::exact::ExactNum;
+use crate::fps::FormalPowerSeries;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
@@ -498,6 +502,57 @@ pub fn taylor_series_multivar_latex(
     Ok(format!("{}", simplified))
 }
 
+/// Create a formal power series from the Taylor expansion of an expression.
+///
+/// The FPS lazily computes coefficients a_n = f^{(n)}(center) / n! by
+/// caching successive derivatives.
+pub fn taylor_to_fps(
+    expr: &Node,
+    var: &str,
+    center: &ExactNum,
+) -> Result<FormalPowerSeries, String> {
+    let env = Environment::new();
+    let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+
+    let deriv_cache: Rc<RefCell<Vec<Node>>> = Rc::new(RefCell::new(vec![simplified]));
+    let var_string = var.to_string();
+    let center_clone = center.clone();
+    let cache = deriv_cache;
+
+    Ok(FormalPowerSeries::from_fn(move |n| {
+        let mut dc = cache.borrow_mut();
+
+        while dc.len() <= n {
+            let last = dc.last().unwrap().clone();
+            let env = Environment::new();
+            match differentiate(&last, &var_string) {
+                Ok(d) => {
+                    let simplified = d.simplify(&env).unwrap_or(d);
+                    dc.push(simplified);
+                }
+                Err(_) => {
+                    dc.push(Node::Num(ExactNum::zero()));
+                }
+            }
+        }
+
+        let mut eval_env = Environment::new();
+        eval_env.set_exact(&var_string, center_clone.clone());
+
+        match Evaluator::evaluate_exact(&dc[n], &eval_env) {
+            Ok(val) => {
+                let rationalized = try_rationalize(&val);
+                let fact = factorial_exact(n);
+                match (&rationalized, &fact) {
+                    (ExactNum::Rational(v), ExactNum::Rational(f)) => v / f,
+                    _ => BigRational::zero(),
+                }
+            }
+            Err(_) => BigRational::zero(),
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -801,5 +856,57 @@ mod tests {
             val,
             result
         );
+    }
+
+    #[test]
+    fn test_taylor_to_fps_exp() {
+        // Taylor FPS of e^x around 0 should match FPS::exp()
+        let expr = Node::Function("exp".to_string(), vec![Node::Variable("x".to_string())]);
+        let fps = taylor_to_fps(&expr, "x", &ExactNum::zero()).unwrap();
+        let expected = FormalPowerSeries::exp();
+        for n in 0..6 {
+            assert_eq!(
+                fps.coeff(n),
+                expected.coeff(n),
+                "taylor_to_fps(e^x) coeff({}) mismatch",
+                n
+            );
+        }
+    }
+
+    #[test]
+    fn test_taylor_to_fps_sin() {
+        let expr = Node::Function("sin".to_string(), vec![Node::Variable("x".to_string())]);
+        let fps = taylor_to_fps(&expr, "x", &ExactNum::zero()).unwrap();
+        let expected = FormalPowerSeries::sin();
+        for n in 0..6 {
+            assert_eq!(
+                fps.coeff(n),
+                expected.coeff(n),
+                "taylor_to_fps(sin(x)) coeff({}) mismatch",
+                n
+            );
+        }
+    }
+
+    #[test]
+    fn test_taylor_to_fps_geometric() {
+        // 1/(1-x) around 0
+        let expr = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Subtract(
+                Box::new(Node::Num(ExactNum::integer(1))),
+                Box::new(Node::Variable("x".to_string())),
+            )),
+        );
+        let fps = taylor_to_fps(&expr, "x", &ExactNum::zero()).unwrap();
+        for n in 0..8 {
+            assert_eq!(
+                fps.coeff(n),
+                BigRational::one(),
+                "taylor_to_fps(1/(1-x)) coeff({}) should be 1",
+                n
+            );
+        }
     }
 }

@@ -79,10 +79,13 @@ pub use crate::partial_fractions::{partial_fraction_decomposition, partial_fract
 pub mod multipoly;
 pub use crate::multipoly::MultiPoly;
 
+pub mod fps;
+pub use crate::fps::FormalPowerSeries;
+
 pub mod series;
 pub use crate::series::{
     taylor_series, taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
-    taylor_series_symbolic,
+    taylor_series_symbolic, taylor_to_fps,
 };
 
 pub mod limits;
