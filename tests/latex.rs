@@ -214,6 +214,33 @@ mod latex_parser_tests {
     }
 
     #[test]
+    fn test_implicit_multiplication() {
+        let mut env = Environment::new();
+        env.set("x", 5.0);
+        env.set("y", 2.0);
+        let result = eval_latex_expression_with_env("2x + 3y", &env).unwrap();
+        assert_eq!(result, 16.0); // 2*5 + 3*2
+    }
+
+    #[test]
+    fn test_implicit_multiplication_decimal() {
+        let mut env = Environment::new();
+        env.set("x", 10.0);
+        env.set("y", 5.0);
+        let result = eval_latex_expression_with_env("0.3x + .4y", &env).unwrap();
+        assert_eq!(result, 5.0); // 0.3*10 + 0.4*5
+    }
+
+    #[test]
+    fn test_implicit_mul_greek() {
+        let mut env = Environment::new();
+        env.set("α", 2.0);
+        env.set("β", 3.0);
+        let result = eval_latex_expression_with_env("3\\alpha + 4{\\beta}", &env).unwrap();
+        assert_eq!(result, 18.0); // 3*2 + 4*3
+    }
+
+    #[test]
     fn test_implicit_mul_frac_var() {
         let mut env = Environment::new();
         env.set("x", 6.0);
@@ -231,6 +258,12 @@ mod latex_parser_tests {
     fn test_implicit_mul_paren_paren() {
         let result = eval_latex_expression("(2 + 3)(4 + 1)").unwrap();
         assert_eq!(result, 25.0); // 5 * 5 = 25
+    }
+
+    #[test]
+    fn test_implicit_mul_paren_number() {
+        let result = eval_latex_expression("(2 + 3)4").unwrap();
+        assert_eq!(result, 20.0); // 5 * 4 = 20
     }
 
     #[test]

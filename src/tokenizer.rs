@@ -3,6 +3,14 @@ use std::str::Chars;
 
 use crate::functions::FUNCTION_REGISTRY;
 
+fn is_decimal_char(c: char) -> bool {
+    c.is_ascii_digit() || c == '.'
+}
+
+fn is_decimal_literal(token: &str) -> bool {
+    !token.is_empty() && token.chars().all(is_decimal_char)
+}
+
 fn is_variable_token(token: &str) -> bool {
     !token.is_empty()
         && token.chars().all(|c| c.is_alphabetic())
@@ -129,7 +137,7 @@ impl<'a> Tokenizer<'a> {
             }
 
             // Handle numbers
-            if c.is_ascii_digit() || c == '.' {
+            if is_decimal_char(c) {
                 if let Some(last) = last_token.as_ref() {
                     if last == ")" {
                         tokens.push("*".to_string());
@@ -143,12 +151,9 @@ impl<'a> Tokenizer<'a> {
             }
             // Handle operators and parentheses
             else if "+*/(){}".contains(c) {
-                if c == '(' {
+                if c == '(' || c == '{' {
                     if let Some(last) = last_token.as_ref() {
-                        if last == ")"
-                            || last.chars().all(char::is_numeric)
-                            || is_variable_token(last)
-                        {
+                        if last == ")" || is_decimal_literal(last) || is_variable_token(last) {
                             tokens.push("*".to_string());
                         }
                     }
@@ -178,8 +183,7 @@ impl<'a> Tokenizer<'a> {
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
                 if let Some(last) = last_token.as_ref() {
-                    if last.chars().all(char::is_numeric) || last == ")" || is_variable_token(last)
-                    {
+                    if is_decimal_literal(last) || last == ")" || is_variable_token(last) {
                         tokens.push("*".to_string());
                     }
                 }
@@ -202,7 +206,7 @@ impl<'a> Tokenizer<'a> {
     fn tokenize_numbers(&mut self, tokens: &mut Vec<String>, current_token: &mut String, c: char) {
         current_token.push(c);
         while let Some(&next_char) = self.chars.peek() {
-            if next_char.is_ascii_digit() || next_char == '.' {
+            if is_decimal_char(next_char) {
                 current_token.push(next_char);
                 self.chars.next(); // Move the iterator forward
             } else {
@@ -242,7 +246,7 @@ impl<'a> Tokenizer<'a> {
         // Implicit multiplication: x\sin(x), 2\frac{1}{2}, )\cos(x)
         if let Some(last) = tokens.last() {
             let needs_mul = last == ")"
-                || last.chars().all(|c| c.is_ascii_digit() || c == '.')
+                || is_decimal_literal(last)
                 || (last.len() == 1 && last.chars().next().is_some_and(|c| c.is_alphabetic()));
             let is_value_producing = matches!(
                 stripped_token.as_str(),
@@ -666,6 +670,13 @@ mod tests {
     }
 
     #[test]
+    fn test_tokenize_implicit_multiplication_decimal() {
+        let mut tokenizer = Tokenizer::new("0.3x + .4y");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["0.3", "*", "x", "+", ".4", "*", "y"]);
+    }
+
+    #[test]
     fn test_tokenize_implicit_mul_frac_var() {
         // \frac{1}{3}x → (1)/(3) * x
         let mut tokenizer = Tokenizer::new("\\frac{1}{3}x");
@@ -769,9 +780,9 @@ mod tests {
 
     #[test]
     fn test_tokenize_greek_implicit_mul() {
-        let mut tokenizer = Tokenizer::new("2\\alpha");
+        let mut tokenizer = Tokenizer::new("3\\alpha + 4{\\beta}");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["2", "*", "α"]);
+        assert_eq!(tokens, vec!["3", "*", "α", "+", "4", "*", "{", "β", "}"]);
     }
 
     #[test]
