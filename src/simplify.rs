@@ -98,6 +98,11 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
                     return Some(Node::Num(ExactNum::integer(0)));
                 }
             }
+            if let Node::Variable(v) = arg {
+                if v == "e" {
+                    return Some(Node::Num(ExactNum::integer(1)));
+                }
+            }
             None
         }
         "arctan" | "atan" => {
@@ -490,6 +495,14 @@ impl Simplifiable for Node {
             Node::Power(base, exponent) => {
                 let base_simplified = base.simplify(env)?;
                 let exponent_simplified = exponent.simplify(env)?;
+
+                // e^x → exp(x)
+                if let Node::Variable(ref v) = base_simplified {
+                    if v == "e" {
+                        return Node::Function("exp".to_string(), vec![exponent_simplified])
+                            .simplify(env);
+                    }
+                }
 
                 // 0^n → 0 for n > 0, 1^n → 1
                 if let Node::Num(ref b) = base_simplified {
@@ -1008,9 +1021,9 @@ impl Simplifiable for Node {
                 if let Node::Num(ref n) = simplified {
                     return Ok(Node::Num(n.abs()));
                 }
-                // |x| → x when x is nonnegative
+                // |x| → x when x is nonnegative or a known positive constant
                 if let Node::Variable(ref v) = simplified {
-                    if env.assumptions().is_nonneg(v) {
+                    if v == "e" || v == "π" || env.assumptions().is_nonneg(v) {
                         return Ok(simplified);
                     }
                     if env.assumptions().is_negative(v) {
@@ -1117,10 +1130,15 @@ impl Simplifiable for Node {
                         "ln" => {
                             // ln(e^x) → x
                             if let Node::Power(base, exp) = arg {
-                                if let Node::Num(ref b) = **base {
-                                    if (b.to_f64() - std::f64::consts::E).abs() < 1e-14 {
-                                        return Ok(*exp.clone());
+                                let is_e = match &**base {
+                                    Node::Variable(v) => v == "e",
+                                    Node::Num(b) => {
+                                        (b.to_f64() - std::f64::consts::E).abs() < 1e-14
                                     }
+                                    _ => false,
+                                };
+                                if is_e {
+                                    return Ok(*exp.clone());
                                 }
                                 // ln(a^b) → b·ln(a), then re-simplify since ln(a)
                                 // may itself expand (e.g. a = x·y → ln(x)+ln(y))

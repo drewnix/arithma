@@ -354,12 +354,15 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     return integrate_standard_function(name, var_name);
                 }
             }
-            // Try linear substitution: f(ax+b) where a is constant
+            // Try linear substitution: ∫f(ax+b)dx = (1/a)·F(ax+b)
             if let Some((a, _b)) = extract_linear_arg(arg, var_name) {
                 let base_integral = integrate_standard_function(name, var_name)?;
+                let with_arg =
+                    crate::substitute::substitute_variable(&base_integral, var_name, arg)
+                        .unwrap_or(base_integral);
                 let inv_a =
                     Node::Divide(Box::new(Node::Num(ExactNum::one())), Box::new(Node::Num(a)));
-                return Ok(Node::Multiply(Box::new(inv_a), Box::new(base_integral)));
+                return Ok(Node::Multiply(Box::new(inv_a), Box::new(with_arg)));
             }
             // sqrt(quadratic) → trig substitution
             if name == "sqrt" {

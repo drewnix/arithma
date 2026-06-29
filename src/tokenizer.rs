@@ -335,12 +335,12 @@ impl<'a> Tokenizer<'a> {
         match stripped_token.as_str() {
             "mathrm" => {
                 if let Some('{') = self.chars.peek() {
-                    self.chars.next(); // Consume the opening brace
+                    self.chars.next();
                     if let Some('e') = self.chars.peek() {
-                        tokens.push(std::f64::consts::E.to_string()); // Euler's number
+                        tokens.push("e".to_string());
                         self.chars.next();
                         if let Some('}') = self.chars.peek() {
-                            self.chars.next(); // Consume the closing brace
+                            self.chars.next();
                         }
                     }
                 }
@@ -493,11 +493,7 @@ impl<'a> Tokenizer<'a> {
                 break;
             }
         }
-        if current_token == "e" {
-            tokens.push(std::f64::consts::E.to_string());
-        } else {
-            tokens.push(current_token.clone());
-        }
+        tokens.push(current_token.clone());
     }
 
     /// Handle operators and parentheses
@@ -624,14 +620,7 @@ mod tests {
     fn test_tokenize_latex_euler() {
         let mut tokenizer = Tokenizer::new("\\mathrm{e} * 2");
         let tokens = tokenizer.tokenize();
-        assert_eq!(
-            tokens,
-            vec![
-                std::f64::consts::E.to_string(),
-                "*".to_string(),
-                "2".to_string()
-            ]
-        );
+        assert_eq!(tokens, vec!["e", "*", "2"]);
     }
 
     #[test]

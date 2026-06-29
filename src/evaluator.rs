@@ -19,6 +19,8 @@ impl Evaluator {
                     Ok(val.clone())
                 } else if var == "π" {
                     Ok(ExactNum::Float(std::f64::consts::PI))
+                } else if var == "e" {
+                    Ok(ExactNum::Float(std::f64::consts::E))
                 } else {
                     Err(format!("Variable '{}' is not defined.", var))
                 }
