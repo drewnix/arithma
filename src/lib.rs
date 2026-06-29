@@ -92,7 +92,10 @@ pub mod limits;
 pub use crate::limits::{compute_limit, limit_latex};
 
 pub mod ode;
-pub use crate::ode::{solve_constant_coeff, solve_constant_coeff_latex, solve_ode_latex};
+pub use crate::ode::{
+    solve_constant_coeff, solve_constant_coeff_latex, solve_ode_latex, solve_series,
+    solve_series_ivp,
+};
 
 pub mod risch;
 

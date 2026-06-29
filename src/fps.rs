@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::rc::Rc;
 
 use num_bigint::BigInt;
@@ -27,6 +27,7 @@ enum FpsGen {
     ScalarMul(BigRational, FormalPowerSeries),
     Product(FormalPowerSeries, FormalPowerSeries),
     Inverse(FormalPowerSeries),
+    Quotient(FormalPowerSeries, FormalPowerSeries),
 }
 
 enum CoeffAction {
@@ -37,6 +38,7 @@ enum CoeffAction {
     ScalarMul(BigRational, FormalPowerSeries),
     Product(FormalPowerSeries, FormalPowerSeries),
     Inverse(FormalPowerSeries),
+    Quotient(FormalPowerSeries, FormalPowerSeries),
 }
 
 impl FormalPowerSeries {
@@ -272,6 +274,77 @@ impl FormalPowerSeries {
         })
     }
 
+    /// Compositional inverse (reversion): given f with f(0)=0, f'(0)≠0,
+    /// compute g such that f(g(x)) = x via Lagrange inversion.
+    pub fn revert(&self) -> Result<Self, String> {
+        if !self.coeff(0).is_zero() {
+            return Err("Reversion requires f(0) = 0".to_string());
+        }
+        if self.coeff(1).is_zero() {
+            return Err("Reversion requires f'(0) ≠ 0".to_string());
+        }
+
+        let f = self.clone();
+        let h = FormalPowerSeries::from_fn(move |n| f.coeff(n + 1));
+        let phi = h.inverse().unwrap();
+
+        let phi_pow_cache: Rc<RefCell<Vec<Vec<BigRational>>>> =
+            Rc::new(RefCell::new(vec![vec![BigRational::one()]]));
+
+        Ok(Self::from_fn(move |n| {
+            if n == 0 {
+                return BigRational::zero();
+            }
+
+            let target_deg = n - 1;
+            let mut ppc = phi_pow_cache.borrow_mut();
+
+            for k in 0..ppc.len() {
+                while ppc[k].len() <= target_deg {
+                    let j = ppc[k].len();
+                    let val = if k == 0 {
+                        BigRational::zero()
+                    } else {
+                        let mut v = BigRational::zero();
+                        for i in 0..=j {
+                            v += &ppc[k - 1][i] * &phi.coeff(j - i);
+                        }
+                        v
+                    };
+                    ppc[k].push(val);
+                }
+            }
+
+            while ppc.len() <= n {
+                let k = ppc.len();
+                let mut pk = Vec::with_capacity(target_deg + 1);
+                for j in 0..=target_deg {
+                    let mut val = BigRational::zero();
+                    for i in 0..=j {
+                        val += &ppc[k - 1][i] * &phi.coeff(j - i);
+                    }
+                    pk.push(val);
+                }
+                ppc.push(pk);
+            }
+
+            ppc[n][target_deg].clone() / BigRational::from_integer(BigInt::from(n))
+        }))
+    }
+
+    /// Quotient f(x)/g(x) where g(0) ≠ 0.
+    pub fn quotient(&self, g: &FormalPowerSeries) -> Result<Self, String> {
+        if g.coeff(0).is_zero() {
+            return Err("Quotient requires g(0) ≠ 0".to_string());
+        }
+        Ok(FormalPowerSeries {
+            inner: Rc::new(RefCell::new(FpsInner {
+                cache: Vec::new(),
+                gen: FpsGen::Quotient(self.clone(), g.clone()),
+            })),
+        })
+    }
+
     /// Formal derivative: [f'(x)]_n = (n+1) · f_{n+1}.
     pub fn formal_derivative(&self) -> Self {
         let f = self.clone();
@@ -302,6 +375,9 @@ impl FormalPowerSeries {
                 FpsGen::ScalarMul(c, a) => CoeffAction::ScalarMul(c.clone(), a.clone()),
                 FpsGen::Product(a, b) => CoeffAction::Product(a.clone(), b.clone()),
                 FpsGen::Inverse(f) => CoeffAction::Inverse(f.clone()),
+                FpsGen::Quotient(num, den) => {
+                    CoeffAction::Quotient(num.clone(), den.clone())
+                }
             }
         };
 
@@ -328,6 +404,18 @@ impl FormalPowerSeries {
                         sum += f.coeff(k) * self.coeff(n - k);
                     }
                     -(BigRational::one() / &f0) * sum
+                }
+            }
+            CoeffAction::Quotient(num, den) => {
+                let den0 = den.coeff(0);
+                if n == 0 {
+                    num.coeff(0) / den0
+                } else {
+                    let mut sum = BigRational::zero();
+                    for k in 1..=n {
+                        sum += den.coeff(k) * self.coeff(n - k);
+                    }
+                    (num.coeff(n) - sum) / den0
                 }
             }
         }
@@ -367,6 +455,13 @@ impl Mul for &FormalPowerSeries {
                 gen: FpsGen::Product(self.clone(), rhs.clone()),
             })),
         }
+    }
+}
+
+impl Div for &FormalPowerSeries {
+    type Output = FormalPowerSeries;
+    fn div(self, rhs: Self) -> FormalPowerSeries {
+        self.quotient(rhs).expect("Division requires g(0) ≠ 0")
     }
 }
 
@@ -788,6 +883,121 @@ mod tests {
         for n in 2..5 {
             assert!(composed.coeff(n).is_zero());
         }
+    }
+
+    #[test]
+    fn test_revert_sin_is_arcsin() {
+        // arcsin(x) = x + x³/6 + 3x⁵/40 + 5x⁷/112
+        let s = FormalPowerSeries::sin();
+        let asin = s.revert().unwrap();
+        assert_eq!(asin.coeff(0), bri(0));
+        assert_eq!(asin.coeff(1), bri(1));
+        assert_eq!(asin.coeff(2), bri(0));
+        assert_eq!(asin.coeff(3), br(1, 6));
+        assert_eq!(asin.coeff(4), bri(0));
+        assert_eq!(asin.coeff(5), br(3, 40));
+        assert_eq!(asin.coeff(6), bri(0));
+        assert_eq!(asin.coeff(7), br(5, 112));
+    }
+
+    #[test]
+    fn test_revert_exp_minus_1_is_ln_1_plus_x() {
+        // f(x) = e^x - 1 = x + x²/2 + x³/6 + ...
+        // f^{-1}(x) = ln(1+x) = x - x²/2 + x³/3 - ...
+        let exp_m1 = FormalPowerSeries::from_fn(|n| {
+            if n == 0 {
+                BigRational::zero()
+            } else {
+                let mut fact = BigRational::one();
+                for i in 2..=n {
+                    fact *= BigRational::from_integer(BigInt::from(i));
+                }
+                BigRational::one() / fact
+            }
+        });
+        let rev = exp_m1.revert().unwrap();
+        let ln = FormalPowerSeries::ln_1_plus_x();
+        for n in 0..8 {
+            assert_eq!(rev.coeff(n), ln.coeff(n), "revert(e^x-1) coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_revert_roundtrip() {
+        // f(g(x)) = x where g = revert(f)
+        let s = FormalPowerSeries::sin();
+        let asin = s.revert().unwrap();
+        let composed = s.compose(&asin).unwrap();
+        assert_eq!(composed.coeff(0), bri(0));
+        assert_eq!(composed.coeff(1), bri(1));
+        for n in 2..8 {
+            assert!(
+                composed.coeff(n).is_zero(),
+                "sin(arcsin(x)) coeff({}) should be 0, got {}",
+                n,
+                composed.coeff(n)
+            );
+        }
+    }
+
+    #[test]
+    fn test_revert_error_nonzero_constant() {
+        let f = FormalPowerSeries::from_coeffs(vec![bri(1), bri(1)]);
+        assert!(f.revert().is_err());
+    }
+
+    #[test]
+    fn test_revert_error_zero_linear() {
+        let f = FormalPowerSeries::from_coeffs(vec![bri(0), bri(0), bri(1)]);
+        assert!(f.revert().is_err());
+    }
+
+    #[test]
+    fn test_quotient_sin_over_cos_is_tan() {
+        // tan(x) = sin(x)/cos(x) = x + x³/3 + 2x⁵/15 + ...
+        let s = FormalPowerSeries::sin();
+        let c = FormalPowerSeries::cos();
+        let tan = s.quotient(&c).unwrap();
+        assert_eq!(tan.coeff(0), bri(0));
+        assert_eq!(tan.coeff(1), bri(1));
+        assert_eq!(tan.coeff(2), bri(0));
+        assert_eq!(tan.coeff(3), br(1, 3));
+        assert_eq!(tan.coeff(4), bri(0));
+        assert_eq!(tan.coeff(5), br(2, 15));
+        assert_eq!(tan.coeff(6), bri(0));
+        assert_eq!(tan.coeff(7), br(17, 315));
+    }
+
+    #[test]
+    fn test_quotient_matches_mul_inverse() {
+        let f = FormalPowerSeries::from_coeffs(vec![bri(3), bri(-1), bri(7), bri(2)]);
+        let g = FormalPowerSeries::from_coeffs(vec![bri(2), bri(5), bri(-3)]);
+        let q1 = f.quotient(&g).unwrap();
+        let g_inv = g.inverse().unwrap();
+        let q2 = &f * &g_inv;
+        for n in 0..8 {
+            assert_eq!(q1.coeff(n), q2.coeff(n), "quotient vs mul·inverse coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_quotient_polynomial_exact() {
+        // (1 + 3x + 2x²) / (1 + x) = (1+x)(1+2x) / (1+x) = 1 + 2x
+        let f = FormalPowerSeries::from_coeffs(vec![bri(1), bri(3), bri(2)]);
+        let g = FormalPowerSeries::from_coeffs(vec![bri(1), bri(1)]);
+        let q = &f / &g;
+        assert_eq!(q.coeff(0), bri(1));
+        assert_eq!(q.coeff(1), bri(2));
+        for n in 2..6 {
+            assert!(q.coeff(n).is_zero(), "exact division coeff({}) should be 0", n);
+        }
+    }
+
+    #[test]
+    fn test_quotient_error_zero_constant() {
+        let f = FormalPowerSeries::from_coeffs(vec![bri(1), bri(1)]);
+        let g = FormalPowerSeries::from_coeffs(vec![bri(0), bri(1)]);
+        assert!(f.quotient(&g).is_err());
     }
 
     #[test]

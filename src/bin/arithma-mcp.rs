@@ -430,7 +430,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "solve_ode",
-            "description": "Solve an ordinary differential equation. First-order: provide expr where dy/dx = expr, and the solver auto-classifies as separable or linear. Second-order constant-coefficient: provide a, b, c for ay''+by'+cy=0.",
+            "description": "Solve an ordinary differential equation. First-order: provide expr where dy/dx = expr. Second-order constant-coefficient: provide a, b, c for ay''+by'+cy=0. General linear with polynomial coefficients: provide poly_coeffs for power series solution.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -459,6 +459,23 @@ fn tools_schema() -> Value {
                     "c": {
                         "type": "number",
                         "description": "Coefficient of y for second-order constant-coefficient ODE"
+                    },
+                    "poly_coeffs": {
+                        "type": "array",
+                        "description": "Polynomial coefficients for general linear ODE series solution. Array of arrays: poly_coeffs[i] = coefficients of a_i(x) for a_0(x)·y + a_1(x)·y' + ... + a_k(x)·y^(k) = 0. Example: [[6], [0, -2], [1]] for y'' - 2xy' + 6y = 0",
+                        "items": {
+                            "type": "array",
+                            "items": { "type": "number" }
+                        }
+                    },
+                    "order": {
+                        "type": "integer",
+                        "description": "Truncation degree for power series solution (default: 10)"
+                    },
+                    "initial_values": {
+                        "type": "array",
+                        "description": "Initial values [y(0), y'(0), ...] for initial value problem. Length must match ODE order.",
+                        "items": { "type": "number" }
                     },
                     "assumptions": assumptions_schema()
                 }
@@ -1006,6 +1023,10 @@ fn tool_verify(args: &Value) -> Result<String, String> {
 }
 
 fn tool_solve_ode(args: &Value) -> Result<String, String> {
+    if let Some(poly_arr) = args.get("poly_coeffs").and_then(|v| v.as_array()) {
+        return tool_solve_ode_series(args, poly_arr);
+    }
+
     let has_cc = args.get("a").is_some() && args.get("b").is_some() && args.get("c").is_some();
 
     if has_cc {
@@ -1029,6 +1050,97 @@ fn tool_solve_ode(args: &Value) -> Result<String, String> {
         let indep = normalize_var(get_str_or(args, "indep", "x"));
         let dep = normalize_var(get_str_or(args, "dep", "y"));
         arithma::ode::solve_ode_latex(expr, &indep, &dep)
+    }
+}
+
+fn f64_to_rational(v: f64) -> num_rational::BigRational {
+    use num_bigint::BigInt;
+    use num_rational::BigRational;
+    if v.fract() == 0.0 && v.is_finite() && v.abs() < i64::MAX as f64 {
+        BigRational::from_integer(BigInt::from(v as i64))
+    } else {
+        let scale = 1_000_000_000i64;
+        let scaled = (v * scale as f64).round() as i64;
+        let r = BigRational::new(BigInt::from(scaled), BigInt::from(scale));
+        r.reduced()
+    }
+}
+
+fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> Result<String, String> {
+    use num_rational::BigRational;
+
+    if poly_arr.len() < 2 {
+        return Err("poly_coeffs must have at least 2 elements (first-order ODE)".to_string());
+    }
+
+    let indep = normalize_var(get_str_or(args, "indep", "x"));
+    let order = args
+        .get("order")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+
+    let mut coeffs: Vec<Polynomial> = Vec::new();
+    for (i, poly_val) in poly_arr.iter().enumerate() {
+        let arr = poly_val
+            .as_array()
+            .ok_or_else(|| format!("poly_coeffs[{}] must be an array", i))?;
+        let cs: Vec<BigRational> = arr
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .map(f64_to_rational)
+                    .ok_or_else(|| format!("poly_coeffs[{}] contains non-numeric value", i))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        coeffs.push(Polynomial::from_coeffs(cs, &indep));
+    }
+
+    let iv = args.get("initial_values").and_then(|v| v.as_array());
+
+    if let Some(iv_arr) = iv {
+        let initial_values: Vec<BigRational> = iv_arr
+            .iter()
+            .map(|v| {
+                v.as_f64()
+                    .map(f64_to_rational)
+                    .ok_or("initial_values contains non-numeric value".to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let sol = arithma::ode::solve_series_ivp(&coeffs, &initial_values)?;
+        let poly = sol.truncate(order, &indep);
+        let coeffs_list: Vec<String> = (0..=order).map(|i| format!("{}", sol.coeff(i))).collect();
+        Ok(format!(
+            "y = {} + O({}^{})\nCoefficients: [{}]",
+            poly,
+            indep,
+            order + 1,
+            coeffs_list.join(", ")
+        ))
+    } else {
+        let solutions = arithma::ode::solve_series(&coeffs)?;
+        let k = solutions.len();
+        let mut parts = Vec::new();
+        for (i, sol) in solutions.iter().enumerate() {
+            let poly = sol.truncate(order, &indep);
+            let coeffs_list: Vec<String> =
+                (0..=order).map(|j| format!("{}", sol.coeff(j))).collect();
+            parts.push(format!(
+                "y_{} = {} + O({}^{})\nCoefficients: [{}]",
+                i + 1,
+                poly,
+                indep,
+                order + 1,
+                coeffs_list.join(", ")
+            ));
+        }
+        Ok(format!(
+            "Power series solution ({} independent solution{}, {} terms):\n{}",
+            k,
+            if k == 1 { "" } else { "s" },
+            order + 1,
+            parts.join("\n\n")
+        ))
     }
 }
 

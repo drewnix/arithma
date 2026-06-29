@@ -1,7 +1,16 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::{One, Zero};
+
 use crate::environment::Environment;
 use crate::exact::ExactNum;
+use crate::fps::FormalPowerSeries;
 use crate::integration::integrate;
 use crate::node::Node;
+use crate::polynomial::Polynomial;
 use crate::simplify::Simplifiable;
 use crate::{build_expression_tree, Tokenizer};
 
@@ -52,6 +61,123 @@ fn add(a: Node, b: Node) -> Node {
 fn simplify(node: &Node) -> Node {
     let env = Environment::new();
     node.simplify(&env).unwrap_or_else(|_| node.clone())
+}
+
+fn falling_factorial(n: usize, i: usize) -> BigRational {
+    let mut result = BigRational::one();
+    for j in 0..i {
+        result *= BigRational::from_integer(BigInt::from(n - j));
+    }
+    result
+}
+
+/// Solve a linear ODE with polynomial coefficients at the ordinary point x=0.
+///
+/// coeffs\[i\] is a_i(x) in: Σ_{i=0}^{k} a_i(x)·y^{(i)}(x) = 0.
+/// Returns k independent power series solutions (one per free initial condition).
+pub fn solve_series(coeffs: &[Polynomial]) -> Result<Vec<FormalPowerSeries>, String> {
+    if coeffs.len() < 2 {
+        return Err("ODE must be at least first order".to_string());
+    }
+    let k = coeffs.len() - 1;
+
+    let ak0 = coeffs[k].coeff(0);
+    if ak0.is_zero() {
+        return Err("Not an ordinary point: leading coefficient a_k(0) = 0".to_string());
+    }
+
+    let mut terms: Vec<(usize, usize, BigRational)> = Vec::new();
+    for (i, poly) in coeffs.iter().enumerate() {
+        let deg = poly.degree().unwrap_or(0);
+        for j in 0..=deg {
+            let aij = poly.coeff(j);
+            if !(aij.is_zero() || i == k && j == 0) {
+                terms.push((i, j, aij));
+            }
+        }
+    }
+
+    let mut solutions = Vec::with_capacity(k);
+    for sol_idx in 0..k {
+        let terms = terms.clone();
+        let ak0 = ak0.clone();
+
+        let cache: Rc<RefCell<Vec<BigRational>>> = Rc::new(RefCell::new(Vec::new()));
+        {
+            let mut c = cache.borrow_mut();
+            for i in 0..k {
+                c.push(if i == sol_idx {
+                    BigRational::one()
+                } else {
+                    BigRational::zero()
+                });
+            }
+        }
+
+        let fps = FormalPowerSeries::from_fn(move |n| {
+            let mut c = cache.borrow_mut();
+            while c.len() <= n {
+                let m_plus_k = c.len();
+                let m = m_plus_k - k;
+
+                let denom = &ak0 * falling_factorial(m_plus_k, k);
+                let mut sum = BigRational::zero();
+                for (i, j, aij) in &terms {
+                    if *j > m {
+                        continue;
+                    }
+                    let idx = m - j + i;
+                    let f = falling_factorial(idx, *i);
+                    if !f.is_zero() {
+                        sum += aij * &f * &c[idx];
+                    }
+                }
+                c.push(-sum / denom);
+            }
+            c[n].clone()
+        });
+
+        solutions.push(fps);
+    }
+
+    Ok(solutions)
+}
+
+/// Solve a linear ODE with initial conditions y(0)=v_0, y'(0)=v_1, ...
+/// Returns a single power series: Σ (v_i / i!) · solution_i.
+pub fn solve_series_ivp(
+    coeffs: &[Polynomial],
+    initial_values: &[BigRational],
+) -> Result<FormalPowerSeries, String> {
+    let k = coeffs.len() - 1;
+    if initial_values.len() != k {
+        return Err(format!(
+            "Expected {} initial values for order-{} ODE, got {}",
+            k,
+            k,
+            initial_values.len()
+        ));
+    }
+
+    let solutions = solve_series(coeffs)?;
+
+    let mut ic_coeffs = Vec::with_capacity(k);
+    let mut factorial = BigRational::one();
+    for (i, v) in initial_values.iter().enumerate() {
+        if i >= 2 {
+            factorial *= BigRational::from_integer(BigInt::from(i));
+        }
+        ic_coeffs.push(v / &factorial);
+    }
+
+    let mut result = FormalPowerSeries::zero();
+    for (i, sol) in solutions.iter().enumerate() {
+        if !ic_coeffs[i].is_zero() {
+            result = &result + &sol.scale(&ic_coeffs[i]);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Solve a second-order constant-coefficient ODE: ay'' + by' + cy = 0.
@@ -348,6 +474,173 @@ pub fn solve_constant_coeff_latex(a: f64, b: f64, c: f64, indep: &str) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bri(n: i64) -> BigRational {
+        BigRational::from_integer(BigInt::from(n))
+    }
+
+    fn poly_const(c: i64) -> Polynomial {
+        Polynomial::constant(bri(c), "x")
+    }
+
+    fn poly_coeffs(cs: &[i64]) -> Polynomial {
+        Polynomial::from_coeffs(cs.iter().map(|&c| bri(c)).collect(), "x")
+    }
+
+    // === Series ODE solver ===
+
+    #[test]
+    fn test_series_harmonic_oscillator() {
+        // y'' + y = 0 → cos(x) and sin(x)
+        let coeffs = vec![poly_const(1), poly_const(0), poly_const(1)];
+        let solutions = solve_series(&coeffs).unwrap();
+        assert_eq!(solutions.len(), 2);
+
+        let cos_series = &solutions[0];
+        let sin_series = &solutions[1];
+        let cos_ref = FormalPowerSeries::cos();
+        let sin_ref = FormalPowerSeries::sin();
+        for n in 0..8 {
+            assert_eq!(cos_series.coeff(n), cos_ref.coeff(n), "cos coeff({}) mismatch", n);
+            assert_eq!(sin_series.coeff(n), sin_ref.coeff(n), "sin coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_series_exponential() {
+        // y'' - y = 0 → cosh(x) and sinh(x)
+        let coeffs = vec![poly_const(-1), poly_const(0), poly_const(1)];
+        let solutions = solve_series(&coeffs).unwrap();
+
+        let cosh = &solutions[0]; // c_0=1, c_1=0
+        let sinh = &solutions[1]; // c_0=0, c_1=1
+        let exp = FormalPowerSeries::exp();
+        for n in 0..8 {
+            let expected_cosh = if n % 2 == 0 { exp.coeff(n) } else { bri(0) };
+            let expected_sinh = if n % 2 == 1 { exp.coeff(n) } else { bri(0) };
+            assert_eq!(cosh.coeff(n), expected_cosh, "cosh coeff({}) mismatch", n);
+            assert_eq!(sinh.coeff(n), expected_sinh, "sinh coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_series_first_order_exp() {
+        // y' - y = 0 → e^x
+        let coeffs = vec![poly_const(-1), poly_const(1)];
+        let solutions = solve_series(&coeffs).unwrap();
+        assert_eq!(solutions.len(), 1);
+
+        let sol = &solutions[0];
+        let exp = FormalPowerSeries::exp();
+        for n in 0..8 {
+            assert_eq!(sol.coeff(n), exp.coeff(n), "e^x coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_series_hermite() {
+        // y'' - 2xy' + 2ny = 0 with n=2 → Hermite polynomial H_2(x) = 4x²-2
+        // a_0(x) = 2n = 4, a_1(x) = -2x, a_2(x) = 1
+        let coeffs = vec![
+            poly_const(4),
+            poly_coeffs(&[0, -2]),
+            poly_const(1),
+        ];
+        let solutions = solve_series(&coeffs).unwrap();
+
+        // Solution 0: c_0=1, c_1=0
+        // Recurrence: c_{m+2} = -1/((m+2)(m+1)) · [4·c_m + (-2)·(m+1)·c_{m+1}]
+        //           = -1/((m+2)(m+1)) · [4·c_m - 2(m+1)·c_{m+1}]
+        // m=0: c_2 = -1/(2·1) · [4·1 - 2·1·0] = -4/2 = -2
+        // m=1: c_3 = -1/(3·2) · [4·0 - 2·2·(-2)] = -1/6 · [0+8] = Not right...
+        // Wait, let me recalculate. a_1(x) = -2x, so a_{1,0} = 0, a_{1,1} = -2.
+        // For (i=1, j=1): valid only when j ≤ m, so m ≥ 1.
+        // For m=0: only terms with j ≤ 0.
+        //   (i=0, j=0): a_{0,0}·falling(0,0)·c_0 = 4·1·1 = 4
+        //   No other terms (a_{1,1} needs j=1 > m=0).
+        //   c_2 = -4/(1·(2·1)) = -4/2 = -2. ✓
+        // For m=1: terms with j ≤ 1.
+        //   (i=0, j=0): 4·falling(1,0)·c_1 = 4·1·0 = 0
+        //   (i=1, j=1): a_{1,1}·falling(1-1+1,1)·c_{1-1+1} = (-2)·falling(1,1)·c_1 = (-2)·1·0 = 0
+        //   c_3 = 0/(1·(3·2)) = 0. ✓ (H_2 is degree 2, no odd terms from even IC)
+        // m=2: c_4:
+        //   (i=0, j=0): 4·1·c_2 = 4·(-2) = -8
+        //   (i=1, j=1): (-2)·falling(2,1)·c_2 = (-2)·2·(-2) = 8
+        //   c_4 = -(-8+8)/(1·(4·3)) = 0. ✓ (H_2 terminates)
+        let h2_even = &solutions[0]; // c_0=1, c_1=0 → should give 1-2x²
+        assert_eq!(h2_even.coeff(0), bri(1));
+        assert_eq!(h2_even.coeff(1), bri(0));
+        assert_eq!(h2_even.coeff(2), bri(-2));
+        assert_eq!(h2_even.coeff(3), bri(0));
+        assert_eq!(h2_even.coeff(4), bri(0)); // terminates
+    }
+
+    #[test]
+    fn test_series_ivp() {
+        // y'' + y = 0 with y(0)=0, y'(0)=1 → sin(x)
+        let coeffs = vec![poly_const(1), poly_const(0), poly_const(1)];
+        let sol = solve_series_ivp(&coeffs, &[bri(0), bri(1)]).unwrap();
+        let sin_ref = FormalPowerSeries::sin();
+        for n in 0..8 {
+            assert_eq!(sol.coeff(n), sin_ref.coeff(n), "sin IVP coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_series_ivp_cos() {
+        // y'' + y = 0 with y(0)=1, y'(0)=0 → cos(x)
+        let coeffs = vec![poly_const(1), poly_const(0), poly_const(1)];
+        let sol = solve_series_ivp(&coeffs, &[bri(1), bri(0)]).unwrap();
+        let cos_ref = FormalPowerSeries::cos();
+        for n in 0..8 {
+            assert_eq!(sol.coeff(n), cos_ref.coeff(n), "cos IVP coeff({}) mismatch", n);
+        }
+    }
+
+    #[test]
+    fn test_series_third_order() {
+        // y''' - y = 0 → three independent solutions
+        let coeffs = vec![poly_const(-1), poly_const(0), poly_const(0), poly_const(1)];
+        let solutions = solve_series(&coeffs).unwrap();
+        assert_eq!(solutions.len(), 3);
+
+        for (j, sol) in solutions.iter().enumerate() {
+            for i in 0..3 {
+                let expected = if i == j { bri(1) } else { bri(0) };
+                assert_eq!(sol.coeff(i), expected, "sol_{} coeff({}) mismatch", j, i);
+            }
+        }
+
+        // Sum of all three solutions at each coefficient should satisfy the recurrence
+        // Each c_{m+3} = c_m / ((m+3)(m+2)(m+1))
+        let s0 = &solutions[0];
+        for m in 0..5 {
+            let falling = bri((m as i64 + 3) * (m as i64 + 2) * (m as i64 + 1));
+            let expected = s0.coeff(m) / falling;
+            assert_eq!(s0.coeff(m + 3), expected,
+                "sol_0 recurrence at m={} mismatch", m);
+        }
+    }
+
+    #[test]
+    fn test_series_legendre() {
+        // (1-x²)y'' - 2xy' + n(n+1)y = 0 with n=2 → P_2(x) = (3x²-1)/2
+        // a_0(x) = n(n+1) = 6, a_1(x) = -2x, a_2(x) = 1 - x²
+        let coeffs = vec![
+            poly_const(6),
+            poly_coeffs(&[0, -2]),
+            poly_coeffs(&[1, 0, -1]),
+        ];
+        let solutions = solve_series(&coeffs).unwrap();
+
+        // Even solution (c_0=1, c_1=0) should give P_2(x) (up to normalization)
+        let p2 = &solutions[0];
+        assert_eq!(p2.coeff(0), bri(1));
+        assert_eq!(p2.coeff(1), bri(0));
+        assert_eq!(p2.coeff(2), bri(-3)); // from recurrence
+        // Should terminate for n=2: c_4 = 0
+        assert_eq!(p2.coeff(4), bri(0));
+    }
 
     fn solve_and_format(rhs: &str, indep: &str, dep: &str) -> String {
         solve_ode_latex(rhs, indep, dep).unwrap()
