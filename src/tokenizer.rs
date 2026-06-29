@@ -348,6 +348,9 @@ impl<'a> Tokenizer<'a> {
             "cdot" | "times" => {
                 tokens.push("*".to_string());
             }
+            "div" => {
+                tokens.push("/".to_string());
+            }
             "geq" | "ge" => {
                 tokens.push(">=".to_string());
             }
@@ -727,6 +730,27 @@ mod tests {
         let mut tokenizer = Tokenizer::new("\\mathrm{e} * 2");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["e", "*", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_latex_times() {
+        let mut tokenizer = Tokenizer::new(r"4 \times 2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["4", "*", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_latex_cdot() {
+        let mut tokenizer = Tokenizer::new(r"4 \cdot 2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["4", "*", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_latex_div() {
+        let mut tokenizer = Tokenizer::new(r"10 \div 2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["10", "/", "2"]);
     }
 
     #[test]
