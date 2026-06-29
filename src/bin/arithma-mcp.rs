@@ -6,7 +6,6 @@ use arithma::assumptions::Assumptions;
 use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_exact_latex, integrate_latex};
-use arithma::limits::limit_latex;
 use arithma::matrix::parse_latex_matrix;
 use arithma::series::{
     taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
@@ -303,9 +302,9 @@ fn tools_schema() -> Value {
                         "default": "x"
                     },
                     "point": {
-                        "type": "number",
-                        "description": "The point the variable approaches",
-                        "default": 0
+                        "type": "string",
+                        "description": "The point the variable approaches. Accepts numbers (\"0\", \"1\", \"3.14\") or infinity (\"inf\", \"\\\\infty\", \"-inf\", \"-\\\\infty\").",
+                        "default": "0"
                     },
                     "assumptions": assumptions_schema()
                 },
@@ -778,8 +777,16 @@ fn tool_partial_fractions(args: &Value) -> Result<String, String> {
 fn tool_limit(args: &Value) -> Result<String, String> {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_var(args, "x");
-    let point = args.get("point").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let result = limit_latex(expr, &var, point)?;
+    let point_str = args
+        .get("point")
+        .map(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_f64().map(|f| f.to_string()))
+                .unwrap_or_else(|| "0".to_string())
+        })
+        .unwrap_or_else(|| "0".to_string());
+    let result = arithma::limits::limit_latex_str(expr, &var, &point_str)?;
     let env = env_from_args(args)?;
     parse_and_simplify_with_env(&result, &env)
 }

@@ -1,3 +1,5 @@
+use num_traits::{Signed, ToPrimitive};
+
 use crate::derivative::differentiate;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
@@ -9,14 +11,398 @@ use crate::series::try_rationalize;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
 
+fn contains_var(node: &Node, var: &str) -> bool {
+    match node {
+        Node::Variable(v) => v == var,
+        Node::Num(_) => false,
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r) => contains_var(l, var) || contains_var(r, var),
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
+        Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
+        Node::Equation(l, r) => contains_var(l, var) || contains_var(r, var),
+        _ => false,
+    }
+}
+
 const MAX_LHOPITAL_ITERATIONS: usize = 6;
+
+#[derive(Clone, Debug)]
+pub enum LimitPoint {
+    Finite(ExactNum),
+    PosInfinity,
+    NegInfinity,
+}
 
 /// Compute the limit of expr as var → point.
 pub fn compute_limit(expr: &Node, var: &str, point: &ExactNum) -> Result<ExactNum, String> {
+    compute_limit_general(expr, var, &LimitPoint::Finite(point.clone()))
+}
+
+/// Compute the limit of expr as var → point (finite or ±∞).
+pub fn compute_limit_general(
+    expr: &Node,
+    var: &str,
+    point: &LimitPoint,
+) -> Result<ExactNum, String> {
     let env = Environment::new();
     let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
-    let result = limit_internal(&simplified, var, point, 0)?;
+    let result = match point {
+        LimitPoint::Finite(p) => limit_internal(&simplified, var, p, 0)?,
+        LimitPoint::PosInfinity => limit_at_infinity(&simplified, var, true, 0)?,
+        LimitPoint::NegInfinity => limit_at_infinity(&simplified, var, false, 0)?,
+    };
     Ok(try_rationalize(&result))
+}
+
+fn diverges_at_infinity(expr: &Node, var: &str) -> bool {
+    if let Ok(p) = Polynomial::from_node(expr, var) {
+        return p.degree().is_some_and(|d| d >= 1);
+    }
+    if let Node::Function(name, args) = expr {
+        if (name == "ln" || name == "log") && args.len() == 1 {
+            return contains_var(&args[0], var);
+        }
+    }
+    false
+}
+
+fn poly_sign_at_infinity(p: &Polynomial, positive: bool) -> i8 {
+    let lc = match p.leading_coeff() {
+        Some(c) => c,
+        None => return 0,
+    };
+    let deg = p.degree().unwrap_or(0);
+    let lc_sign: i8 = if lc.is_positive() { 1 } else { -1 };
+    #[allow(clippy::manual_is_multiple_of)]
+    if positive || deg % 2 == 0 {
+        lc_sign
+    } else {
+        -lc_sign
+    }
+}
+
+fn limit_at_infinity(
+    expr: &Node,
+    var: &str,
+    positive: bool,
+    depth: usize,
+) -> Result<ExactNum, String> {
+    if depth > MAX_LHOPITAL_ITERATIONS {
+        return Err("Limit at infinity did not converge".to_string());
+    }
+
+    let env = Environment::new();
+    let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+
+    if !contains_var(&simplified, var) {
+        let eval_env = Environment::new();
+        if let Ok(val) = Evaluator::evaluate_exact(&simplified, &eval_env) {
+            return Ok(val);
+        }
+    }
+
+    if let Node::Divide(num, den) = &simplified {
+        return limit_quotient_at_infinity(num, den, var, positive, depth);
+    }
+
+    if let Node::Function(name, args) = &simplified {
+        if name == "exp" && args.len() == 1 {
+            return limit_exp_at_infinity(&args[0], var, positive, depth);
+        }
+    }
+
+    // e^f(x) via Power node with base e
+    if let Node::Power(base, exp) = &simplified {
+        if let Node::Variable(v) = base.as_ref() {
+            if v == "e" {
+                return limit_exp_at_infinity(exp, var, positive, depth);
+            }
+        }
+    }
+
+    // Polynomial → diverges (nonzero degree) or constant
+    if let Ok(p) = Polynomial::from_node(&simplified, var) {
+        return match p.degree() {
+            Some(0) | None => Ok(ExactNum::Rational(p.coeff(0))),
+            _ => Err(format!(
+                "Limit is {}∞",
+                if poly_sign_at_infinity(&p, positive) > 0 {
+                    "+"
+                } else {
+                    "-"
+                }
+            )),
+        };
+    }
+
+    // Product: check for polynomial × decaying exponential
+    if let Node::Multiply(a, b) = &simplified {
+        if let Ok(result) = limit_product_at_infinity(a, b, var, positive, depth) {
+            return Ok(result);
+        }
+    }
+
+    Err(format!(
+        "Cannot compute limit of {} as {} → {}∞",
+        simplified,
+        var,
+        if positive { "+" } else { "-" }
+    ))
+}
+
+fn limit_quotient_at_infinity(
+    num: &Node,
+    den: &Node,
+    var: &str,
+    positive: bool,
+    depth: usize,
+) -> Result<ExactNum, String> {
+    // Fast path: polynomial degree comparison
+    if let (Ok(p), Ok(q)) = (
+        Polynomial::from_node(num, var),
+        Polynomial::from_node(den, var),
+    ) {
+        let dp = p.degree();
+        let dq = q.degree();
+        match (dp, dq) {
+            (None, _) | (Some(0), Some(_)) => return Ok(ExactNum::zero()),
+            (Some(dp), Some(dq)) if dp < dq => return Ok(ExactNum::zero()),
+            (Some(dp), Some(dq)) if dp == dq => {
+                let ratio = p.leading_coeff().unwrap() / q.leading_coeff().unwrap();
+                return Ok(ExactNum::Rational(ratio));
+            }
+            (Some(_), Some(_)) => {
+                return Err("Limit is infinite (polynomial degree)".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    // L'Hopital at infinity: both num and den must diverge
+    if diverges_at_infinity(num, var) && diverges_at_infinity(den, var) {
+        let env = Environment::new();
+        if let (Ok(n_prime), Ok(d_prime)) = (differentiate(num, var), differentiate(den, var)) {
+            let n_s = n_prime.simplify(&env).unwrap_or(n_prime);
+            let d_s = d_prime.simplify(&env).unwrap_or(d_prime);
+            return limit_at_infinity(
+                &Node::Divide(Box::new(n_s), Box::new(d_s)),
+                var,
+                positive,
+                depth + 1,
+            );
+        }
+    }
+
+    // Finite numerator / divergent denominator → 0
+    if !diverges_at_infinity(num, var) && diverges_at_infinity(den, var) {
+        return Ok(ExactNum::zero());
+    }
+
+    Err("Cannot compute limit of quotient at infinity".to_string())
+}
+
+fn limit_exp_at_infinity(
+    exponent: &Node,
+    var: &str,
+    positive: bool,
+    depth: usize,
+) -> Result<ExactNum, String> {
+    if let Ok(p) = Polynomial::from_node(exponent, var) {
+        if p.degree().is_none_or(|d| d < 1) {
+            let val = p.coeff(0).to_f64().unwrap_or(0.0);
+            return Ok(ExactNum::from_f64(val.exp()));
+        }
+        let sign = poly_sign_at_infinity(&p, positive);
+        if sign < 0 {
+            return Ok(ExactNum::zero());
+        }
+        return Err("Limit is +∞ (exponential growth)".to_string());
+    }
+
+    match limit_at_infinity(exponent, var, positive, depth + 1) {
+        Ok(val) => {
+            let f = val.to_f64().exp();
+            Ok(ExactNum::from_f64(f))
+        }
+        Err(msg) if msg.contains("-∞") => Ok(ExactNum::zero()),
+        Err(msg) if msg.contains("+∞") => Err("Limit is +∞ (exponential growth)".to_string()),
+        Err(e) => Err(e),
+    }
+}
+
+fn limit_product_at_infinity(
+    a: &Node,
+    b: &Node,
+    var: &str,
+    positive: bool,
+    depth: usize,
+) -> Result<ExactNum, String> {
+    // Check for patterns like x^n · e^{-x} → 0
+    let (poly_part, exp_part) = if is_decaying_exp(a, var, positive) {
+        (b, a)
+    } else if is_decaying_exp(b, var, positive) {
+        (a, b)
+    } else {
+        return Err("Not a polynomial × decaying exponential".to_string());
+    };
+
+    if Polynomial::from_node(poly_part, var).is_ok() {
+        return Ok(ExactNum::zero());
+    }
+
+    // Try rewriting as quotient: f·g = f / (1/g)
+    let recip = Node::Divide(
+        Box::new(Node::Num(ExactNum::integer(1))),
+        Box::new(exp_part.clone()),
+    );
+    let env = Environment::new();
+    let recip_s = recip.simplify(&env).unwrap_or(recip);
+    limit_quotient_at_infinity(poly_part, &recip_s, var, positive, depth)
+}
+
+fn is_decaying_exp(expr: &Node, var: &str, positive: bool) -> bool {
+    if let Node::Function(name, args) = expr {
+        if name == "exp" && args.len() == 1 {
+            if let Ok(p) = Polynomial::from_node(&args[0], var) {
+                if p.degree().is_some_and(|d| d >= 1) {
+                    return poly_sign_at_infinity(&p, positive) < 0;
+                }
+            }
+        }
+    }
+    if let Node::Power(base, exp) = expr {
+        if let Node::Variable(v) = base.as_ref() {
+            if v == "e" {
+                if let Ok(p) = Polynomial::from_node(exp, var) {
+                    if p.degree().is_some_and(|d| d >= 1) {
+                        return poly_sign_at_infinity(&p, positive) < 0;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn evaluates_to_zero(expr: &Node, var: &str, point: &ExactNum) -> bool {
+    let mut env = Environment::new();
+    env.set_exact(var, point.clone());
+    Evaluator::evaluate_exact(expr, &env)
+        .map(|v| v.is_zero())
+        .unwrap_or(false)
+}
+
+fn evaluates_to_inf(expr: &Node, var: &str, point: &ExactNum) -> bool {
+    let mut env = Environment::new();
+    env.set_exact(var, point.clone());
+    Evaluator::evaluate_exact(expr, &env)
+        .map(|v| v.is_nan_or_inf())
+        .unwrap_or(true)
+}
+
+fn try_rewrite_product(
+    expr: &Node,
+    var: &str,
+    point: &ExactNum,
+    depth: usize,
+) -> Option<Result<ExactNum, String>> {
+    let (factor_a, factor_b) = match expr {
+        Node::Multiply(a, b) => (a.as_ref(), b.as_ref()),
+        _ => return None,
+    };
+
+    let a_zero = evaluates_to_zero(factor_a, var, point);
+    let b_zero = evaluates_to_zero(factor_b, var, point);
+    let a_inf = evaluates_to_inf(factor_a, var, point);
+    let b_inf = evaluates_to_inf(factor_b, var, point);
+
+    if a_zero && b_inf {
+        // 0·∞: try expanding f·g as a quotient where g has a known reciprocal
+        // For cot(x) = cos(x)/sin(x), rewrite x·cot(x) as x·cos(x)/sin(x)
+        if let Some((num, den)) = extract_quotient(factor_b) {
+            let new_num = Node::Multiply(Box::new(factor_a.clone()), Box::new(num));
+            let env = Environment::new();
+            let num_s = new_num.simplify(&env).unwrap_or(new_num);
+            return Some(limit_quotient(&num_s, &den, var, point, depth));
+        }
+        // Fallback: rewrite as a / (1/b)
+        let recip = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(factor_b.clone()),
+        );
+        let env = Environment::new();
+        let recip_s = recip.simplify(&env).unwrap_or(recip);
+        return Some(limit_quotient(factor_a, &recip_s, var, point, depth));
+    }
+
+    if b_zero && a_inf {
+        if let Some((num, den)) = extract_quotient(factor_a) {
+            let new_num = Node::Multiply(Box::new(factor_b.clone()), Box::new(num));
+            let env = Environment::new();
+            let num_s = new_num.simplify(&env).unwrap_or(new_num);
+            return Some(limit_quotient(&num_s, &den, var, point, depth));
+        }
+        let recip = Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(factor_a.clone()),
+        );
+        let env = Environment::new();
+        let recip_s = recip.simplify(&env).unwrap_or(recip);
+        return Some(limit_quotient(factor_b, &recip_s, var, point, depth));
+    }
+
+    None
+}
+
+fn extract_quotient(expr: &Node) -> Option<(Node, Node)> {
+    if let Node::Divide(n, d) = expr {
+        return Some((*n.clone(), *d.clone()));
+    }
+    match expr {
+        Node::Function(name, args) if args.len() == 1 => {
+            let arg = &args[0];
+            match name.as_str() {
+                "cot" => Some((
+                    Node::Function("cos".to_string(), vec![arg.clone()]),
+                    Node::Function("sin".to_string(), vec![arg.clone()]),
+                )),
+                "tan" => Some((
+                    Node::Function("sin".to_string(), vec![arg.clone()]),
+                    Node::Function("cos".to_string(), vec![arg.clone()]),
+                )),
+                "csc" => Some((
+                    Node::Num(ExactNum::integer(1)),
+                    Node::Function("sin".to_string(), vec![arg.clone()]),
+                )),
+                "sec" => Some((
+                    Node::Num(ExactNum::integer(1)),
+                    Node::Function("cos".to_string(), vec![arg.clone()]),
+                )),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn limit_via_series(expr: &Node, var: &str, point: &ExactNum) -> Result<ExactNum, String> {
+    // Expand the expression as a Taylor series around the point
+    // and extract the constant term (the value at the limit point)
+    for order in [4, 8, 12] {
+        if let Ok(taylor) = crate::series::taylor_series(expr, var, point, order) {
+            let mut eval_env = Environment::new();
+            eval_env.set_exact(var, point.clone());
+            if let Ok(val) = Evaluator::evaluate_exact(&taylor, &eval_env) {
+                if !val.is_nan_or_inf() {
+                    return Ok(val);
+                }
+            }
+        }
+    }
+    Err("Series expansion did not resolve limit".to_string())
 }
 
 fn limit_internal(
@@ -43,7 +429,12 @@ fn limit_internal(
         return limit_quotient(numer, denom, var, point, depth);
     }
 
-    // Step 3: try simplifying harder and retrying
+    // Step 3: rewrite 0·∞ products as quotients
+    if let Some(result) = try_rewrite_product(expr, var, point, depth) {
+        return result;
+    }
+
+    // Step 4: try simplifying harder and retrying
     let env = Environment::new();
     if let Ok(resimplified) = expr.simplify(&env) {
         if &resimplified != expr {
@@ -57,15 +448,9 @@ fn limit_internal(
         }
     }
 
-    // Step 4: try Taylor series at the point
-    if let Ok(taylor) = crate::series::taylor_series(expr, var, point, 4) {
-        let mut eval_env = Environment::new();
-        eval_env.set_exact(var, point.clone());
-        if let Ok(val) = Evaluator::evaluate_exact(&taylor, &eval_env) {
-            if !val.is_nan_or_inf() {
-                return Ok(val);
-            }
-        }
+    // Step 5: series expansion — expand as Taylor and extract constant term
+    if let Ok(result) = limit_via_series(expr, var, point) {
+        return Ok(result);
     }
 
     Err(format!(
@@ -118,13 +503,37 @@ fn limit_zero_over_zero(
         return result;
     }
 
-    // Strategy 2: L'Hôpital's rule
+    // Strategy 2: series expansion — expand both as Taylor, find leading terms
+    if let Ok(result) = limit_quotient_via_series(numer, denom, var, point) {
+        return Ok(result);
+    }
+
+    // Strategy 3: L'Hôpital's rule
     let env = Environment::new();
     let n_prime = differentiate(numer, var).and_then(|d| d.simplify(&env).or(Ok(d)))?;
     let d_prime = differentiate(denom, var).and_then(|d| d.simplify(&env).or(Ok(d)))?;
 
     let new_expr = Node::Divide(Box::new(n_prime), Box::new(d_prime));
     limit_internal(&new_expr, var, point, depth + 1)
+}
+
+fn limit_quotient_via_series(
+    numer: &Node,
+    denom: &Node,
+    var: &str,
+    point: &ExactNum,
+) -> Result<ExactNum, String> {
+    for order in [6, 10] {
+        let n_taylor = crate::series::taylor_series(numer, var, point, order)
+            .map_err(|e| format!("Taylor failed: {}", e))?;
+        let d_taylor = crate::series::taylor_series(denom, var, point, order)
+            .map_err(|e| format!("Taylor failed: {}", e))?;
+
+        if let Some(result) = try_polynomial_cancel(&n_taylor, &d_taylor, var, point) {
+            return result;
+        }
+    }
+    Err("Series expansion did not resolve quotient limit".to_string())
 }
 
 fn try_polynomial_cancel(
@@ -170,12 +579,30 @@ fn try_polynomial_cancel(
     Some(Ok(&n_val / &d_val))
 }
 
-/// Compute limit from LaTeX expression.
-pub fn limit_latex(expr_latex: &str, var: &str, point: f64) -> Result<String, String> {
-    let mut tokenizer = Tokenizer::new(expr_latex);
-    let tokens = tokenizer.tokenize();
-    let expr = build_expression_tree(tokens)?;
+/// Parse a limit point string into a LimitPoint.
+pub fn parse_limit_point(s: &str) -> Result<LimitPoint, String> {
+    let trimmed = s.trim();
+    match trimmed {
+        "inf" | "\\infty" | "+inf" | "+\\infty" | "∞" | "+∞" => Ok(LimitPoint::PosInfinity),
+        "-inf" | "-\\infty" | "-∞" => Ok(LimitPoint::NegInfinity),
+        _ => {
+            let f: f64 = trimmed
+                .parse()
+                .map_err(|_| format!("Cannot parse limit point: {}", trimmed))?;
+            let exact = if f == 0.0 {
+                ExactNum::zero()
+            } else if f == f.floor() && f.abs() < 1e15 {
+                ExactNum::integer(f as i64)
+            } else {
+                ExactNum::from_f64(f)
+            };
+            Ok(LimitPoint::Finite(exact))
+        }
+    }
+}
 
+/// Compute limit from LaTeX expression (f64 point — backward compatible).
+pub fn limit_latex(expr_latex: &str, var: &str, point: f64) -> Result<String, String> {
     let point_exact = if point == 0.0 {
         ExactNum::zero()
     } else if point == point.floor() && point.abs() < 1e15 {
@@ -183,8 +610,20 @@ pub fn limit_latex(expr_latex: &str, var: &str, point: f64) -> Result<String, St
     } else {
         ExactNum::from_f64(point)
     };
+    limit_latex_general(expr_latex, var, &LimitPoint::Finite(point_exact))
+}
 
-    let result = compute_limit(&expr, var, &point_exact)?;
+/// Compute limit from LaTeX expression with string point (supports ∞).
+pub fn limit_latex_str(expr_latex: &str, var: &str, point_str: &str) -> Result<String, String> {
+    let point = parse_limit_point(point_str)?;
+    limit_latex_general(expr_latex, var, &point)
+}
+
+fn limit_latex_general(expr_latex: &str, var: &str, point: &LimitPoint) -> Result<String, String> {
+    let mut tokenizer = Tokenizer::new(expr_latex);
+    let tokens = tokenizer.tokenize();
+    let expr = build_expression_tree(tokens)?;
+    let result = compute_limit_general(&expr, var, point)?;
     Ok(format!("{}", Node::Num(result)))
 }
 
@@ -304,5 +743,93 @@ mod tests {
         // lim_{x→1} (x^2-1)/(x-1) = 2
         let result = limit_latex("\\frac{x^2 - 1}{x - 1}", "x", 1.0).unwrap();
         assert_eq!(result, "2");
+    }
+
+    // === Series expansion limits ===
+
+    #[test]
+    fn test_limit_x_cot_x() {
+        // lim_{x→0} x·cot(x) = 1 (0·∞ form)
+        let result = limit_latex_str("x \\cdot \\cot(x)", "x", "0").unwrap();
+        assert!((result.parse::<f64>().unwrap() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_limit_sinx_minus_x_over_x3() {
+        // lim_{x→0} (sin(x)-x)/x³ = -1/6 (higher-order 0/0)
+        let result = limit_latex_str("\\frac{\\sin(x) - x}{x^3}", "x", "0").unwrap();
+        assert_eq!(result, "-\\frac{1}{6}");
+    }
+
+    #[test]
+    fn test_limit_exp_higher_order() {
+        // lim_{x→0} (e^x - 1 - x - x²/2)/x³ = 1/6
+        let result =
+            limit_latex_str("\\frac{\\exp(x) - 1 - x - \\frac{x^2}{2}}{x^3}", "x", "0").unwrap();
+        assert_eq!(result, "\\frac{1}{6}");
+    }
+
+    // === Limits at infinity ===
+
+    #[test]
+    fn test_limit_rational_same_degree_at_infinity() {
+        // lim_{x→∞} (3x²+x)/(2x²+1) = 3/2
+        let result = limit_latex_str("\\frac{3x^2 + x}{2x^2 + 1}", "x", "inf").unwrap();
+        assert_eq!(result, "\\frac{3}{2}");
+    }
+
+    #[test]
+    fn test_limit_rational_lower_degree_at_infinity() {
+        // lim_{x→∞} x/(x²+1) = 0
+        let result = limit_latex_str("\\frac{x}{x^2 + 1}", "x", "inf").unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_limit_exp_decay_at_infinity() {
+        // lim_{x→∞} e^{-x} = 0
+        let result = compute_limit_general(
+            &Node::Function(
+                "exp".to_string(),
+                vec![Node::Negate(Box::new(Node::Variable("x".to_string())))],
+            ),
+            "x",
+            &LimitPoint::PosInfinity,
+        )
+        .unwrap();
+        assert_eq!(result.to_f64(), 0.0);
+    }
+
+    #[test]
+    fn test_limit_ln_over_x_at_infinity() {
+        // lim_{x→∞} ln(x)/x = 0
+        let result = limit_latex_str("\\frac{\\ln(x)}{x}", "x", "inf").unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_limit_constant_at_infinity() {
+        // lim_{x→∞} 5 = 5
+        let result = limit_latex_str("5", "x", "inf").unwrap();
+        assert_eq!(result, "5");
+    }
+
+    #[test]
+    fn test_limit_1_over_x_at_infinity() {
+        // lim_{x→∞} 1/x = 0
+        let result = limit_latex_str("\\frac{1}{x}", "x", "inf").unwrap();
+        assert_eq!(result, "0");
+    }
+
+    #[test]
+    fn test_limit_parse_infty_variants() {
+        let p1 = parse_limit_point("inf").unwrap();
+        let p2 = parse_limit_point("\\infty").unwrap();
+        let p3 = parse_limit_point("-inf").unwrap();
+        let p4 = parse_limit_point("3").unwrap();
+        assert!(matches!(p1, LimitPoint::PosInfinity));
+        assert!(matches!(p2, LimitPoint::PosInfinity));
+        assert!(matches!(p3, LimitPoint::NegInfinity));
+        assert!(matches!(p4, LimitPoint::Finite(_)));
     }
 }
