@@ -429,6 +429,71 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
             }
+            "log" => {
+                // \log_b(x) or \log_{b}(x) → ln(x)/ln(b)
+                // \log(x) → log(x) as before (base-10)
+                if self.chars.peek() == Some(&'_') {
+                    self.chars.next(); // consume '_'
+                                       // Read base: either {group} or single char
+                    let base_str = if self.chars.peek() == Some(&'{') {
+                        self.chars.next();
+                        self.consume_brace_group().unwrap_or_default()
+                    } else if let Some(&c) = self.chars.peek() {
+                        self.chars.next();
+                        c.to_string()
+                    } else {
+                        String::new()
+                    };
+                    // Skip whitespace before argument
+                    while self.chars.peek().is_some_and(|c| c.is_whitespace()) {
+                        self.chars.next();
+                    }
+                    // Read argument: (group) or {group}
+                    let arg_str = if self.chars.peek() == Some(&'(') {
+                        self.chars.next();
+                        let mut depth = 1;
+                        let mut s = String::new();
+                        while let Some(&c) = self.chars.peek() {
+                            self.chars.next();
+                            if c == '(' {
+                                depth += 1;
+                            } else if c == ')' {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            s.push(c);
+                        }
+                        s
+                    } else if self.chars.peek() == Some(&'{') {
+                        self.chars.next();
+                        self.consume_brace_group().unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    if !base_str.is_empty() && !arg_str.is_empty() {
+                        let base_tokens = Tokenizer::new(&base_str).tokenize();
+                        let arg_tokens = Tokenizer::new(&arg_str).tokenize();
+                        // Emit ln(arg)/ln(base)
+                        tokens.push("(".to_string());
+                        tokens.push("ln".to_string());
+                        tokens.push("(".to_string());
+                        tokens.extend(arg_tokens);
+                        tokens.push(")".to_string());
+                        tokens.push(")".to_string());
+                        tokens.push("/".to_string());
+                        tokens.push("(".to_string());
+                        tokens.push("ln".to_string());
+                        tokens.push("(".to_string());
+                        tokens.extend(base_tokens);
+                        tokens.push(")".to_string());
+                        tokens.push(")".to_string());
+                    }
+                } else {
+                    tokens.push("log".to_string());
+                }
+            }
             "sqrt" => {
                 // \sqrt[n]{x} → (x)^(1/(n)), \sqrt{x} → sqrt(x) as before
                 if self.chars.peek() == Some(&'[') {

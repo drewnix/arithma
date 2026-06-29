@@ -998,4 +998,33 @@ mod algebra_tests {
         let result = evaluate_expression_with_env("\\sqrt[3]{27}", &env).unwrap();
         assert_eq!(result, 3.0);
     }
+
+    #[test]
+    fn test_log_base_2() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\log_2(8)", &env).unwrap();
+        assert!(
+            (result - 3.0).abs() < 1e-10,
+            "log_2(8) should be 3, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_log_base_10_braced() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\log_{10}(1000)", &env).unwrap();
+        assert!(
+            (result - 3.0).abs() < 1e-10,
+            "log_10(1000) should be 3, got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_log_base_preserves_plain_log() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\log(100)", &env).unwrap();
+        assert_eq!(result, 2.0);
+    }
 }
