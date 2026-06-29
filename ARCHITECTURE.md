@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1134 tests. 0 failures. 16 MCP tools. ~32K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
+**1209 tests. 0 failures. 15 MCP tools. ~34K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -40,7 +40,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 - **LaTeX round-trip**: parse LaTeX input, produce LaTeX output. All operations accept and return LaTeX.
 - **Greek letters**: `\alpha` → `α` internally, `\alpha` on output. `normalize_var()` at all API boundaries.
-- **Symbolic constants**: `\pi` is `Variable("π")` (symbolic, not float). `\mathrm{e}` for Euler's number.
+- **Symbolic constants**: `\pi` is `Variable("π")` (symbolic, not float). `e` is `Variable("e")` (symbolic, resolved to float during evaluation — same treatment as `π`).
 - **Parser hardening**: implicit multiplication (`u(3-2u)`, `α(x+1)`), space-separated variables, sign normalization in fractions (`-3/(-2b-1)` → `3/(2b+1)`).
 - **Operator reservation**: `\int`, `\prod`, `\oint` not tokenized as variables. LaTeX spacing (`\,`, `\;`, `\quad`) stripped.
 - **Leibniz detection**: `\frac{d}{dx}` and `\frac{\partial}{\partial x}` error helpfully instead of parsing as fractions.
@@ -155,11 +155,22 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Separable**: auto-detects g(x)·h(y) factorization.
 - **First-order linear**: integrating factor method.
 - **Second-order constant-coefficient**: discriminant-based (distinct real, repeated, complex roots).
+- **Power series solutions**: general linear ODEs with polynomial coefficients at ordinary points. Derives coefficient recurrence from the ODE structure, wraps in `FormalPowerSeries::from_fn` with internal cache. Returns k independent solutions for order-k ODE, with initial condition matching. Handles Hermite, Legendre, and arbitrary-order equations.
 - Returns general solutions with C₁, C₂.
+
+### Formal Power Series
+
+- Lazy coefficient evaluation with `Rc<RefCell<FpsInner>>` for self-referential recurrences.
+- Generator variants: explicit, closure, sum, diff, neg, scalar-mul, product, inverse, quotient.
+- Composition `f(g(x))` with g-power cache for O(n²) per coefficient.
+- Compositional inverse (reversion) via Lagrange inversion: g_n = (1/n)·[x^{n-1}](x/f(x))^n.
+- Formal derivative and integral.
+- Built-in series: exp, sin, cos, geometric, ln(1+x).
+- Truncation to `Polynomial` for finite-term output.
 
 ### MCP Server
 
-15 tools with LaTeX I/O: `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter.
+15 tools with LaTeX I/O: `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution).
 
 ### CLI
 
@@ -193,6 +204,7 @@ Two variants: `Rational(BigRational)` for exact computation, `Float(f64)` for nu
 - `ModPoly` — polynomials over Z/pZ, for Berlekamp factoring.
 - `NumberField` — algebraic number field Q(α) with exact BigRational arithmetic, for quartic integration and Risch extensions.
 - `AlgPoly` — univariate polynomials with Q(α) coefficients, with GCD and Hermite reduction.
+- `FormalPowerSeries` — lazy formal power series with `Rc<RefCell>` caching. Self-referential recurrences (inverse, quotient, ODE coefficients) via the borrow-clone-compute pattern.
 
 ### Integration Pipeline
 
@@ -207,7 +219,7 @@ input expression
 
 ### Crate Structure
 
-Currently a single crate. Workspace split planned when compile times become a bottleneck (~31K lines, approaching threshold):
+Currently a single crate. Workspace split planned when compile times become a bottleneck (~34K lines, approaching threshold):
 
 ```
 arithma/

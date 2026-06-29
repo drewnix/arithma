@@ -10,7 +10,7 @@ exact rational arithmetic and well-chosen algorithms make possible.
 
 ## Why Arithma
 
-**Single binary, no dependencies.** The MCP server is 1.6 MB. No Python
+**Single binary, no dependencies.** The MCP server is 2.3 MB. No Python
 runtime, no Java, no Wolfram kernel, no network calls. Copy it anywhere and
 it works.
 
@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**1134 tests, zero failures.** Every algorithm is verified against known results.
+**1209 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -101,10 +101,21 @@ Works with symbolic bounds (`Σ_{k=1}^{n} k = n(n+1)/2`)
 and evaluates to exact numbers when bounds are constant
 (`Σ_{k=1}^{100} k = 5050`).
 
-**ODEs.** Three classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
-(`dy/dx + P(x)*y = Q(x)` via integrating factor), and second-order
+**ODEs.** Four classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
+(`dy/dx + P(x)*y = Q(x)` via integrating factor), second-order
 constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
-complex roots). Returns general solutions with arbitrary constants.
+complex roots), and **power series solutions** for general linear ODEs with
+polynomial coefficients at ordinary points (Hermite, Legendre, arbitrary
+order). Series solver returns k independent `FormalPowerSeries` solutions
+for order-k ODEs, with initial condition matching. Returns general solutions
+with arbitrary constants.
+
+**Formal power series.** Lazy coefficient evaluation with automatic caching.
+Arithmetic (add, subtract, multiply, divide), composition `f(g(x))`,
+multiplicative inverse `1/f(x)`, quotient `f/g` via coefficient recurrence,
+compositional inverse (reversion) via Lagrange inversion, formal
+derivative and integral. Built-in series: exp, sin, cos, geometric,
+ln(1+x). Truncation to polynomial. Used by the series ODE solver.
 
 **Linear algebra.** Determinant, inverse, eigenvalues (numerical up to
 4×4 via characteristic polynomial + Cardano/Ferrari, including matrices
@@ -116,7 +127,7 @@ used for quartic integration and Risch algorithm extensions.
 ## MCP server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. It gives Claude or any MCP-compatible AI agent access to 16 tools:
+stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
 
 | Tool | Purpose |
 |------|---------|
@@ -134,7 +145,7 @@ stdio. It gives Claude or any MCP-compatible AI agent access to 16 tools:
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
 | `equivalent` | Check if two expressions are mathematically equal |
 | `verify` | Numerically cross-check two expressions at multiple test points |
-| `solve_ode` | Solve first-order and second-order constant-coeff ODEs |
+| `solve_ode` | Solve ODEs: first-order, constant-coeff, and power series (poly coefficients) |
 
 Every tool accepts LaTeX and returns LaTeX. Nine tools accept an optional
 `assumptions` parameter for domain-aware simplification:
@@ -309,7 +320,7 @@ All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
 ```
 cargo build --release                     # both binaries
 cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 1062 tests
+cargo test                                # run all 1209 tests
 ```
 
 ## Design principles
@@ -345,18 +356,22 @@ src/
                           (polynomial and rational coefficients),
                           exponential/logarithmic integration, Rothstein-Trager
                           resultant method, non-elementary proofs
-  ode.rs               -- ODE solver (separable, linear, constant-coefficient)
+  ode.rs               -- ODE solver (separable, linear, constant-coefficient,
+                          power series at ordinary points)
+  fps.rs               -- formal power series with lazy coefficient evaluation
   series.rs            -- Taylor/Maclaurin series
   limits.rs            -- symbolic limits
   matrix.rs            -- matrix operations
   expression.rs        -- equation solving (degree 1-4 + factoring)
   systems.rs           -- systems of linear/polynomial equations (Gaussian elimination)
+  inequality.rs        -- polynomial/rational inequality solving
   algebraic.rs         -- algebraic number fields Q(α), AlgPoly, Hermite reduction
   evaluator.rs         -- numerical evaluation
+  verify.rs            -- numeric identity verification
   bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
 ```
 
-~31K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~34K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
