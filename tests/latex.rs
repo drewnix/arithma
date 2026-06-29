@@ -214,6 +214,15 @@ mod latex_parser_tests {
     }
 
     #[test]
+    fn test_implicit_multiplication_decimal() {
+        let mut env = Environment::new();
+        env.set("x", 10.0);
+        env.set("y", 5.0);
+        let result = eval_latex_expression_with_env("0.3x + .4y", &env).unwrap();
+        assert_eq!(result, 5.0); // 0.3*10 + 0.4*5
+    }
+
+    #[test]
     fn test_implicit_mul_frac_var() {
         let mut env = Environment::new();
         env.set("x", 6.0);
