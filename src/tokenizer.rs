@@ -429,6 +429,47 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
             }
+            "sqrt" => {
+                // \sqrt[n]{x} → (x)^(1/(n)), \sqrt{x} → sqrt(x) as before
+                if self.chars.peek() == Some(&'[') {
+                    self.chars.next(); // consume '['
+                    let mut degree_str = String::new();
+                    while let Some(&c) = self.chars.peek() {
+                        if c == ']' {
+                            self.chars.next();
+                            break;
+                        }
+                        degree_str.push(c);
+                        self.chars.next();
+                    }
+                    // consume optional whitespace then the {radicand}
+                    while self.chars.peek().is_some_and(|c| c.is_whitespace()) {
+                        self.chars.next();
+                    }
+                    if self.chars.peek() == Some(&'{') {
+                        self.chars.next();
+                        if let Some(radicand_str) = self.consume_brace_group() {
+                            let radicand_tokens = Tokenizer::new(&radicand_str).tokenize();
+                            let degree_tokens = Tokenizer::new(&degree_str).tokenize();
+                            // Emit (radicand)^(1/(degree))
+                            tokens.push("(".to_string());
+                            tokens.extend(radicand_tokens);
+                            tokens.push(")".to_string());
+                            tokens.push("^".to_string());
+                            tokens.push("(".to_string());
+                            tokens.push("1".to_string());
+                            tokens.push("/".to_string());
+                            tokens.push("(".to_string());
+                            tokens.extend(degree_tokens);
+                            tokens.push(")".to_string());
+                            tokens.push(")".to_string());
+                        }
+                    }
+                } else {
+                    // Plain \sqrt{x} — emit "sqrt" for the parser to handle
+                    tokens.push("sqrt".to_string());
+                }
+            }
             // LaTeX spacing — silently ignore
             "," | ";" | "!" | ":" | "quad" | "qquad" | "enspace" | "thinspace" => {
                 current_token.clear();

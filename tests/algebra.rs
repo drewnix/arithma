@@ -970,4 +970,32 @@ mod algebra_tests {
         assert_eq!(result.solutions.len(), 2);
         assert_eq!(result.complex_omitted, 0);
     }
+
+    #[test]
+    fn test_nth_root_cube() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\sqrt[3]{8}", &env).unwrap();
+        assert_eq!(result, 2.0);
+    }
+
+    #[test]
+    fn test_nth_root_fourth() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\sqrt[4]{16}", &env).unwrap();
+        assert_eq!(result, 2.0);
+    }
+
+    #[test]
+    fn test_nth_root_preserves_sqrt() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\sqrt{25}", &env).unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_nth_root_symbolic() {
+        let env = Environment::new();
+        let result = evaluate_expression_with_env("\\sqrt[3]{27}", &env).unwrap();
+        assert_eq!(result, 3.0);
+    }
 }
