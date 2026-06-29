@@ -501,8 +501,18 @@ mod tests {
         let cos_ref = FormalPowerSeries::cos();
         let sin_ref = FormalPowerSeries::sin();
         for n in 0..8 {
-            assert_eq!(cos_series.coeff(n), cos_ref.coeff(n), "cos coeff({}) mismatch", n);
-            assert_eq!(sin_series.coeff(n), sin_ref.coeff(n), "sin coeff({}) mismatch", n);
+            assert_eq!(
+                cos_series.coeff(n),
+                cos_ref.coeff(n),
+                "cos coeff({}) mismatch",
+                n
+            );
+            assert_eq!(
+                sin_series.coeff(n),
+                sin_ref.coeff(n),
+                "sin coeff({}) mismatch",
+                n
+            );
         }
     }
 
@@ -541,11 +551,7 @@ mod tests {
     fn test_series_hermite() {
         // y'' - 2xy' + 2ny = 0 with n=2 → Hermite polynomial H_2(x) = 4x²-2
         // a_0(x) = 2n = 4, a_1(x) = -2x, a_2(x) = 1
-        let coeffs = vec![
-            poly_const(4),
-            poly_coeffs(&[0, -2]),
-            poly_const(1),
-        ];
+        let coeffs = vec![poly_const(4), poly_coeffs(&[0, -2]), poly_const(1)];
         let solutions = solve_series(&coeffs).unwrap();
 
         // Solution 0: c_0=1, c_1=0
@@ -582,7 +588,12 @@ mod tests {
         let sol = solve_series_ivp(&coeffs, &[bri(0), bri(1)]).unwrap();
         let sin_ref = FormalPowerSeries::sin();
         for n in 0..8 {
-            assert_eq!(sol.coeff(n), sin_ref.coeff(n), "sin IVP coeff({}) mismatch", n);
+            assert_eq!(
+                sol.coeff(n),
+                sin_ref.coeff(n),
+                "sin IVP coeff({}) mismatch",
+                n
+            );
         }
     }
 
@@ -593,7 +604,12 @@ mod tests {
         let sol = solve_series_ivp(&coeffs, &[bri(1), bri(0)]).unwrap();
         let cos_ref = FormalPowerSeries::cos();
         for n in 0..8 {
-            assert_eq!(sol.coeff(n), cos_ref.coeff(n), "cos IVP coeff({}) mismatch", n);
+            assert_eq!(
+                sol.coeff(n),
+                cos_ref.coeff(n),
+                "cos IVP coeff({}) mismatch",
+                n
+            );
         }
     }
 
@@ -617,8 +633,12 @@ mod tests {
         for m in 0..5 {
             let falling = bri((m as i64 + 3) * (m as i64 + 2) * (m as i64 + 1));
             let expected = s0.coeff(m) / falling;
-            assert_eq!(s0.coeff(m + 3), expected,
-                "sol_0 recurrence at m={} mismatch", m);
+            assert_eq!(
+                s0.coeff(m + 3),
+                expected,
+                "sol_0 recurrence at m={} mismatch",
+                m
+            );
         }
     }
 
@@ -638,7 +658,7 @@ mod tests {
         assert_eq!(p2.coeff(0), bri(1));
         assert_eq!(p2.coeff(1), bri(0));
         assert_eq!(p2.coeff(2), bri(-3)); // from recurrence
-        // Should terminate for n=2: c_4 = 0
+                                          // Should terminate for n=2: c_4 = 0
         assert_eq!(p2.coeff(4), bri(0));
     }
 

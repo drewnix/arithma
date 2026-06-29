@@ -375,9 +375,7 @@ impl FormalPowerSeries {
                 FpsGen::ScalarMul(c, a) => CoeffAction::ScalarMul(c.clone(), a.clone()),
                 FpsGen::Product(a, b) => CoeffAction::Product(a.clone(), b.clone()),
                 FpsGen::Inverse(f) => CoeffAction::Inverse(f.clone()),
-                FpsGen::Quotient(num, den) => {
-                    CoeffAction::Quotient(num.clone(), den.clone())
-                }
+                FpsGen::Quotient(num, den) => CoeffAction::Quotient(num.clone(), den.clone()),
             }
         };
 
@@ -918,7 +916,12 @@ mod tests {
         let rev = exp_m1.revert().unwrap();
         let ln = FormalPowerSeries::ln_1_plus_x();
         for n in 0..8 {
-            assert_eq!(rev.coeff(n), ln.coeff(n), "revert(e^x-1) coeff({}) mismatch", n);
+            assert_eq!(
+                rev.coeff(n),
+                ln.coeff(n),
+                "revert(e^x-1) coeff({}) mismatch",
+                n
+            );
         }
     }
 
@@ -976,7 +979,12 @@ mod tests {
         let g_inv = g.inverse().unwrap();
         let q2 = &f * &g_inv;
         for n in 0..8 {
-            assert_eq!(q1.coeff(n), q2.coeff(n), "quotient vs mul·inverse coeff({}) mismatch", n);
+            assert_eq!(
+                q1.coeff(n),
+                q2.coeff(n),
+                "quotient vs mul·inverse coeff({}) mismatch",
+                n
+            );
         }
     }
 
@@ -989,7 +997,11 @@ mod tests {
         assert_eq!(q.coeff(0), bri(1));
         assert_eq!(q.coeff(1), bri(2));
         for n in 2..6 {
-            assert!(q.coeff(n).is_zero(), "exact division coeff({}) should be 0", n);
+            assert!(
+                q.coeff(n).is_zero(),
+                "exact division coeff({}) should be 0",
+                n
+            );
         }
     }
 

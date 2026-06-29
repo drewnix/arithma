@@ -1074,10 +1074,7 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> Result<String, Str
     }
 
     let indep = normalize_var(get_str_or(args, "indep", "x"));
-    let order = args
-        .get("order")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
 
     let mut coeffs: Vec<Polynomial> = Vec::new();
     for (i, poly_val) in poly_arr.iter().enumerate() {
