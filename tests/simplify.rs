@@ -1651,6 +1651,105 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_sqrt_multiply_same_radicand() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{2} \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Num(arithma::ExactNum::integer(2)));
+        assert_eq!(
+            Evaluator::evaluate_exact(&result, &env).unwrap(),
+            arithma::ExactNum::integer(2)
+        );
+    }
+
+    #[test]
+    fn test_sqrt_multiply_sqrt_three() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{3} \\cdot \\sqrt{3}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Num(arithma::ExactNum::integer(3)));
+    }
+
+    #[test]
+    fn test_sqrt_multiply_symbolic() {
+        use arithma::assumptions::{Assumption, Assumptions};
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::NonNegative);
+        let env = Environment::with_assumptions(assumptions);
+        let expr = arithma::parse_latex("\\sqrt{x} \\cdot \\sqrt{x}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Variable("x".to_string()));
+    }
+
+    #[test]
+    fn test_sqrt_squared_power_form() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{2}^{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Num(arithma::ExactNum::integer(2)));
+    }
+
+    #[test]
+    fn test_sqrt_multiply_symbolic_abs() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{x} \\cdot \\sqrt{x}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            arithma::Node::Abs(Box::new(arithma::Node::Variable("x".to_string())))
+        );
+    }
+
+    #[test]
+    fn test_sqrt_multiply_negative_coeff() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("-\\sqrt{2} \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Num(arithma::ExactNum::integer(-2)));
+    }
+
+    #[test]
+    fn test_sqrt_multiply_with_coefficients() {
+        let env = Environment::new();
+        let expr =
+            arithma::parse_latex("(2 \\cdot \\sqrt{2}) \\cdot (3 \\cdot \\sqrt{2})", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(
+            Evaluator::evaluate_exact(&result, &env).unwrap(),
+            arithma::ExactNum::integer(12)
+        );
+    }
+
+    #[test]
+    fn test_sqrt_multiply_after_factor_extract() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{8} \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(
+            Evaluator::evaluate_exact(&result, &env).unwrap(),
+            arithma::ExactNum::integer(4)
+        );
+    }
+
+    #[test]
+    fn test_sqrt_multiply_different_radicands() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sqrt{2} \\cdot \\sqrt{3}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        let s = format!("{}", result);
+        assert!(
+            s.contains("\\sqrt{2}") && s.contains("\\sqrt{3}"),
+            "Different radicands should not merge: {}",
+            s
+        );
+        assert!(
+            !s.contains("^{2}"),
+            "Should not square a single radical: {}",
+            s
+        );
+    }
+
+    #[test]
     fn test_negate_in_product_display() {
         use arithma::parse_latex;
         let env = Environment::new();
