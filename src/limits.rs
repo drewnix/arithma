@@ -145,6 +145,35 @@ fn limit_at_infinity(
         }
     }
 
+    // Exponential indeterminate forms at infinity (e.g. (1+1/x)^x → e)
+    // For 1^∞: use lim f^g = e^{lim g·(f-1)} when f→1
+    if let Node::Power(base, exp) = &simplified {
+        if contains_var(base, var) && contains_var(exp, var) {
+            // Check if base → 1 at infinity
+            if let Ok(base_lim) = limit_at_infinity(base, var, positive, depth + 1) {
+                if (base_lim.to_f64() - 1.0).abs() < 1e-14 {
+                    // 1^∞ form: lim f^g = e^{lim g·(f-1)}
+                    let f_minus_1 = Node::Subtract(
+                        Box::new(*base.clone()),
+                        Box::new(Node::Num(ExactNum::integer(1))),
+                    );
+                    let g_f1 = Node::Multiply(Box::new(*exp.clone()), Box::new(f_minus_1));
+                    let env_s = Environment::new();
+                    let g_f1_s = g_f1.simplify(&env_s).unwrap_or(g_f1);
+                    if let Ok(val) = limit_at_infinity(&g_f1_s, var, positive, depth + 1) {
+                        let f = val.to_f64().exp();
+                        return Ok(ExactNum::from_f64(f));
+                    }
+                }
+            }
+        }
+    }
+
+    // Substitution fallback: x = 1/t (for +∞) or x = -1/t (for -∞), lim t→0
+    if let Ok(result) = limit_via_substitution(&simplified, var, positive) {
+        return Ok(result);
+    }
+
     Err(format!(
         "Cannot compute limit of {} as {} → {}∞",
         simplified,
@@ -388,6 +417,82 @@ fn extract_quotient(expr: &Node) -> Option<(Node, Node)> {
     }
 }
 
+thread_local! {
+    static IN_SUBSTITUTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn limit_via_substitution(expr: &Node, var: &str, positive: bool) -> Result<ExactNum, String> {
+    if IN_SUBSTITUTION.with(|f| f.get()) {
+        return Err("Already inside substitution".to_string());
+    }
+
+    let t_var = "_limit_t";
+    let replacement = if positive {
+        Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(1))),
+            Box::new(Node::Variable(t_var.to_string())),
+        )
+    } else {
+        Node::Divide(
+            Box::new(Node::Num(ExactNum::integer(-1))),
+            Box::new(Node::Variable(t_var.to_string())),
+        )
+    };
+
+    let substituted = match crate::substitute::substitute_variable(expr, var, &replacement) {
+        Ok(s) => s,
+        Err(_) => return Err("Substitution failed".to_string()),
+    };
+    let env = Environment::new();
+    let simplified = substituted.simplify(&env).unwrap_or(substituted);
+
+    IN_SUBSTITUTION.with(|f| f.set(true));
+    let result = limit_internal(&simplified, t_var, &ExactNum::zero(), 0);
+    IN_SUBSTITUTION.with(|f| f.set(false));
+    result
+}
+
+fn try_exp_indeterminate(
+    expr: &Node,
+    var: &str,
+    point: &LimitPoint,
+    depth: usize,
+) -> Option<Result<ExactNum, String>> {
+    let (base, exponent) = match expr {
+        Node::Power(b, e) => (b.as_ref(), e.as_ref()),
+        _ => return None,
+    };
+
+    if depth > MAX_LHOPITAL_ITERATIONS {
+        return None;
+    }
+
+    // Rewrite f^g as exp(g·ln(f))
+    let ln_base = Node::Function("ln".to_string(), vec![base.clone()]);
+    let g_ln_f = Node::Multiply(Box::new(exponent.clone()), Box::new(ln_base));
+
+    let env = Environment::new();
+    let g_ln_f_s = g_ln_f.simplify(&env).unwrap_or(g_ln_f);
+
+    let exponent_limit = match point {
+        LimitPoint::Finite(p) => limit_internal(&g_ln_f_s, var, p, depth + 1),
+        LimitPoint::PosInfinity | LimitPoint::NegInfinity => {
+            let positive = matches!(point, LimitPoint::PosInfinity);
+            limit_via_substitution(&g_ln_f_s, var, positive)
+        }
+    };
+
+    match exponent_limit {
+        Ok(val) => {
+            let f = val.to_f64().exp();
+            Some(Ok(ExactNum::from_f64(f)))
+        }
+        Err(msg) if msg.contains("-∞") => Some(Ok(ExactNum::zero())),
+        Err(msg) if msg.contains("+∞") => Some(Err("Limit is +∞".to_string())),
+        Err(_) => None,
+    }
+}
+
 fn limit_via_series(expr: &Node, var: &str, point: &ExactNum) -> Result<ExactNum, String> {
     // Expand the expression as a Taylor series around the point
     // and extract the constant term (the value at the limit point)
@@ -431,6 +536,13 @@ fn limit_internal(
 
     // Step 3: rewrite 0·∞ products as quotients
     if let Some(result) = try_rewrite_product(expr, var, point, depth) {
+        return result;
+    }
+
+    // Step 3b: exponential indeterminate forms (0^0, 1^∞, ∞^0)
+    if let Some(result) =
+        try_exp_indeterminate(expr, var, &LimitPoint::Finite(point.clone()), depth)
+    {
         return result;
     }
 
@@ -767,6 +879,56 @@ mod tests {
         let result =
             limit_latex_str("\\frac{\\exp(x) - 1 - x - \\frac{x^2}{2}}{x^3}", "x", "0").unwrap();
         assert_eq!(result, "\\frac{1}{6}");
+    }
+
+    // === Exponential indeterminate forms ===
+
+    #[test]
+    fn test_limit_1_plus_1_over_x_to_x() {
+        // lim_{x→∞} (1+1/x)^x = e (1^∞ form)
+        let result = limit_latex_str("(1 + \\frac{1}{x})^x", "x", "inf").unwrap();
+        let val: f64 = result.parse().unwrap_or_else(|_| {
+            Evaluator::evaluate_exact(
+                &build_expression_tree(Tokenizer::new(&result).tokenize()).unwrap(),
+                &Environment::new(),
+            )
+            .unwrap()
+            .to_f64()
+        });
+        assert!(
+            (val - std::f64::consts::E).abs() < 1e-6,
+            "expected e, got {}",
+            val
+        );
+    }
+
+    #[test]
+    fn test_limit_x_to_x_at_zero() {
+        // lim_{x→0+} x^x = 1 (0^0 form)
+        let x = Node::Variable("x".to_string());
+        let expr = Node::Power(Box::new(x.clone()), Box::new(x));
+        let result = compute_limit(&expr, "x", &ExactNum::zero()).unwrap();
+        assert!(
+            (result.to_f64() - 1.0).abs() < 1e-10,
+            "expected 1, got {}",
+            result.to_f64()
+        );
+    }
+
+    #[test]
+    fn test_limit_x_to_sinx_at_zero() {
+        // lim_{x→0+} x^{sin(x)} = 1 (0^0 form)
+        let x = Node::Variable("x".to_string());
+        let expr = Node::Power(
+            Box::new(x.clone()),
+            Box::new(Node::Function("sin".to_string(), vec![x])),
+        );
+        let result = compute_limit(&expr, "x", &ExactNum::zero()).unwrap();
+        assert!(
+            (result.to_f64() - 1.0).abs() < 1e-10,
+            "expected 1, got {}",
+            result.to_f64()
+        );
     }
 
     // === Limits at infinity ===
