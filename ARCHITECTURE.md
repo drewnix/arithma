@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1209 tests. 0 failures. 15 MCP tools. ~34K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
+**1229 tests. 0 failures. 15 MCP tools. ~34K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -148,7 +148,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 ### Series and Limits
 
 - **Taylor expansion**: univariate around numeric or symbolic center, with exact coefficients. Parametric expressions (e.g., `n/(1+(n-1)a)` expanded in `a`) produce symbolic coefficients.
-- **Limits**: direct substitution, L'Hopital's rule.
+- **Limits**: direct substitution, polynomial GCD cancellation, L'Hopital's rule, Taylor series expansion for higher-order indeterminate forms. Limits at infinity via polynomial degree comparison. Exponential indeterminate forms (1^∞, 0^0). One-sided limits with signed infinity results (lim_{x→0+} 1/x = +∞). Direction parsed from point string: `"0+"`, `"0-"`.
 
 ### ODEs
 
