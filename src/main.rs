@@ -21,18 +21,18 @@ fn main() {
     }
 
     match cmd {
-        "simplify" => cmd_simplify(&args[2..]),
-        "differentiate" | "diff" => cmd_differentiate(&args[2..]),
-        "integrate" => cmd_integrate(&args[2..]),
-        "solve" => cmd_solve(&args[2..]),
-        "factor" => cmd_factor(&args[2..]),
-        "prime-factorize" | "factorint" => cmd_prime_factorize(&args[2..]),
-        "partial-fractions" | "pf" => cmd_partial_fractions(&args[2..]),
-        "evaluate" | "eval" => cmd_evaluate(&args[2..]),
-        "limit" => cmd_limit(&args[2..]),
-        "taylor" => cmd_taylor(&args[2..]),
-        "substitute" | "sub" => cmd_substitute(&args[2..]),
-        "ode" => cmd_ode(&args[2..]),
+        "simplify" => cmd_simplify(cmd, &args[2..]),
+        "differentiate" | "diff" => cmd_differentiate(cmd, &args[2..]),
+        "integrate" => cmd_integrate(cmd, &args[2..]),
+        "solve" => cmd_solve(cmd, &args[2..]),
+        "factor" => cmd_factor(cmd, &args[2..]),
+        "prime-factorize" | "factorint" => cmd_prime_factorize(cmd, &args[2..]),
+        "partial-fractions" | "pf" => cmd_partial_fractions(cmd, &args[2..]),
+        "evaluate" | "eval" => cmd_evaluate(cmd, &args[2..]),
+        "limit" => cmd_limit(cmd, &args[2..]),
+        "taylor" => cmd_taylor(cmd, &args[2..]),
+        "substitute" | "sub" => cmd_substitute(cmd, &args[2..]),
+        "ode" => cmd_ode(cmd, &args[2..]),
         _ => {
             eprintln!("Unknown command: {}", cmd);
             eprintln!("Run 'arithma --help' for usage.");
@@ -82,6 +82,24 @@ Examples:
     );
 }
 
+const NONE: &[&str] = &[];
+
+/// Print CLI usage and exit.
+///
+/// - `syntax` — primary fragment after `arithma {cmd}`
+/// - `alternates` — other valid invocations (each prefixed with `arithma {cmd}`); pass `NONE` if none
+/// - `hints` — free-form notes (indented, no command prefix); pass `NONE` if none
+fn usage(cmd: &str, syntax: &str, alternates: &[&str], hints: &[&str]) -> ! {
+    eprintln!("Usage: arithma {cmd} {syntax}");
+    for alt in alternates {
+        eprintln!("       arithma {cmd} {alt}");
+    }
+    for hint in hints {
+        eprintln!("  {hint}");
+    }
+    std::process::exit(1);
+}
+
 fn parse_and_simplify(expr: &str, env: &Environment) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr);
     let tokens = tokenizer.tokenize();
@@ -93,10 +111,9 @@ fn parse_and_simplify(expr: &str, env: &Environment) -> Result<String, String> {
     Ok(format!("{}", simplified))
 }
 
-fn cmd_simplify(args: &[String]) {
+fn cmd_simplify(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma simplify <expr>");
-        std::process::exit(1);
+        usage(cmd, "<expr>", NONE, NONE);
     }
     let expr = &args[0];
     let env = Environment::new();
@@ -109,10 +126,9 @@ fn cmd_simplify(args: &[String]) {
     }
 }
 
-fn cmd_differentiate(args: &[String]) {
+fn cmd_differentiate(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma differentiate <expr> [var]");
-        std::process::exit(1);
+        usage(cmd, "<expr> [var]", NONE, NONE);
     }
     let expr = &args[0];
     let var = args
@@ -128,10 +144,9 @@ fn cmd_differentiate(args: &[String]) {
     }
 }
 
-fn cmd_integrate(args: &[String]) {
+fn cmd_integrate(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma integrate <expr> [var] [lower upper]");
-        std::process::exit(1);
+        usage(cmd, "<expr> [var] [lower upper]", NONE, NONE);
     }
     let expr = &args[0];
     let var = args
@@ -167,11 +182,14 @@ fn cmd_integrate(args: &[String]) {
     }
 }
 
-fn cmd_solve(args: &[String]) {
+fn cmd_solve(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma solve <equation> [var]");
-        eprintln!("       arithma solve \"eq1, eq2, ...\" \"x, y, ...\"");
-        std::process::exit(1);
+        usage(
+            cmd,
+            "<equation> [var]",
+            &["\"eq1, eq2, ...\" \"x, y, ...\""],
+            NONE,
+        );
     }
     let equation = &args[0];
 
@@ -302,10 +320,9 @@ fn cmd_solve_system(equations_str: &str, vars: &[String]) {
     }
 }
 
-fn cmd_factor(args: &[String]) {
+fn cmd_factor(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma factor <expr> [var]");
-        std::process::exit(1);
+        usage(cmd, "<expr> [var]", NONE, NONE);
     }
     let expr = &args[0];
     let var = args
@@ -373,10 +390,9 @@ fn cmd_factor(args: &[String]) {
     }
 }
 
-fn cmd_prime_factorize(args: &[String]) {
+fn cmd_prime_factorize(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma prime-factorize <n>");
-        std::process::exit(1);
+        usage(cmd, "<n>", NONE, NONE);
     }
     let n: u64 = match args[0].parse() {
         Ok(n) => n,
@@ -388,10 +404,9 @@ fn cmd_prime_factorize(args: &[String]) {
     println!("{}", arithma::prime_factorize_latex(n));
 }
 
-fn cmd_partial_fractions(args: &[String]) {
+fn cmd_partial_fractions(cmd: &str, args: &[String]) {
     if args.len() < 2 {
-        eprintln!("Usage: arithma partial-fractions <numerator> <denominator> [var]");
-        std::process::exit(1);
+        usage(cmd, "<numerator> <denominator> [var]", NONE, NONE);
     }
     let num = &args[0];
     let den = &args[1];
@@ -408,10 +423,9 @@ fn cmd_partial_fractions(args: &[String]) {
     }
 }
 
-fn cmd_evaluate(args: &[String]) {
+fn cmd_evaluate(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma evaluate <expr> [var=val ...]");
-        std::process::exit(1);
+        usage(cmd, "<expr> [var=val ...]", NONE, NONE);
     }
     let expr_str = &args[0];
 
@@ -453,11 +467,14 @@ fn cmd_evaluate(args: &[String]) {
     }
 }
 
-fn cmd_limit(args: &[String]) {
+fn cmd_limit(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma limit <expr> [var] [point]");
-        eprintln!("  point: number, inf, -inf, or one-sided (0+, 0-, 3+, 3-)");
-        std::process::exit(1);
+        usage(
+            cmd,
+            "<expr> [var] [point]",
+            NONE,
+            &["point: number, inf, -inf, or one-sided (0+, 0-, 3+, 3-)"],
+        );
     }
     let expr = &args[0];
     let var = args
@@ -474,10 +491,9 @@ fn cmd_limit(args: &[String]) {
     }
 }
 
-fn cmd_taylor(args: &[String]) {
+fn cmd_taylor(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma taylor <expr> [var] [center] [order]");
-        std::process::exit(1);
+        usage(cmd, "<expr> [var] [center] [order]", NONE, NONE);
     }
     let expr = &args[0];
     let var = args
@@ -511,10 +527,9 @@ fn cmd_taylor(args: &[String]) {
     }
 }
 
-fn cmd_substitute(args: &[String]) {
+fn cmd_substitute(cmd: &str, args: &[String]) {
     if args.len() < 3 {
-        eprintln!("Usage: arithma substitute <expr> <var> <value>");
-        std::process::exit(1);
+        usage(cmd, "<expr> <var> <value>", NONE, NONE);
     }
     let expr = &args[0];
     let var = normalize_var(&args[1]);
@@ -535,17 +550,19 @@ fn cmd_substitute(args: &[String]) {
     }
 }
 
-fn cmd_ode(args: &[String]) {
+fn cmd_ode(cmd: &str, args: &[String]) {
     if args.is_empty() {
-        eprintln!("Usage: arithma ode <rhs> [indep] [dep]");
-        eprintln!("       arithma ode --cc <a> <b> <c> [indep]");
-        std::process::exit(1);
+        usage(
+            cmd,
+            "<rhs> [indep] [dep]",
+            &["--cc <a> <b> <c> [indep]"],
+            NONE,
+        );
     }
 
     if args[0] == "--cc" {
         if args.len() < 4 {
-            eprintln!("Usage: arithma ode --cc <a> <b> <c> [indep]");
-            std::process::exit(1);
+            usage(cmd, "--cc <a> <b> <c> [indep]", NONE, NONE);
         }
         let a: f64 = args[1].parse().unwrap_or_else(|_| {
             eprintln!("Invalid coefficient a: {}", args[1]);
