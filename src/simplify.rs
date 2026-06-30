@@ -459,6 +459,13 @@ impl Simplifiable for Node {
                     }
                 }
 
+                // √a · √a → a
+                if let Some(combined) =
+                    try_simplify_matching_sqrt_product(&left_simplified, &right_simplified, env)
+                {
+                    return Ok(combined);
+                }
+
                 // x * x → x^2
                 if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
                     return Ok(Node::Power(
@@ -513,6 +520,17 @@ impl Simplifiable for Node {
                 if let Node::Num(ref n) = exponent_simplified {
                     if n.is_one() {
                         return Ok(base_simplified);
+                    }
+                }
+
+                // (√x)² → x (|x| when sign unknown)
+                if let Node::Num(ref e) = exponent_simplified {
+                    if e == &ExactNum::two() {
+                        if let Some(radicand) = extract_sqrt_radicand(&base_simplified) {
+                            if let Some(result) = simplify_sqrt_squared(radicand, env) {
+                                return Ok(result);
+                            }
+                        }
                     }
                 }
 
@@ -1795,18 +1813,75 @@ fn is_even_integer_expr(node: &Node, env: &Environment) -> bool {
     false
 }
 
+/// Extract radicand from √X whether stored as `Node::Sqrt` or `Function("sqrt", …)`.
+fn extract_sqrt_radicand(node: &Node) -> Option<Node> {
+    match node {
+        Node::Sqrt(inner) => Some(*inner.clone()),
+        Node::Function(name, args) if name == "sqrt" && args.len() == 1 => Some(args[0].clone()),
+        _ => None,
+    }
+}
+
+fn radicals_match(left: &Node, right: &Node) -> bool {
+    match (extract_sqrt_radicand(left), extract_sqrt_radicand(right)) {
+        (Some(l), Some(r)) => format!("{l}") == format!("{r}"),
+        _ => format!("{left}") == format!("{right}"),
+    }
+}
+
+fn simplify_sqrt_squared(radicand: Node, env: &Environment) -> Option<Node> {
+    if let Node::Variable(ref v) = radicand {
+        if env.assumptions().is_nonneg(v) {
+            return Some(radicand);
+        }
+        return Some(Node::Abs(Box::new(radicand)));
+    }
+    radicand.simplify(env).ok()
+}
+
+/// √a · √a → a (and (a√X)(b√X) → ab·X when X matches).
+fn try_simplify_matching_sqrt_product(
+    left: &Node,
+    right: &Node,
+    env: &Environment,
+) -> Option<Node> {
+    let (l_coeff, l_radical) = extract_radical_parts(left)?;
+    let (r_coeff, r_radical) = extract_radical_parts(right)?;
+
+    if !radicals_match(&l_radical, &r_radical) {
+        return None;
+    }
+
+    let radicand = extract_sqrt_radicand(&l_radical)?;
+    let squared = simplify_sqrt_squared(radicand, env)?;
+    let product_coeff = l_coeff * r_coeff;
+
+    if product_coeff.is_one() {
+        return Some(squared);
+    }
+    if product_coeff.is_zero() {
+        return Some(Node::Num(ExactNum::zero()));
+    }
+    Some(Node::Multiply(
+        Box::new(Node::Num(product_coeff)),
+        Box::new(squared),
+    ))
+}
+
 /// Extract (coefficient, radical) from a term that's either a bare √X or coeff·√X.
 fn extract_radical_parts(node: &Node) -> Option<(ExactNum, Node)> {
+    if extract_sqrt_radicand(node).is_some() {
+        return Some((ExactNum::one(), node.clone()));
+    }
     match node {
-        Node::Sqrt(_) => Some((ExactNum::one(), node.clone())),
         Node::Multiply(left, right) => {
             if let Node::Num(ref coeff) = **left {
-                if matches!(**right, Node::Sqrt(_)) {
+                if extract_sqrt_radicand(right).is_some() {
                     return Some((coeff.clone(), *right.clone()));
                 }
             }
             if let Node::Num(ref coeff) = **right {
-                if matches!(**left, Node::Sqrt(_)) {
+                if extract_sqrt_radicand(left).is_some() {
                     return Some((coeff.clone(), *left.clone()));
                 }
             }
@@ -1827,7 +1902,7 @@ fn try_combine_like_radicals(
     let (r_coeff, r_radical) = extract_radical_parts(right)?;
 
     // Check structural equality of radicals
-    if format!("{}", l_radical) != format!("{}", r_radical) {
+    if !radicals_match(&l_radical, &r_radical) {
         return None;
     }
 
