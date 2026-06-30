@@ -3,6 +3,9 @@
 pub mod exact;
 pub use crate::exact::ExactNum;
 
+pub mod integer;
+pub use crate::integer::{extract_square_factors, prime_factorize, prime_factorize_latex};
+
 mod node;
 pub use crate::node::Node;
 
