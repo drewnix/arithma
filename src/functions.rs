@@ -55,30 +55,60 @@ lazy_static! {
         let mut registry = FunctionRegistry::new(); // Make sure registry is mutable
 
         // Register built-in LaTeX Math Commands
+
+        // Circular trigonometric
         registry.register_function("sin", Box::new(SinFunction));
         registry.register_function("cos", Box::new(CosFunction));
         registry.register_function("tan", Box::new(TanFunction));
-        registry.register_function("sinh", Box::new(SinhFunction));
-        registry.register_function("cosh", Box::new(CoshFunction));
-        registry.register_function("tanh", Box::new(TanhFunction));
+
+        // Reciprocal trigonometric
+        registry.register_function("csc", Box::new(CscFunction));
+        registry.register_function("sec", Box::new(SecFunction));
+        registry.register_function("cot", Box::new(CotFunction));
+
+        // Inverse circular trigonometric
         registry.register_function("arcsin", Box::new(ArcsinFunction));
         registry.register_function("arccos", Box::new(ArccosFunction));
         registry.register_function("arctan", Box::new(ArctanFunction));
-        registry.register_function("sec", Box::new(SecFunction));
-        registry.register_function("csc", Box::new(CscFunction));
+
+        // Inverse reciprocal trigonometric
+        registry.register_function("arccsc", Box::new(ArccscFunction));
+        registry.register_function("arcsec", Box::new(ArcsecFunction));
+        registry.register_function("arccot", Box::new(ArccotFunction));
+
+        // Hyperbolic
+        registry.register_function("sinh", Box::new(SinhFunction));
+        registry.register_function("cosh", Box::new(CoshFunction));
+        registry.register_function("tanh", Box::new(TanhFunction));
+
+        // Reciprocal hyperbolic
+        registry.register_function("csch", Box::new(CschFunction));
+        registry.register_function("sech", Box::new(SechFunction));
         registry.register_function("coth", Box::new(CothFunction));
-        registry.register_function("frac", Box::new(FracFunction));
+
+        // Inverse hyperbolic
+        registry.register_function("arcsinh", Box::new(ArcsinhFunction));
+        registry.register_function("arccosh", Box::new(ArccoshFunction));
+        registry.register_function("arctanh", Box::new(ArctanhFunction));
+
+        // Inverse reciprocal hyperbolic
+        registry.register_function("arccsch", Box::new(ArccschFunction));
+        registry.register_function("arcsech", Box::new(ArcsechFunction));
+        registry.register_function("arccoth", Box::new(ArccothFunction));
+
+        // Logarithmic and exponential
         registry.register_function("log", Box::new(LogFunction));
         registry.register_function("ln", Box::new(LnFunction));
         registry.register_function("lg", Box::new(LgFunction));
+        registry.register_function("exp", Box::new(ExpFunction));
+
+        registry.register_function("frac", Box::new(FracFunction));
         registry.register_function("sqrt", Box::new(SqrtFunction));
         registry.register_function("min", Box::new(MinFunction));
         registry.register_function("max", Box::new(MaxFunction));
         registry.register_function("det", Box::new(DetFunction));
-        registry.register_function("cot", Box::new(CotFunction));
         registry.register_function("dim", Box::new(DimFunction)); // TODO: Implement
         registry.register_function("inf", Box::new(InfFunction));
-        registry.register_function("exp", Box::new(ExpFunction));
         registry.register_function("ker", Box::new(KerFunction)); // TODO: Implement
         registry.register_function("sup", Box::new(SupFunction));
         registry.register_function("deg", Box::new(DegFunction)); // TODO: Implement
@@ -92,7 +122,7 @@ lazy_static! {
     };
 }
 
-// Example implementation for a sine function
+// Circular trigonometric
 pub struct SinFunction;
 impl FunctionHandler for SinFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
@@ -107,7 +137,6 @@ impl FunctionHandler for SinFunction {
     }
 }
 
-// Example implementation for a cosine function
 pub struct CosFunction;
 impl FunctionHandler for CosFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
@@ -136,14 +165,17 @@ impl FunctionHandler for TanFunction {
     }
 }
 
-// Hyperbolic functions
-pub struct SinhFunction;
-impl FunctionHandler for SinhFunction {
+// Reciprocal trigonometric
+pub struct CscFunction;
+impl FunctionHandler for CscFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
         if args.len() != 1 {
-            return Err("\\sinh requires exactly one argument.".to_string());
+            return Err("\\csc requires exactly one argument.".to_string());
         }
-        Ok(args[0].sinh())
+        if args[0].sin() == 0.0 {
+            return Ok(f64::NAN); // Return NaN for undefined result
+        }
+        Ok(1.0 / args[0].sin())
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -151,13 +183,17 @@ impl FunctionHandler for SinhFunction {
     }
 }
 
-pub struct CoshFunction;
-impl FunctionHandler for CoshFunction {
+pub struct SecFunction;
+impl FunctionHandler for SecFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
         if args.len() != 1 {
-            return Err("\\cosh requires exactly one argument.".to_string());
+            return Err("\\sec requires exactly one argument.".to_string());
         }
-        Ok(args[0].cosh())
+        let cos_val = args[0].cos();
+        if cos_val.abs() < 1e-15 {
+            return Ok(f64::NAN);
+        }
+        Ok(1.0 / cos_val)
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -165,13 +201,20 @@ impl FunctionHandler for CoshFunction {
     }
 }
 
-pub struct TanhFunction;
-impl FunctionHandler for TanhFunction {
+pub struct CotFunction;
+impl FunctionHandler for CotFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
         if args.len() != 1 {
-            return Err("\\tanh requires exactly one argument.".to_string());
+            return Err("\\cot requires exactly one argument.".to_string());
         }
-        Ok(args[0].tanh())
+        let tan_value = args[0].tan();
+
+        if tan_value.abs() < 1e-10 {
+            // If tan(x) is close to zero, cot(x) is undefined (infinity)
+            return Ok(f64::NAN);
+        }
+
+        Ok(1.0 / tan_value) // cot(x) = 1 / tan(x)
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -179,7 +222,7 @@ impl FunctionHandler for TanhFunction {
     }
 }
 
-// Inverse trigonometric functions
+// Inverse circular trigonometric
 pub struct ArcsinFunction;
 impl FunctionHandler for ArcsinFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
@@ -222,18 +265,17 @@ impl FunctionHandler for ArctanFunction {
     }
 }
 
-// Secant, cosecant, and cotangent functions
-pub struct SecFunction;
-impl FunctionHandler for SecFunction {
+// Inverse reciprocal trigonometric
+pub struct ArccscFunction;
+impl FunctionHandler for ArccscFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
         if args.len() != 1 {
-            return Err("\\sec requires exactly one argument.".to_string());
+            return Err("\\arccsc requires exactly one argument.".to_string());
         }
-        let cos_val = args[0].cos();
-        if cos_val.abs() < 1e-15 {
+        if args[0].abs() < 1.0 {
             return Ok(f64::NAN);
         }
-        Ok(1.0 / cos_val)
+        Ok((1.0 / args[0]).asin())
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -241,16 +283,108 @@ impl FunctionHandler for SecFunction {
     }
 }
 
-pub struct CscFunction;
-impl FunctionHandler for CscFunction {
+pub struct ArcsecFunction;
+impl FunctionHandler for ArcsecFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
         if args.len() != 1 {
-            return Err("\\csc requires exactly one argument.".to_string());
+            return Err("\\arcsec requires exactly one argument.".to_string());
         }
-        if args[0].sin() == 0.0 {
-            return Ok(f64::NAN); // Return NaN for undefined result
+        if args[0].abs() < 1.0 {
+            return Ok(f64::NAN);
         }
-        Ok(1.0 / args[0].sin())
+        Ok((1.0 / args[0]).acos())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ArccotFunction;
+impl FunctionHandler for ArccotFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arccot requires exactly one argument.".to_string());
+        }
+        if args[0] == 0.0 {
+            return Ok(std::f64::consts::FRAC_PI_2);
+        }
+        Ok((1.0 / args[0]).atan())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+// Hyperbolic
+pub struct SinhFunction;
+impl FunctionHandler for SinhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\sinh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].sinh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct CoshFunction;
+impl FunctionHandler for CoshFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\cosh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].cosh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct TanhFunction;
+impl FunctionHandler for TanhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\tanh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].tanh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+// Reciprocal hyperbolic
+pub struct CschFunction;
+impl FunctionHandler for CschFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\csch requires exactly one argument.".to_string());
+        }
+        if args[0].sinh() == 0.0 {
+            return Ok(f64::NAN);
+        }
+        Ok(1.0 / args[0].sinh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct SechFunction;
+impl FunctionHandler for SechFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\sech requires exactly one argument.".to_string());
+        }
+        Ok(1.0 / args[0].cosh())
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -276,6 +410,107 @@ impl FunctionHandler for CothFunction {
     }
 }
 
+// Inverse hyperbolic
+pub struct ArcsinhFunction;
+impl FunctionHandler for ArcsinhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arcsinh requires exactly one argument.".to_string());
+        }
+        Ok(args[0].asinh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ArccoshFunction;
+impl FunctionHandler for ArccoshFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arccosh requires exactly one argument.".to_string());
+        }
+        if args[0] < 1.0 {
+            return Ok(f64::NAN);
+        }
+        Ok(args[0].acosh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ArctanhFunction;
+impl FunctionHandler for ArctanhFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arctanh requires exactly one argument.".to_string());
+        }
+        if args[0].abs() >= 1.0 {
+            return Ok(f64::NAN);
+        }
+        Ok(args[0].atanh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+// Inverse reciprocal hyperbolic
+pub struct ArccschFunction;
+impl FunctionHandler for ArccschFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arccsch requires exactly one argument.".to_string());
+        }
+        if args[0] == 0.0 {
+            return Ok(f64::NAN);
+        }
+        Ok((1.0 / args[0]).asinh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ArcsechFunction;
+impl FunctionHandler for ArcsechFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arcsech requires exactly one argument.".to_string());
+        }
+        if args[0] <= 0.0 || args[0] > 1.0 {
+            return Ok(f64::NAN);
+        }
+        Ok((1.0 / args[0]).acosh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ArccothFunction;
+impl FunctionHandler for ArccothFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\arccoth requires exactly one argument.".to_string());
+        }
+        if args[0].abs() <= 1.0 {
+            return Ok(f64::NAN);
+        }
+        Ok((1.0 / args[0]).atanh())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
 // Binary functions (like \frac)
 pub struct FracFunction;
 impl FunctionHandler for FracFunction {
@@ -294,7 +529,7 @@ impl FunctionHandler for FracFunction {
     }
 }
 
-// Logarithmic functions
+// Logarithmic and exponential
 pub struct LogFunction;
 impl FunctionHandler for LogFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
@@ -330,6 +565,20 @@ impl FunctionHandler for LgFunction {
             return Err("\\lg requires exactly one argument.".to_string());
         }
         Ok(args[0].log2())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct ExpFunction;
+impl FunctionHandler for ExpFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\exp requires exactly one argument.".to_string());
+        }
+        Ok(args[0].exp()) // exp(x) = e^x
     }
 
     fn get_arg_count(&self) -> Option<usize> {
@@ -396,27 +645,6 @@ impl FunctionHandler for DetFunction {
     }
 }
 
-pub struct CotFunction;
-impl FunctionHandler for CotFunction {
-    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
-        if args.len() != 1 {
-            return Err("\\cot requires exactly one argument.".to_string());
-        }
-        let tan_value = args[0].tan();
-
-        if tan_value.abs() < 1e-10 {
-            // If tan(x) is close to zero, cot(x) is undefined (infinity)
-            return Ok(f64::NAN);
-        }
-
-        Ok(1.0 / tan_value) // cot(x) = 1 / tan(x)
-    }
-
-    fn get_arg_count(&self) -> Option<usize> {
-        Some(1)
-    }
-}
-
 // TODO: Implement
 pub struct DimFunction;
 impl FunctionHandler for DimFunction {
@@ -445,20 +673,6 @@ impl FunctionHandler for InfFunction {
 
     fn get_arg_count(&self) -> Option<usize> {
         None // Variable number of arguments
-    }
-}
-
-pub struct ExpFunction;
-impl FunctionHandler for ExpFunction {
-    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
-        if args.len() != 1 {
-            return Err("\\exp requires exactly one argument.".to_string());
-        }
-        Ok(args[0].exp()) // exp(x) = e^x
-    }
-
-    fn get_arg_count(&self) -> Option<usize> {
-        Some(1)
     }
 }
 

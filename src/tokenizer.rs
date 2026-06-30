@@ -98,6 +98,48 @@ fn greek_letter(name: &str) -> Option<char> {
     }
 }
 
+fn is_trig_or_hyperbolic(name: &str) -> bool {
+    matches!(
+        name,
+        // Circular trigonometric
+        "sin"
+        | "cos"
+        | "tan"
+        // Reciprocal trigonometric
+        | "csc"
+        | "sec"
+        | "cot"
+        // Inverse circular trigonometric
+        | "arcsin"
+        | "arccos"
+        | "arctan"
+        // Inverse reciprocal trigonometric
+        | "arccsc"
+        | "arcsec"
+        | "arccot"
+        // Hyperbolic
+        | "sinh"
+        | "cosh"
+        | "tanh"
+        // Reciprocal hyperbolic
+        | "csch"
+        | "sech"
+        | "coth"
+        // Inverse hyperbolic
+        | "arcsinh"
+        | "arccosh"
+        | "arctanh"
+        // Inverse reciprocal hyperbolic
+        | "arccsch"
+        | "arcsech"
+        | "arccoth"
+    )
+}
+
+fn is_log_or_exp(name: &str) -> bool {
+    matches!(name, "log" | "ln" | "lg" | "exp")
+}
+
 pub fn latex_name(c: char) -> Option<&'static str> {
     match c {
         'π' => Some("\\pi"),
@@ -291,40 +333,17 @@ impl<'a> Tokenizer<'a> {
             let needs_mul = last == ")"
                 || is_decimal_literal(last)
                 || (last.len() == 1 && last.chars().next().is_some_and(|c| c.is_alphabetic()));
-            let is_value_producing = matches!(
-                stripped_token.as_str(),
-                "sin"
-                    | "cos"
-                    | "tan"
-                    | "sec"
-                    | "csc"
-                    | "cot"
-                    | "sinh"
-                    | "cosh"
-                    | "tanh"
-                    | "coth"
-                    | "arcsin"
-                    | "arccos"
-                    | "arctan"
-                    | "log"
-                    | "ln"
-                    | "lg"
-                    | "exp"
-                    | "sqrt"
-                    | "frac"
-                    | "pi"
-            ) || greek_letter(&stripped_token).is_some();
+            let is_value_producing = is_trig_or_hyperbolic(&stripped_token)
+                || is_log_or_exp(&stripped_token)
+                || matches!(stripped_token.as_str(), "sqrt" | "frac")
+                || greek_letter(&stripped_token).is_some();
             if needs_mul && is_value_producing {
                 tokens.push("*".to_string());
             }
         }
 
         // Handle \sin^2(x) → sin(x)^2 pattern for known trig/math functions
-        let known_power_functions = [
-            "sin", "cos", "tan", "sec", "csc", "cot", "sinh", "cosh", "tanh", "coth", "arcsin",
-            "arccos", "arctan", "ln", "log", "exp",
-        ];
-        if known_power_functions.contains(&stripped_token.as_str())
+        if (is_trig_or_hyperbolic(&stripped_token) || is_log_or_exp(&stripped_token))
             && self.chars.peek() == Some(&'^')
         {
             self.chars.next(); // consume '^'
