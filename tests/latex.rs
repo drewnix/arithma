@@ -235,6 +235,15 @@ mod latex_parser_tests {
     }
 
     #[test]
+    fn test_implicit_mul_greek_braced() {
+        let mut env = Environment::new();
+        env.set("α", 2.0);
+        env.set("β", 3.0);
+        let result = eval_latex_expression_with_env("3\\alpha + 4{\\beta}", &env).unwrap();
+        assert_eq!(result, 18.0); // 3*2 + 4*3
+    }
+
+    #[test]
     fn test_implicit_mul_frac_var() {
         let mut env = Environment::new();
         env.set("x", 6.0);

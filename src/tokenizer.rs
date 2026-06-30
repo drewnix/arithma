@@ -23,6 +23,43 @@ fn is_variable_token(token: &str) -> bool {
         )
 }
 
+/// True when `tokens` ends with `}` closing a `_{…}` or `^{…}` script group.
+fn closes_script_bound(tokens: &[String]) -> bool {
+    if tokens.last().map(|t| t.as_str()) != Some("}") {
+        return false;
+    }
+    let mut depth = 1i32;
+    for i in (0..tokens.len().saturating_sub(1)).rev() {
+        match tokens[i].as_str() {
+            "}" => depth += 1,
+            "{" => {
+                depth -= 1;
+                if depth == 0 {
+                    return i > 0 && matches!(tokens[i - 1].as_str(), "^" | "_");
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Prior token is an unbraced `^` / `_` script argument (e.g. `\sum^3{…}`).
+fn follows_script_operator(tokens: &[String]) -> bool {
+    tokens.len() >= 2 && matches!(tokens[tokens.len() - 2].as_str(), "^" | "_")
+}
+
+/// Prior token can bind implicitly with a following `{` group.
+fn needs_implicit_mul_before_brace(last: &str, tokens: &[String]) -> bool {
+    if follows_script_operator(tokens) {
+        return false;
+    }
+    if last == "}" && closes_script_bound(tokens) {
+        return false;
+    }
+    last == ")" || last == "}" || is_decimal_literal(last) || is_variable_token(last)
+}
+
 fn greek_letter(name: &str) -> Option<char> {
     match name {
         "pi" => Some('π'),
@@ -154,6 +191,12 @@ impl<'a> Tokenizer<'a> {
                 if c == '(' {
                     if let Some(last) = last_token.as_ref() {
                         if last == ")" || is_decimal_literal(last) || is_variable_token(last) {
+                            tokens.push("*".to_string());
+                        }
+                    }
+                } else if c == '{' {
+                    if let Some(last) = last_token.as_ref() {
+                        if needs_implicit_mul_before_brace(last, &tokens) {
                             tokens.push("*".to_string());
                         }
                     }
@@ -899,9 +942,29 @@ mod tests {
 
     #[test]
     fn test_tokenize_greek_implicit_mul() {
-        let mut tokenizer = Tokenizer::new("2\\alpha");
+        let mut tokenizer = Tokenizer::new("3\\alpha + 4{\\beta}");
         let tokens = tokenizer.tokenize();
-        assert_eq!(tokens, vec!["2", "*", "α"]);
+        assert_eq!(tokens, vec!["3", "*", "α", "+", "4", "*", "{", "β", "}"]);
+    }
+
+    #[test]
+    fn test_tokenize_summation_unbraced_upper_braced_body_no_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\sum_{i=1}^3{i}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["sum", "_", "{", "i", "=", "1", "}", "^", "3", "{", "i", "}"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_summation_braced_body_no_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\sum_{i=a}^{b} {i+c}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["sum", "_", "{", "i", "=", "a", "}", "^", "{", "b", "}", "{", "i", "+", "c", "}"]
+        );
     }
 
     #[test]
