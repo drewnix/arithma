@@ -1,5 +1,6 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
+use crate::integer::extract_square_factors;
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
@@ -29,23 +30,6 @@ fn try_rationalize(f: f64) -> Option<BigRational> {
         }
     }
     None
-}
-
-/// Extract square factors from `n` so that `√n = outside · √inside` with `inside` square-free.
-fn extract_square_factors(mut n: u64) -> (u64, u64) {
-    if n == 0 {
-        return (0, 0);
-    }
-    let mut outside = 1u64;
-    let mut d = 2u64;
-    while d * d <= n {
-        while n.is_multiple_of(d * d) {
-            outside *= d;
-            n /= d * d;
-        }
-        d += 1;
-    }
-    (outside, n)
 }
 
 fn pi_node() -> Node {
@@ -2537,22 +2521,6 @@ fn try_symbolic_summation(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_square_factors;
-
-    #[test]
-    fn test_extract_square_factors() {
-        assert_eq!(extract_square_factors(12), (2, 3));
-        assert_eq!(extract_square_factors(8), (2, 2));
-        assert_eq!(extract_square_factors(18), (3, 2));
-        assert_eq!(extract_square_factors(7), (1, 7));
-        assert_eq!(extract_square_factors(4), (2, 1));
-        assert_eq!(extract_square_factors(1), (1, 1));
-        assert_eq!(extract_square_factors(72), (6, 2));
-        assert_eq!(extract_square_factors(100), (10, 1));
-        assert_eq!(extract_square_factors(50), (5, 2));
-        assert_eq!(extract_square_factors(0), (0, 0));
-    }
-
     fn simplify_latex(input: &str) -> String {
         use super::Simplifiable;
         use crate::environment::Environment;

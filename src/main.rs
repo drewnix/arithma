@@ -26,6 +26,7 @@ fn main() {
         "integrate" => cmd_integrate(&args[2..]),
         "solve" => cmd_solve(&args[2..]),
         "factor" => cmd_factor(&args[2..]),
+        "prime-factorize" | "factorint" => cmd_prime_factorize(&args[2..]),
         "partial-fractions" | "pf" => cmd_partial_fractions(&args[2..]),
         "evaluate" | "eval" => cmd_evaluate(&args[2..]),
         "limit" => cmd_limit(&args[2..]),
@@ -55,6 +56,7 @@ Commands:
   solve <equation> [var]             Solve an equation
   solve \"eq1, eq2\" \"x, y\"           Solve a system of linear equations
   factor <expr> [var]                Factor a polynomial over Q
+  prime-factorize <n>                Prime-factorize a positive integer (alias: factorint)
   partial-fractions <n> <d> [var]    Partial fraction decomposition (alias: pf)
   evaluate <expr> [var=val ...]      Evaluate numerically (alias: eval)
   limit <expr> [var] [point]         Compute a limit
@@ -71,6 +73,7 @@ Examples:
   arithma integrate \"3x^2\" x
   arithma solve \"x^2 - 4 = 0\"
   arithma factor \"x^4 - 1\"
+  arithma prime-factorize 720
   arithma eval \"x^2 + 1\" x=3
   arithma limit \"\\\\frac{{\\\\sin(x)}}{{x}}\" x 0
   arithma taylor \"\\\\sin(x)\" x 0 5
@@ -368,6 +371,21 @@ fn cmd_factor(args: &[String]) {
             println!("(irreducible over \\mathbb{{Q}})");
         }
     }
+}
+
+fn cmd_prime_factorize(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: arithma prime-factorize <n>");
+        std::process::exit(1);
+    }
+    let n: u64 = match args[0].parse() {
+        Ok(n) => n,
+        Err(_) => {
+            eprintln!("Error: expected a non-negative integer");
+            std::process::exit(1);
+        }
+    };
+    println!("{}", arithma::prime_factorize_latex(n));
 }
 
 fn cmd_partial_fractions(args: &[String]) {
