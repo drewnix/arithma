@@ -117,6 +117,16 @@ mod latex_parser_tests {
         eval_latex_expression_with_env(latex, &env)
     }
 
+    fn eval_latex_expression_exact(latex: &str) -> Result<arithma::ExactNum, String> {
+        let mut tokenizer = Tokenizer::new(latex);
+        let tokens = tokenizer.tokenize();
+        if let Some(err) = tokenizer.errors.into_iter().next() {
+            return Err(err);
+        }
+        let parsed = build_expression_tree(tokens)?;
+        Evaluator::evaluate_exact(&parsed, &Environment::new())
+    }
+
     fn approx_eq(a: f64, b: f64, epsilon: f64) -> bool {
         (a - b).abs() < epsilon
     }
@@ -249,6 +259,61 @@ mod latex_parser_tests {
         env.set("x", 6.0);
         let result = eval_latex_expression_with_env("\\frac{1}{3}x", &env).unwrap();
         assert_eq!(result, 2.0); // (1/3) * 6 = 2
+    }
+
+    #[test]
+    fn test_overline_repeating_decimal() {
+        assert_eq!(
+            eval_latex_expression_exact("0.\\overline{3}").unwrap(),
+            arithma::ExactNum::rational(1, 3)
+        );
+        assert_eq!(
+            eval_latex_expression_exact("0.1\\overline{6}").unwrap(),
+            arithma::ExactNum::rational(1, 6)
+        );
+        assert_eq!(
+            eval_latex_expression_exact("2.\\overline{27}").unwrap(),
+            arithma::ExactNum::rational(25, 11)
+        );
+    }
+
+    #[test]
+    fn test_overline_standalone_out_of_scope() {
+        let result = eval_latex_expression_exact("\\overline{3}");
+        assert!(
+            result.is_err(),
+            "standalone \\overline should not evaluate as a numeric value"
+        );
+    }
+
+    #[test]
+    fn test_overline_in_expression() {
+        assert_eq!(
+            eval_latex_expression_exact("0.\\overline{3} + 1").unwrap(),
+            arithma::ExactNum::rational(4, 3)
+        );
+    }
+
+    #[test]
+    fn test_overline_negated() {
+        assert_eq!(
+            eval_latex_expression_exact("-0.\\overline{3}").unwrap(),
+            arithma::ExactNum::rational(-1, 3)
+        );
+    }
+
+    #[test]
+    fn test_overline_scaled() {
+        assert_eq!(
+            eval_latex_expression_exact("0.\\overline{3} \\cdot 2").unwrap(),
+            arithma::ExactNum::rational(2, 3)
+        );
+    }
+
+    #[test]
+    fn test_overline_empty_repeat() {
+        let result = eval_latex_expression_exact("0.\\overline{}");
+        assert!(result.is_err());
     }
 
     #[test]

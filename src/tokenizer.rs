@@ -1,7 +1,9 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use crate::exact::ExactNum;
 use crate::functions::FUNCTION_REGISTRY;
+use num_rational::BigRational;
 
 fn is_decimal_char(c: char) -> bool {
     c.is_ascii_digit() || c == '.'
@@ -9,6 +11,25 @@ fn is_decimal_char(c: char) -> bool {
 
 fn is_decimal_literal(token: &str) -> bool {
     !token.is_empty() && token.chars().all(is_decimal_char)
+}
+
+fn is_repeating_decimal_prefix(token: &str) -> bool {
+    is_decimal_literal(token) && token.matches('.').count() == 1
+}
+
+fn discard_overline_brace_group(tokenizer: &mut Tokenizer<'_>) {
+    if tokenizer.chars.peek() == Some(&'{') {
+        tokenizer.chars.next();
+        let _ = tokenizer.consume_brace_group();
+    }
+}
+
+fn push_reduced_rational_tokens(tokens: &mut Vec<String>, r: &BigRational) {
+    tokens.push("(".to_string());
+    tokens.push(r.numer().to_string());
+    tokens.push("/".to_string());
+    tokens.push(r.denom().to_string());
+    tokens.push(")".to_string());
 }
 
 fn is_variable_token(token: &str) -> bool {
@@ -405,6 +426,46 @@ impl<'a> Tokenizer<'a> {
             }
             "lt" => {
                 tokens.push("<".to_string());
+            }
+            "overline" => {
+                current_token.clear();
+                let Some(prefix) = tokens.last().cloned() else {
+                    tokens.push("overline".to_string());
+                    return;
+                };
+                if !is_decimal_literal(&prefix) || !prefix.contains('.') {
+                    tokens.push("overline".to_string());
+                    return;
+                }
+                if !is_repeating_decimal_prefix(&prefix) {
+                    tokens.pop();
+                    self.errors.push(format!(
+                        "decimal prefix must have exactly one '.': {prefix}"
+                    ));
+                    discard_overline_brace_group(self);
+                    return;
+                }
+                if self.chars.peek() != Some(&'{') {
+                    tokens.push("overline".to_string());
+                    return;
+                }
+                self.chars.next();
+                let Some(repeat) = self.consume_brace_group() else {
+                    tokens.pop();
+                    self.errors
+                        .push("\\overline{} requires a braced argument".to_string());
+                    return;
+                };
+                match ExactNum::repeating_decimal_from_prefix(&prefix, repeat.trim()) {
+                    Ok(r) => {
+                        tokens.pop();
+                        push_reduced_rational_tokens(tokens, &r);
+                    }
+                    Err(e) => {
+                        tokens.pop();
+                        self.errors.push(e);
+                    }
+                }
             }
             "frac" => {
                 current_token.clear();
@@ -808,6 +869,90 @@ mod tests {
         let mut tokenizer = Tokenizer::new("\\frac34");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["3", "/", "4"]);
+    }
+
+    #[test]
+    fn test_tokenize_overline_repeating_decimal() {
+        let mut tokenizer = Tokenizer::new("0.\\overline{3}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert_eq!(tokens, vec!["(", "1", "/", "3", ")"]);
+
+        let mut tokenizer = Tokenizer::new("0.1\\overline{6}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert_eq!(tokens, vec!["(", "1", "/", "6", ")"]);
+
+        let mut tokenizer = Tokenizer::new("2.\\overline{27}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert_eq!(tokens, vec!["(", "25", "/", "11", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_overline_no_implicit_mul() {
+        let mut tokenizer = Tokenizer::new("0.1\\overline{6}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert!(
+            !tokens.contains(&"*".to_string()),
+            "should not insert implicit multiplication: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_overline_invalid_repeat() {
+        let mut tokenizer = Tokenizer::new("0.\\overline{abc}");
+        let tokens = tokenizer.tokenize();
+        assert!(
+            !tokenizer.errors.is_empty(),
+            "expected error for non-digit repeating part"
+        );
+        assert!(
+            !tokens.contains(&"0.".to_string()),
+            "prefix should be removed on failure: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_overline_empty_repeat() {
+        let mut tokenizer = Tokenizer::new("0.\\overline{}");
+        let tokens = tokenizer.tokenize();
+        assert!(!tokenizer.errors.is_empty());
+        assert!(
+            !tokens.contains(&"0.".to_string()),
+            "prefix should be removed on failure: {tokens:?}"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_overline_multiple_dots_in_prefix() {
+        let mut tokenizer = Tokenizer::new("1.2.\\overline{3}");
+        tokenizer.tokenize();
+        assert!(
+            !tokenizer.errors.is_empty(),
+            "expected error for multiple '.' in prefix"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_overline_in_expression() {
+        let mut tokenizer = Tokenizer::new("0.\\overline{3} + 1");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert_eq!(tokens, vec!["(", "1", "/", "3", ")", "+", "1"]);
+    }
+
+    #[test]
+    fn test_tokenize_overline_standalone_out_of_scope() {
+        let mut tokenizer = Tokenizer::new("\\overline{3}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert!(tokens.contains(&"overline".to_string()));
+        assert!(
+            !tokens.contains(&"/".to_string()),
+            "standalone \\overline should not rewrite to a fraction: {tokens:?}"
+        );
     }
 
     #[test]

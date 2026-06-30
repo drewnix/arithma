@@ -151,6 +151,60 @@ impl ExactNum {
             _ => None,
         }
     }
+
+    /// Convert `prefix.\overline{repeat}` postfix notation to an exact rational.
+    /// `prefix` must contain `.` (e.g. `0.`, `0.1`, `2.`); `repeat` is digits only.
+    pub fn repeating_decimal_from_prefix(
+        prefix: &str,
+        repeat: &str,
+    ) -> Result<BigRational, String> {
+        if repeat.is_empty() {
+            return Err("repeating part must be non-empty".to_string());
+        }
+
+        if prefix.chars().filter(|c| *c == '.').count() != 1 {
+            return Err(format!(
+                "decimal prefix must have exactly one '.': {prefix}"
+            ));
+        }
+
+        let dot_idx = prefix
+            .find('.')
+            .ok_or_else(|| format!("decimal prefix must contain '.': {prefix}"))?;
+        let int_part_str = &prefix[..dot_idx];
+        let non_rep_str = &prefix[dot_idx + 1..];
+
+        let k = non_rep_str.len();
+        let m = repeat.len();
+
+        let b = parse_digit_string(non_rep_str)?;
+        let d = parse_digit_string(&format!("{non_rep_str}{repeat}"))?;
+
+        let numerator_frac = d - b;
+        let denominator_frac = pow10(k + m) - pow10(k);
+        if denominator_frac.is_zero() {
+            return Err("invalid repeating decimal: zero denominator".to_string());
+        }
+
+        let frac = BigRational::new(numerator_frac, denominator_frac);
+        let int_part = parse_digit_string(int_part_str)?;
+        Ok(BigRational::from_integer(int_part) + frac)
+    }
+}
+
+fn parse_digit_string(s: &str) -> Result<BigInt, String> {
+    if s.is_empty() {
+        return Ok(BigInt::zero());
+    }
+    if !s.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!("invalid digits: {s}"));
+    }
+    s.parse::<BigInt>()
+        .map_err(|e| format!("invalid digits {s}: {e}"))
+}
+
+fn pow10(exp: usize) -> BigInt {
+    BigInt::from(10).pow(exp as u32)
 }
 
 impl Add for ExactNum {
@@ -505,5 +559,22 @@ mod tests {
             result
         );
         assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_repeating_decimal_from_prefix() {
+        assert_eq!(
+            ExactNum::Rational(ExactNum::repeating_decimal_from_prefix("0.", "3").unwrap()),
+            ExactNum::rational(1, 3)
+        );
+        assert_eq!(
+            ExactNum::Rational(ExactNum::repeating_decimal_from_prefix("0.1", "6").unwrap()),
+            ExactNum::rational(1, 6)
+        );
+        assert_eq!(
+            ExactNum::Rational(ExactNum::repeating_decimal_from_prefix("2.", "27").unwrap()),
+            ExactNum::rational(25, 11)
+        );
+        assert!(ExactNum::repeating_decimal_from_prefix("1.2.", "3").is_err());
     }
 }
