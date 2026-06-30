@@ -188,6 +188,36 @@ Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
 }
 ```
 
+## Web calculator
+
+The `frontend/` directory contains a browser-based calculator UI built with
+React and [MathLive](https://cortexjs.io/mathlive/). MathLive provides a
+visual equation editor — type math naturally and it produces LaTeX behind
+the scenes. Much easier than writing raw LaTeX on the command line.
+
+Arithma is compiled to WebAssembly and runs entirely in the browser. No
+server, no network calls. The same exact-arithmetic engine that powers the
+CLI and MCP server runs client-side.
+
+**Tools available in the UI:** Evaluate, Simplify, Solve, Factor, Partial
+Fractions, Substitute, Differentiate, Integrate, Taylor Series, Limit, ODE,
+Determinant, Inverse, Eigenvalues, Equivalent, and Verify — organized by
+category (Evaluate, Algebra, Calculus, Matrix).
+
+### Running the frontend
+
+```bash
+# Build the WASM module (requires wasm-pack)
+wasm-pack build --target web --out-dir frontend/public/pkg
+
+# Install dependencies and start the dev server
+cd frontend
+npm install
+npm run dev
+```
+
+Then open `http://localhost:5173` in your browser.
+
 ## Command line
 
 Arithma also works as a standalone CLI tool. Run with no arguments for an
@@ -311,9 +341,10 @@ $ arithma integrate "\frac{1}{x^4 + 1}" x
 \frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} + \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x + \sqrt{2}}{\sqrt{2}}) + -\frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} - \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x - \sqrt{2}}{\sqrt{2}}) + C
 ```
 
-All 11 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
-`solve`, `factor`, `partial-fractions` (`pf`), `evaluate` (`eval`), `limit`,
-`taylor`, `substitute` (`sub`), `ode`. Run `arithma --help` for full usage.
+All 12 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
+`solve`, `factor`, `prime-factorize` (`factorint`), `partial-fractions` (`pf`),
+`evaluate` (`eval`), `limit`, `taylor`, `substitute` (`sub`), `ode`.
+Run `arithma --help` for full usage.
 
 ## Building
 
