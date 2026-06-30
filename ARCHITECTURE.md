@@ -64,7 +64,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Negation normalization**: `f·(-g) → -(f·g)`, nested negations eliminated.
 - **Assumption system**: 6 property types (positive, nonneg, negative, nonzero, real, integer). `√(x²) → x` when x ≥ 0. Conservative default.
 - **f64 → rational canonicalization**: float coefficients near simple rationals (denominators ≤ 100) are converted to exact BigRational. `0.5·x → (1/2)·x`, `0.333...·x → (1/3)·x`. Improves equivalence detection.
-- **Numeric verification**: `verify` tool evaluates two expressions at 10 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support.
+- **Numeric verification**: `verify` tool evaluates two expressions at 10 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Known limitation:** `verify` does not currently filter test points by assumptions — it may produce spurious counterexamples for identities that hold only under constraints (e.g., `√(x²) = x` under `x ≥ 0`).
 - **Idempotency contract**: simplification is stable — applying it twice gives the same result.
 
 ### Differentiation
@@ -101,7 +101,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - Higher-power irreducible quadratic: `∫1/(x²+1)²dx`, `∫1/(x²+1)³dx` via Ostrogradsky reduction
 - Hyperbolic substitution: `∫1/√(x²±a²)dx = ln|x+√(x²±a²)|`
 
-**Logarithm convention:** Indefinite integrals use `ln|·|` (real-valued convention). `∫1/x dx = ln|x| + C`, `∫tan(x) dx = -ln|cos(x)| + C`. The Risch algorithm produces complex logarithms without absolute value signs, following the differential algebra framework.
+**Logarithm convention:** Indefinite integrals use `ln|·|` (real-valued convention). `∫1/x dx = ln|x| + C`, `∫tan(x) dx = -ln|cos(x)| + C`. The Risch algorithm produces complex logarithms without absolute value signs, following the differential algebra framework. The two conventions coexist: classical techniques emit `ln|·|`, Risch emits `ln(·)`. The `verify` tool evaluates numerically and does not distinguish between them — this is a known boundary where spurious mismatches can occur at negative arguments.
 
 **Definite integration:**
 - Exact via FTC: symbolic substitution of bounds, special-value evaluation.
@@ -236,7 +236,7 @@ arithma/
 
 ## Design Principles
 
-1. **Correctness beats coverage.** Every result is provably correct. We never guess. If we can't compute something, we say so.
+1. **Correctness beats coverage.** For polynomial and rational function operations, equivalence is decided exactly via canonical forms. For transcendental expressions, equivalence is verified by deterministic numerical evaluation — high-confidence but not a proof (Richardson's theorem makes the general problem undecidable). Every integration result is verified by differentiating back and checking against the integrand. If we can't compute something, we say so.
 2. **Exact before approximate.** `BigRational` arithmetic throughout. Float only when the user asks for numerical evaluation.
 3. **LaTeX is the interface.** Agents speak LaTeX. We parse it and produce it. No intermediate format for users to learn.
 4. **Deterministic.** Same input, same output. No randomness, no heuristics that change behavior across runs.
@@ -255,5 +255,3 @@ Arithma reaches a natural resting point when an AI agent with access to it can:
 4. **Reason under constraints** — simplify with assumptions about variable domains
 5. **Solve basic ODEs** — the three classes that cover 80% of applied mathematics
 6. **Do all of this** from a single binary under 5 MB with zero dependencies, deterministic output, and sub-second response times
-
-That's roughly 35-40% of Mathematica's CAS core coverage, with 100% correctness on everything we claim to compute, at 1/3000th the deployment footprint.
