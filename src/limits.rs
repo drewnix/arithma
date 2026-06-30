@@ -1,3 +1,5 @@
+use std::fmt;
+
 use num_traits::{Signed, ToPrimitive};
 
 use crate::derivative::differentiate;
@@ -10,6 +12,30 @@ use crate::polynomial::Polynomial;
 use crate::series::try_rationalize;
 use crate::simplify::Simplifiable;
 use crate::tokenizer::Tokenizer;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LimitDirection {
+    Both,
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LimitResult {
+    Finite(ExactNum),
+    PosInfinity,
+    NegInfinity,
+}
+
+impl fmt::Display for LimitResult {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LimitResult::Finite(v) => write!(f, "{}", Node::Num(v.clone())),
+            LimitResult::PosInfinity => write!(f, "+\\infty"),
+            LimitResult::NegInfinity => write!(f, "-\\infty"),
+        }
+    }
+}
 
 fn contains_var(node: &Node, var: &str) -> bool {
     match node {
@@ -55,6 +81,151 @@ pub fn compute_limit_general(
         LimitPoint::NegInfinity => limit_at_infinity(&simplified, var, false, 0)?,
     };
     Ok(try_rationalize(&result))
+}
+
+/// Compute the limit of expr as var → point with direction control.
+/// Returns `LimitResult` which can represent ±∞ as proper values.
+pub fn compute_limit_directed(
+    expr: &Node,
+    var: &str,
+    point: &LimitPoint,
+    direction: &LimitDirection,
+) -> Result<LimitResult, String> {
+    let env = Environment::new();
+    let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+    directed_internal(&simplified, var, point, direction)
+}
+
+fn directed_internal(
+    expr: &Node,
+    var: &str,
+    point: &LimitPoint,
+    direction: &LimitDirection,
+) -> Result<LimitResult, String> {
+    match direction {
+        LimitDirection::Both => directed_both(expr, var, point),
+        LimitDirection::Left | LimitDirection::Right => {
+            let from_right = matches!(direction, LimitDirection::Right);
+            directed_onesided(expr, var, point, from_right)
+        }
+    }
+}
+
+fn directed_both(expr: &Node, var: &str, point: &LimitPoint) -> Result<LimitResult, String> {
+    match point {
+        LimitPoint::Finite(p) => {
+            match limit_internal(expr, var, p, 0) {
+                Ok(val) => Ok(LimitResult::Finite(try_rationalize(&val))),
+                Err(msg) => {
+                    if let Some(result) = parse_infinity_error(&msg) {
+                        return Ok(result);
+                    }
+                    // Try one-sided limits to determine if DNE
+                    let left = directed_onesided(expr, var, point, false);
+                    let right = directed_onesided(expr, var, point, true);
+                    match (left, right) {
+                        (Ok(ref l), Ok(ref r)) if l == r => Ok(l.clone()),
+                        (Ok(l), Ok(r)) => Err(format!(
+                            "Limit does not exist: {} from the left, {} from the right",
+                            l, r
+                        )),
+                        // If one side computed but the other didn't, propagate original error
+                        _ => Err(msg),
+                    }
+                }
+            }
+        }
+        LimitPoint::PosInfinity | LimitPoint::NegInfinity => {
+            let positive = matches!(point, LimitPoint::PosInfinity);
+            match limit_at_infinity(expr, var, positive, 0) {
+                Ok(val) => Ok(LimitResult::Finite(try_rationalize(&val))),
+                Err(msg) => parse_infinity_error(&msg).ok_or(msg),
+            }
+        }
+    }
+}
+
+fn directed_onesided(
+    expr: &Node,
+    var: &str,
+    point: &LimitPoint,
+    from_right: bool,
+) -> Result<LimitResult, String> {
+    match point {
+        LimitPoint::Finite(p) => {
+            match limit_internal(expr, var, p, 0) {
+                Ok(val) => Ok(LimitResult::Finite(try_rationalize(&val))),
+                Err(msg) => {
+                    if let Some(result) = parse_infinity_error(&msg) {
+                        return Ok(result);
+                    }
+                    // Probe numerically to determine sign of divergence
+                    if let Some(result) = probe_divergence(expr, var, p, from_right) {
+                        return Ok(result);
+                    }
+                    Err(msg)
+                }
+            }
+        }
+        LimitPoint::PosInfinity | LimitPoint::NegInfinity => {
+            // Direction is inherent for ±∞
+            directed_both(expr, var, point)
+        }
+    }
+}
+
+fn parse_infinity_error(msg: &str) -> Option<LimitResult> {
+    if msg.contains("+∞") {
+        Some(LimitResult::PosInfinity)
+    } else if msg.contains("-∞") {
+        Some(LimitResult::NegInfinity)
+    } else {
+        None
+    }
+}
+
+/// Numerically probe the expression at two points approaching from one side
+/// to detect divergence and determine sign. Uses widely-separated probe points
+/// so even logarithmic divergence (like ln(x) → 0+) is detected.
+fn probe_divergence(
+    expr: &Node,
+    var: &str,
+    point: &ExactNum,
+    from_right: bool,
+) -> Option<LimitResult> {
+    let sign = if from_right { 1i64 } else { -1i64 };
+    // Wide spacing: 10^-1 and 10^-8 — catches logarithmic divergence
+    let eps1 = ExactNum::rational(sign, 10);
+    let eps2 = ExactNum::rational(sign, 100_000_000);
+
+    let shifted1 = point.clone() + eps1;
+    let shifted2 = point.clone() + eps2;
+
+    let mut env1 = Environment::new();
+    env1.set_exact(var, shifted1);
+    let val1 = Evaluator::evaluate_exact(expr, &env1).ok()?;
+
+    let mut env2 = Environment::new();
+    env2.set_exact(var, shifted2);
+    let val2 = Evaluator::evaluate_exact(expr, &env2).ok()?;
+
+    if val1.is_nan_or_inf() || val2.is_nan_or_inf() {
+        return None;
+    }
+
+    let f1 = val1.to_f64();
+    let f2 = val2.to_f64();
+
+    // Same sign and magnitude growing → divergence
+    if f1.signum() == f2.signum() && f2.abs() > f1.abs() * 2.0 {
+        if f2 > 0.0 {
+            Some(LimitResult::PosInfinity)
+        } else {
+            Some(LimitResult::NegInfinity)
+        }
+    } else {
+        None
+    }
 }
 
 fn diverges_at_infinity(expr: &Node, var: &str) -> bool {
@@ -204,7 +375,9 @@ fn limit_quotient_at_infinity(
                 return Ok(ExactNum::Rational(ratio));
             }
             (Some(_), Some(_)) => {
-                return Err("Limit is infinite (polynomial degree)".to_string());
+                let sign =
+                    poly_sign_at_infinity(&p, positive) * poly_sign_at_infinity(&q, positive);
+                return Err(format!("Limit is {}∞", if sign > 0 { "+" } else { "-" }));
             }
             _ => {}
         }
@@ -691,16 +864,41 @@ fn try_polynomial_cancel(
     Some(Ok(&n_val / &d_val))
 }
 
-/// Parse a limit point string into a LimitPoint.
-pub fn parse_limit_point(s: &str) -> Result<LimitPoint, String> {
+/// Parse a limit point string into a LimitPoint and direction.
+/// Accepts directional suffixes: "0+", "0-", "3+", "3-", "-1+", "-1-".
+/// A trailing '+' or '-' after a digit indicates direction (right or left).
+/// Plain "0", "3", "inf" etc. mean both sides.
+pub fn parse_limit_point(s: &str) -> Result<(LimitPoint, LimitDirection), String> {
     let trimmed = s.trim();
-    match trimmed {
+
+    // Check for directional suffix: trailing '+' or '-' after a digit
+    if trimmed.len() >= 2 {
+        let bytes = trimmed.as_bytes();
+        let last = bytes[bytes.len() - 1];
+        let prev = bytes[bytes.len() - 2];
+        if (last == b'+' || last == b'-') && prev.is_ascii_digit() {
+            let direction = if last == b'+' {
+                LimitDirection::Right
+            } else {
+                LimitDirection::Left
+            };
+            let point = parse_limit_point_value(&trimmed[..trimmed.len() - 1])?;
+            return Ok((point, direction));
+        }
+    }
+
+    let point = parse_limit_point_value(trimmed)?;
+    Ok((point, LimitDirection::Both))
+}
+
+fn parse_limit_point_value(s: &str) -> Result<LimitPoint, String> {
+    match s {
         "inf" | "\\infty" | "+inf" | "+\\infty" | "∞" | "+∞" => Ok(LimitPoint::PosInfinity),
         "-inf" | "-\\infty" | "-∞" => Ok(LimitPoint::NegInfinity),
         _ => {
-            let f: f64 = trimmed
+            let f: f64 = s
                 .parse()
-                .map_err(|_| format!("Cannot parse limit point: {}", trimmed))?;
+                .map_err(|_| format!("Cannot parse limit point: {}", s))?;
             let exact = if f == 0.0 {
                 ExactNum::zero()
             } else if f == f.floor() && f.abs() < 1e15 {
@@ -722,21 +920,32 @@ pub fn limit_latex(expr_latex: &str, var: &str, point: f64) -> Result<String, St
     } else {
         ExactNum::from_f64(point)
     };
-    limit_latex_general(expr_latex, var, &LimitPoint::Finite(point_exact))
+    limit_latex_directed(
+        expr_latex,
+        var,
+        &LimitPoint::Finite(point_exact),
+        &LimitDirection::Both,
+    )
 }
 
-/// Compute limit from LaTeX expression with string point (supports ∞).
+/// Compute limit from LaTeX expression with string point (supports ∞ and direction).
+/// Point accepts: "0", "0+", "0-", "3+", "3-", "inf", "-inf", etc.
 pub fn limit_latex_str(expr_latex: &str, var: &str, point_str: &str) -> Result<String, String> {
-    let point = parse_limit_point(point_str)?;
-    limit_latex_general(expr_latex, var, &point)
+    let (point, direction) = parse_limit_point(point_str)?;
+    limit_latex_directed(expr_latex, var, &point, &direction)
 }
 
-fn limit_latex_general(expr_latex: &str, var: &str, point: &LimitPoint) -> Result<String, String> {
+fn limit_latex_directed(
+    expr_latex: &str,
+    var: &str,
+    point: &LimitPoint,
+    direction: &LimitDirection,
+) -> Result<String, String> {
     let mut tokenizer = Tokenizer::new(expr_latex);
     let tokens = tokenizer.tokenize();
     let expr = build_expression_tree(tokens)?;
-    let result = compute_limit_general(&expr, var, point)?;
-    Ok(format!("{}", Node::Num(result)))
+    let result = compute_limit_directed(&expr, var, point, direction)?;
+    Ok(format!("{}", result))
 }
 
 #[cfg(test)]
@@ -985,13 +1194,91 @@ mod tests {
 
     #[test]
     fn test_limit_parse_infty_variants() {
-        let p1 = parse_limit_point("inf").unwrap();
-        let p2 = parse_limit_point("\\infty").unwrap();
-        let p3 = parse_limit_point("-inf").unwrap();
-        let p4 = parse_limit_point("3").unwrap();
+        let (p1, d1) = parse_limit_point("inf").unwrap();
+        let (p2, d2) = parse_limit_point("\\infty").unwrap();
+        let (p3, d3) = parse_limit_point("-inf").unwrap();
+        let (p4, d4) = parse_limit_point("3").unwrap();
         assert!(matches!(p1, LimitPoint::PosInfinity));
         assert!(matches!(p2, LimitPoint::PosInfinity));
         assert!(matches!(p3, LimitPoint::NegInfinity));
         assert!(matches!(p4, LimitPoint::Finite(_)));
+        assert_eq!(d1, LimitDirection::Both);
+        assert_eq!(d2, LimitDirection::Both);
+        assert_eq!(d3, LimitDirection::Both);
+        assert_eq!(d4, LimitDirection::Both);
+    }
+
+    #[test]
+    fn test_limit_parse_direction() {
+        let (p, d) = parse_limit_point("0+").unwrap();
+        assert!(matches!(p, LimitPoint::Finite(ref v) if v.is_zero()));
+        assert_eq!(d, LimitDirection::Right);
+
+        let (p, d) = parse_limit_point("0-").unwrap();
+        assert!(matches!(p, LimitPoint::Finite(ref v) if v.is_zero()));
+        assert_eq!(d, LimitDirection::Left);
+
+        let (p, d) = parse_limit_point("3+").unwrap();
+        assert!(matches!(p, LimitPoint::Finite(ref v) if v.to_f64() == 3.0));
+        assert_eq!(d, LimitDirection::Right);
+
+        let (p, d) = parse_limit_point("-1-").unwrap();
+        assert!(matches!(p, LimitPoint::Finite(ref v) if v.to_f64() == -1.0));
+        assert_eq!(d, LimitDirection::Left);
+
+        // "-3" is not directional — it's the number -3
+        let (p, d) = parse_limit_point("-3").unwrap();
+        assert!(matches!(p, LimitPoint::Finite(ref v) if v.to_f64() == -3.0));
+        assert_eq!(d, LimitDirection::Both);
+    }
+
+    // === One-sided limits ===
+
+    #[test]
+    fn test_limit_1_over_x_right() {
+        // lim_{x→0+} 1/x = +∞
+        let result = limit_latex_str("\\frac{1}{x}", "x", "0+").unwrap();
+        assert_eq!(result, "+\\infty");
+    }
+
+    #[test]
+    fn test_limit_1_over_x_left() {
+        // lim_{x→0-} 1/x = -∞
+        let result = limit_latex_str("\\frac{1}{x}", "x", "0-").unwrap();
+        assert_eq!(result, "-\\infty");
+    }
+
+    #[test]
+    fn test_limit_ln_x_right() {
+        // lim_{x→0+} ln(x) = -∞
+        let result = limit_latex_str("\\ln(x)", "x", "0+").unwrap();
+        assert_eq!(result, "-\\infty");
+    }
+
+    #[test]
+    fn test_limit_1_over_x_both_dne() {
+        // lim_{x→0} 1/x does not exist (diverges differently from each side)
+        let result = limit_latex_str("\\frac{1}{x}", "x", "0");
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("does not exist"),
+            "Expected 'does not exist', got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_limit_1_over_x2_both_posinf() {
+        // lim_{x→0} 1/x² = +∞ (same from both sides)
+        let result = limit_latex_str("\\frac{1}{x^2}", "x", "0").unwrap();
+        assert_eq!(result, "+\\infty");
+    }
+
+    #[test]
+    fn test_limit_1_over_x2_right() {
+        // lim_{x→0+} 1/x² = +∞
+        let result = limit_latex_str("\\frac{1}{x^2}", "x", "0+").unwrap();
+        assert_eq!(result, "+\\infty");
     }
 }

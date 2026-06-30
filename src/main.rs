@@ -456,6 +456,7 @@ fn cmd_evaluate(args: &[String]) {
 fn cmd_limit(args: &[String]) {
     if args.is_empty() {
         eprintln!("Usage: arithma limit <expr> [var] [point]");
+        eprintln!("  point: number, inf, -inf, or one-sided (0+, 0-, 3+, 3-)");
         std::process::exit(1);
     }
     let expr = &args[0];
@@ -463,11 +464,8 @@ fn cmd_limit(args: &[String]) {
         .get(1)
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".to_string());
-    let point = args
-        .get(2)
-        .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(0.0);
-    match arithma::limits::limit_latex(expr, &var, point) {
+    let point_str = args.get(2).map(|s| s.as_str()).unwrap_or("0");
+    match arithma::limits::limit_latex_str(expr, &var, point_str) {
         Ok(result) => println!("{}", result),
         Err(e) => {
             eprintln!("Error: {}", e);

@@ -288,7 +288,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "limit",
-            "description": "Compute the limit of an expression as a variable approaches a point. Handles direct substitution, polynomial GCD cancellation for 0/0 forms, and L'Hôpital's rule for transcendental indeterminate forms.",
+            "description": "Compute the limit of an expression as a variable approaches a point. Supports one-sided limits (append + or - to the point, e.g. \"0+\" for right-sided). Returns +∞ or -∞ for divergent limits. Handles 0/0 forms, exponential indeterminate forms, and limits at infinity.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -303,7 +303,7 @@ fn tools_schema() -> Value {
                     },
                     "point": {
                         "type": "string",
-                        "description": "The point the variable approaches. Accepts numbers (\"0\", \"1\", \"3.14\") or infinity (\"inf\", \"\\\\infty\", \"-inf\", \"-\\\\infty\").",
+                        "description": "The point the variable approaches. Accepts numbers (\"0\", \"1\", \"3.14\"), infinity (\"inf\", \"\\\\infty\", \"-inf\"), or one-sided limits (\"0+\" for right, \"0-\" for left, \"3+\", \"3-\").",
                         "default": "0"
                     },
                     "assumptions": assumptions_schema()

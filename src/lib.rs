@@ -93,7 +93,8 @@ pub use crate::series::{
 
 pub mod limits;
 pub use crate::limits::{
-    compute_limit, compute_limit_general, limit_latex, limit_latex_str, LimitPoint,
+    compute_limit, compute_limit_directed, compute_limit_general, limit_latex, limit_latex_str,
+    LimitDirection, LimitPoint, LimitResult,
 };
 
 pub mod ode;
