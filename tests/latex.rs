@@ -140,6 +140,12 @@ mod latex_parser_tests {
     }
 
     #[test]
+    fn test_latex_times_multiplication() {
+        let result = eval_latex_expression(r"4 \times 2").unwrap();
+        assert_eq!(result, 8.0);
+    }
+
+    #[test]
     fn test_cdot_multiplication() {
         let result = eval_latex_expression("4 \\cdot 2").unwrap();
         assert_eq!(result, 8.0);
@@ -148,6 +154,12 @@ mod latex_parser_tests {
     #[test]
     fn test_division() {
         let result = eval_latex_expression("10 / 2").unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_latex_div_operator() {
+        let result = eval_latex_expression(r"10 \div 2").unwrap();
         assert_eq!(result, 5.0);
     }
 
