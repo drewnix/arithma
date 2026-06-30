@@ -1,6 +1,6 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
-use crate::integer::extract_square_factors;
+use crate::integer::{extract_square_factors, prime_factorize};
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
@@ -197,6 +197,52 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
         }
         _ => None,
     }
+}
+
+/// Rewrite `ln(n)` for positive integer `n` as a sum of `e·ln(p)` terms using prime
+/// factorization, keeping the result symbolic instead of evaluating to a float.
+fn factor_ln_integer(arg: &Node) -> Option<Node> {
+    let n = match arg {
+        Node::Num(num) => {
+            let v = num.to_i64()?;
+            if v <= 1 {
+                return None;
+            }
+            v as u64
+        }
+        _ => return None,
+    };
+
+    let factors = prime_factorize(n);
+    let is_non_trivial = factors.len() > 1 || factors.iter().any(|&(_, e)| e > 1);
+    if factors.is_empty() || !is_non_trivial {
+        return None;
+    }
+
+    let terms: Vec<Node> = factors
+        .iter()
+        .map(|&(prime, exponent)| {
+            let ln_prime = Node::Function(
+                "ln".to_string(),
+                vec![Node::Num(ExactNum::integer(prime as i64))],
+            );
+            if exponent == 1 {
+                ln_prime
+            } else {
+                Node::Multiply(
+                    Box::new(Node::Num(ExactNum::integer(exponent as i64))),
+                    Box::new(ln_prime),
+                )
+            }
+        })
+        .collect();
+
+    let mut iter = terms.into_iter();
+    let mut result = iter.next()?;
+    for term in iter {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+    Some(result)
 }
 
 fn is_zero_node(node: &Node) -> bool {
@@ -1167,6 +1213,10 @@ impl Simplifiable for Node {
                                 return Node::Subtract(Box::new(ln_a), Box::new(ln_b))
                                     .simplify(env);
                             }
+                            // ln(n) for positive integer n → Σ e·ln(p) via prime factorization
+                            if let Some(factored) = factor_ln_integer(arg) {
+                                return factored.simplify(env);
+                            }
                         }
                         "exp" => {
                             // exp(ln(x)) → x
@@ -1284,6 +1334,17 @@ impl Simplifiable for Node {
 
                 if let Some(exact) = try_exact_function_value(name, &simplified_args) {
                     return Ok(exact);
+                }
+
+                // Keep ln of positive integers symbolic (primes and already-factored bases).
+                if name == "ln"
+                    && simplified_args.len() == 1
+                    && matches!(
+                        &simplified_args[0],
+                        Node::Num(n) if n.to_i64().is_some_and(|v| v > 1)
+                    )
+                {
+                    return Ok(Node::Function(name.clone(), simplified_args));
                 }
 
                 let all_numeric = simplified_args.iter().all(|a| matches!(a, Node::Num(_)));

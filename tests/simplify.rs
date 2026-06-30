@@ -752,6 +752,65 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_ln_integer_factorization() {
+        use arithma::parse_latex;
+        let env = Environment::new();
+        let cases = [
+            ("\\ln{9}", "2\\ln(3)"),
+            ("\\ln{64}", "6\\ln(2)"),
+            ("\\ln{12}", "2\\ln(2) + \\ln(3)"),
+            ("\\ln{4}", "2\\ln(2)"),
+            ("\\ln{720}", "4\\ln(2) + 2\\ln(3) + \\ln(5)"),
+        ];
+        for (input, expected) in cases {
+            let expr = parse_latex(input, &env).unwrap();
+            let result = Evaluator::simplify(&expr, &env).unwrap();
+            assert_eq!(format!("{}", result), expected, "input: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_ln_integer_prime_stays_symbolic() {
+        use arithma::parse_latex;
+        let env = Environment::new();
+        let expr = parse_latex("\\ln{7}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "\\ln(7)");
+        assert_eq!(
+            result,
+            Node::Function("ln".to_string(), vec![Node::Num(ExactNum::integer(7))])
+        );
+    }
+
+    #[test]
+    fn test_ln_integer_factorization_idempotent() {
+        use arithma::parse_latex;
+        let env = Environment::new();
+        let expr = parse_latex("\\ln{12}", &env).unwrap();
+        let once = Evaluator::simplify(&expr, &env).unwrap();
+        let twice = once.simplify(&env).unwrap();
+        assert_eq!(once, twice);
+        assert_eq!(format!("{}", once), "2\\ln(2) + \\ln(3)");
+    }
+
+    #[test]
+    fn test_ln_display_and_power_rules() {
+        use arithma::parse_latex;
+        let env = Environment::new();
+        let ln_x = parse_latex("\\ln{x}", &env).unwrap();
+        assert_eq!(
+            format!("{}", Evaluator::simplify(&ln_x, &env).unwrap()),
+            "\\ln(x)"
+        );
+
+        let ln_x_sq = parse_latex("\\ln{x^2}", &env).unwrap();
+        assert_eq!(
+            format!("{}", Evaluator::simplify(&ln_x_sq, &env).unwrap()),
+            "2\\ln(x)"
+        );
+    }
+
+    #[test]
     fn test_sin_div_cos() {
         let env = Environment::new();
         // sin(x) / cos(x) → tan(x)
