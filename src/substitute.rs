@@ -101,6 +101,22 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
             let operand_subst = substitute_variable(operand, var_name, value)?;
             Ok(Node::Abs(Box::new(operand_subst)))
         }
+        Node::Floor(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Floor(Box::new(operand_subst)))
+        }
+        Node::Ceil(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Ceil(Box::new(operand_subst)))
+        }
+        Node::Round(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Round(Box::new(operand_subst)))
+        }
+        Node::Trunc(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Trunc(Box::new(operand_subst)))
+        }
         Node::Negate(operand) => {
             let operand_subst = substitute_variable(operand, var_name, value)?;
             Ok(Node::Negate(Box::new(operand_subst)))

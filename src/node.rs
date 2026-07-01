@@ -15,6 +15,10 @@ pub enum Node {
     Power(Box<Node>, Box<Node>),
     Sqrt(Box<Node>),
     Abs(Box<Node>),
+    Floor(Box<Node>),
+    Ceil(Box<Node>),
+    Round(Box<Node>),
+    Trunc(Box<Node>),
     Negate(Box<Node>),
     Factorial(Box<Node>),
 
@@ -57,9 +61,14 @@ impl Node {
             | Node::LessEqual(l, r)
             | Node::Equal(l, r)
             | Node::Equation(l, r) => l.contains_variable(var) || r.contains_variable(var),
-            Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) | Node::Factorial(inner) => {
-                inner.contains_variable(var)
-            }
+            Node::Negate(inner)
+            | Node::Sqrt(inner)
+            | Node::Abs(inner)
+            | Node::Floor(inner)
+            | Node::Ceil(inner)
+            | Node::Round(inner)
+            | Node::Trunc(inner)
+            | Node::Factorial(inner) => inner.contains_variable(var),
             Node::Function(_, args) => args.iter().any(|a| a.contains_variable(var)),
             Node::Piecewise(cases) => cases
                 .iter()
@@ -247,6 +256,10 @@ impl fmt::Display for Node {
             }
             Node::Sqrt(operand) => write!(f, "\\sqrt{{{}}}", operand),
             Node::Abs(operand) => write!(f, "|{}|", operand),
+            Node::Floor(operand) => write!(f, "\\floor{{{}}}", operand),
+            Node::Ceil(operand) => write!(f, "\\ceil{{{}}}", operand),
+            Node::Round(operand) => write!(f, "\\round{{{}}}", operand),
+            Node::Trunc(operand) => write!(f, "\\trunc{{{}}}", operand),
             Node::Negate(operand) => {
                 let needs_parens = matches!(**operand, Node::Add(_, _) | Node::Subtract(_, _));
                 if needs_parens {

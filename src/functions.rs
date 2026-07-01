@@ -58,6 +58,13 @@ lazy_static! {
 
         // Register built-in LaTeX Math Commands
 
+        // Absolute value and rounding
+        registry.register_function("abs", Box::new(AbsFunction));
+        registry.register_function("floor", Box::new(FloorFunction));
+        registry.register_function("ceil", Box::new(CeilFunction));
+        registry.register_function("round", Box::new(RoundFunction));
+        registry.register_function("trunc", Box::new(TruncFunction));
+
         // Integer arithmetic
         registry.register_function("gcd", Box::new(GcdFunction));
         registry.register_function("lcm", Box::new(LcmFunction));
@@ -133,6 +140,77 @@ lazy_static! {
 
         registry
     };
+}
+
+// Absolute value and rounding
+pub struct AbsFunction;
+impl FunctionHandler for AbsFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\abs requires exactly one argument.".to_string());
+        }
+        Ok(args[0].abs())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct FloorFunction;
+impl FunctionHandler for FloorFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\floor requires exactly one argument.".to_string());
+        }
+        Ok(args[0].floor())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct CeilFunction;
+impl FunctionHandler for CeilFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\ceil requires exactly one argument.".to_string());
+        }
+        Ok(args[0].ceil())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct RoundFunction;
+impl FunctionHandler for RoundFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\round requires exactly one argument.".to_string());
+        }
+        Ok(args[0].round())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+pub struct TruncFunction;
+impl FunctionHandler for TruncFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\trunc requires exactly one argument.".to_string());
+        }
+        Ok(args[0].trunc())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
 }
 
 // Integer arithmetic

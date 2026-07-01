@@ -105,6 +105,10 @@ fn collect_variables(node: &Node, vars: &mut Vec<String>) {
         }
         Node::Sqrt(operand)
         | Node::Abs(operand)
+        | Node::Floor(operand)
+        | Node::Ceil(operand)
+        | Node::Round(operand)
+        | Node::Trunc(operand)
         | Node::Negate(operand)
         | Node::Factorial(operand) => {
             collect_variables(operand, vars);

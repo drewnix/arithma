@@ -628,6 +628,18 @@ impl<'a> Tokenizer<'a> {
                     self.chars.next(); // Consume the '|'
                 }
             }
+            "lfloor" => {
+                tokens.push("FLOOR_START".to_string());
+            }
+            "rfloor" => {
+                tokens.push("FLOOR_END".to_string());
+            }
+            "lceil" => {
+                tokens.push("CEIL_START".to_string());
+            }
+            "rceil" => {
+                tokens.push("CEIL_END".to_string());
+            }
             "sum" => {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
@@ -978,12 +990,10 @@ impl<'a> Tokenizer<'a> {
 
     /// Handle the minus '-' sign, distinguishing between unary and binary usage
     fn tokenize_minus(&mut self, tokens: &mut Vec<String>, last_token: &Option<String>) {
-        let is_unary = last_token.is_none()
-            || "+-*/^({ABS_START".contains(last_token.as_deref().unwrap_or(""));
-        if is_unary {
-            tokens.push("NEG".to_string()); // Tokenize unary minus as "NEG"
-        } else {
-            tokens.push("-".to_string()); // Tokenize binary minus as "-"
+        match last_token.as_deref().unwrap_or("") {
+            "" | "+" | "-" | "*" | "/" | "^" | "(" | "{" | "ABS_START" | "FLOOR_START"
+            | "CEIL_START" => tokens.push("NEG".to_string()),
+            _ => tokens.push("-".to_string()),
         }
     }
 }
@@ -1178,6 +1188,30 @@ mod tests {
         let mut tokenizer = Tokenizer::new("\\left|x + 3\\right|");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["ABS_START", "x", "+", "3", "ABS_END"]);
+    }
+
+    #[test]
+    fn test_tokenize_floor_ceiling() {
+        let mut floor_tok = Tokenizer::new("\\lfloor x + 1 \\rfloor");
+        assert_eq!(
+            floor_tok.tokenize(),
+            vec!["FLOOR_START", "x", "+", "1", "FLOOR_END"]
+        );
+
+        let mut ceil_tok = Tokenizer::new("\\lceil 3.7 \\rceil");
+        assert_eq!(ceil_tok.tokenize(), vec!["CEIL_START", "3.7", "CEIL_END"]);
+    }
+
+    #[test]
+    fn test_tokenize_unary_minus_after_delimiters() {
+        let mut floor_tok = Tokenizer::new("\\lfloor -3 \\rfloor");
+        assert_eq!(
+            floor_tok.tokenize(),
+            vec!["FLOOR_START", "NEG", "3", "FLOOR_END"]
+        );
+
+        let mut abs_tok = Tokenizer::new("\\left|-3\\right|");
+        assert_eq!(abs_tok.tokenize(), vec!["ABS_START", "NEG", "3", "ABS_END"]);
     }
 
     #[test]

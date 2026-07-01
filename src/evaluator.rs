@@ -74,6 +74,22 @@ impl Evaluator {
                 let value = Self::evaluate_exact(operand, env)?;
                 Ok(value.abs())
             }
+            Node::Floor(operand) => {
+                let value = Self::evaluate_exact(operand, env)?;
+                Ok(value.floor())
+            }
+            Node::Ceil(operand) => {
+                let value = Self::evaluate_exact(operand, env)?;
+                Ok(value.ceil())
+            }
+            Node::Round(operand) => {
+                let value = Self::evaluate_exact(operand, env)?;
+                Ok(value.round())
+            }
+            Node::Trunc(operand) => {
+                let value = Self::evaluate_exact(operand, env)?;
+                Ok(value.trunc())
+            }
             Node::Greater(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
                 let r = Self::evaluate_exact(right, env)?;
