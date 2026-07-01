@@ -361,14 +361,11 @@ impl Simplifiable for Node {
                     return Ok(combined);
                 }
 
-                // a√X + b√X → (a+b)√X
-                if let Some(combined) =
-                    try_combine_like_radicals(&left_simplified, &right_simplified, false, env)
-                {
+                // a√X + b√X → (a+b)√X (and like terms in flat n-ary sums)
+                let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
+                if let Some(combined) = try_combine_like_radicals(&result, env) {
                     return Ok(combined);
                 }
-
-                let result = Node::Add(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
                     Ok(rebuild_expression(term_map))
@@ -676,14 +673,11 @@ impl Simplifiable for Node {
                     return Ok(combined);
                 }
 
-                // a√X - b√X → (a-b)√X
-                if let Some(combined) =
-                    try_combine_like_radicals(&left_simplified, &right_simplified, true, env)
-                {
+                // a√X - b√X → (a-b)√X (and like terms in flat n-ary sums)
+                let result = Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
+                if let Some(combined) = try_combine_like_radicals(&result, env) {
                     return Ok(combined);
                 }
-
-                let result = Node::Subtract(Box::new(left_simplified), Box::new(right_simplified));
                 let mut term_map: HashMap<String, ExactNum> = HashMap::new();
                 if collect_terms(&result, &mut term_map, env).is_ok() {
                     Ok(rebuild_expression(term_map))
@@ -1952,42 +1946,92 @@ fn extract_radical_parts(node: &Node) -> Option<(ExactNum, Node)> {
     }
 }
 
-/// Combine like-radical terms: a√X ± b√X → (a±b)√X
-fn try_combine_like_radicals(
-    left: &Node,
-    right: &Node,
-    is_subtract: bool,
-    _env: &Environment,
-) -> Option<Node> {
-    let (l_coeff, l_radical) = extract_radical_parts(left)?;
-    let (r_coeff, r_radical) = extract_radical_parts(right)?;
+/// Build a√X from combined coefficient; returns None when the term vanishes.
+fn build_coeff_radical_term(coeff: ExactNum, radical: Node) -> Option<Node> {
+    if coeff.is_zero() {
+        return None;
+    }
+    if coeff.is_one() {
+        return Some(radical);
+    }
+    if coeff == ExactNum::integer(-1) {
+        return Some(Node::Negate(Box::new(radical)));
+    }
+    Some(Node::Multiply(
+        Box::new(Node::Num(coeff)),
+        Box::new(radical),
+    ))
+}
 
-    // Check structural equality of radicals
-    if !radicals_match(&l_radical, &r_radical) {
+/// Flatten a nested Add/Subtract tree into signed summands.
+fn flatten_add_sub_terms(node: &Node, terms: &mut Vec<(Node, bool)>, negative: bool) {
+    match node {
+        Node::Add(left, right) => {
+            flatten_add_sub_terms(left, terms, negative);
+            flatten_add_sub_terms(right, terms, negative);
+        }
+        Node::Subtract(left, right) => {
+            flatten_add_sub_terms(left, terms, negative);
+            flatten_add_sub_terms(right, terms, !negative);
+        }
+        Node::Negate(inner) => {
+            flatten_add_sub_terms(inner, terms, !negative);
+        }
+        other => terms.push((other.clone(), negative)),
+    }
+}
+
+/// Combine like radicals in an Add/Subtract sum: a√X + b√X + … → (a+b+…)√X
+fn try_combine_like_radicals(node: &Node, _env: &Environment) -> Option<Node> {
+    let mut flat = Vec::new();
+    flatten_add_sub_terms(node, &mut flat, false);
+
+    let mut changed = false;
+    let mut radical_groups: Vec<(Node, ExactNum)> = Vec::new();
+    let mut other_terms: Vec<Node> = Vec::new();
+
+    for (term, negative) in flat {
+        if let Some((coeff, radical)) = extract_radical_parts(&term) {
+            let signed_coeff = if negative { -coeff } else { coeff };
+            if let Some((_, total)) = radical_groups
+                .iter_mut()
+                .find(|(existing, _)| radicals_match(existing, &radical))
+            {
+                *total = total.clone() + signed_coeff;
+                changed = true;
+            } else {
+                radical_groups.push((radical, signed_coeff));
+            }
+        } else if negative {
+            other_terms.push(Node::Negate(Box::new(term)));
+        } else {
+            other_terms.push(term);
+        }
+    }
+
+    if !changed {
         return None;
     }
 
-    let combined = if is_subtract {
-        l_coeff - r_coeff
-    } else {
-        l_coeff + r_coeff
-    };
+    let mut rebuilt = other_terms;
+    for (radical, coeff) in radical_groups {
+        if let Some(term) = build_coeff_radical_term(coeff, radical) {
+            rebuilt.push(term);
+        }
+    }
 
-    if combined.is_zero() {
+    if rebuilt.is_empty() {
         return Some(Node::Num(ExactNum::zero()));
     }
-    if combined.is_one() {
-        return Some(l_radical);
-    }
-    let neg_one = ExactNum::integer(-1);
-    if combined == neg_one {
-        return Some(Node::Negate(Box::new(l_radical)));
+    if rebuilt.len() == 1 {
+        return rebuilt.pop();
     }
 
-    Some(Node::Multiply(
-        Box::new(Node::Num(combined)),
-        Box::new(l_radical),
-    ))
+    let mut result = rebuilt.remove(0);
+    for term in rebuilt {
+        result = Node::Add(Box::new(result), Box::new(term));
+    }
+    Some(result)
 }
 
 /// Combine fractions with the same denominator: a/d ± b/d → (a±b)/d

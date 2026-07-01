@@ -1710,6 +1710,30 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_combine_like_radicals_flat_three_term_sum() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("1 + \\sqrt{2} + \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "1 + 2\\sqrt{2}");
+    }
+
+    #[test]
+    fn test_combine_like_radicals_mixed_subtract() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("2 + 3\\sqrt{5} - \\sqrt{5}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "2 + 2\\sqrt{5}");
+    }
+
+    #[test]
+    fn test_combine_like_radicals_multiple_groups() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("1 + \\sqrt{2} + \\sqrt{3} + \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "1 + 2\\sqrt{2} + \\sqrt{3}");
+    }
+
+    #[test]
     fn test_sqrt_multiply_same_radicand() {
         let env = Environment::new();
         let expr = arithma::parse_latex("\\sqrt{2} \\cdot \\sqrt{2}", &env).unwrap();
