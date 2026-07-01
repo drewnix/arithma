@@ -1,7 +1,27 @@
-//! Integer number-theory helpers (prime factorization, square-factor extraction).
+//! Integer number-theory helpers (GCD/LCM, prime factorization, square-factor extraction).
 
 use crate::exact::ExactNum;
 use crate::node::Node;
+
+// GCD and LCM
+
+/// Greatest common divisor of two non-negative integers (Euclidean algorithm).
+pub fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        let temp = b;
+        b = a % b;
+        a = temp;
+    }
+    a
+}
+
+/// Least common multiple of two non-negative integers.
+pub fn lcm_u64(a: u64, b: u64) -> u64 {
+    if a == 0 || b == 0 {
+        return 0;
+    }
+    a / gcd_u64(a, b) * b
+}
 
 /// Prime-factorize `n` into `(prime, exponent)` pairs with `n = ∏ p^e`.
 ///
@@ -83,7 +103,21 @@ pub fn prime_factorize_latex(n: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_square_factors, prime_factorize, prime_factorize_latex};
+    use super::{extract_square_factors, gcd_u64, lcm_u64, prime_factorize, prime_factorize_latex};
+
+    #[test]
+    fn test_gcd_u64() {
+        assert_eq!(gcd_u64(24, 36), 12);
+        assert_eq!(gcd_u64(0, 5), 5);
+        assert_eq!(gcd_u64(17, 13), 1);
+    }
+
+    #[test]
+    fn test_lcm_u64() {
+        assert_eq!(lcm_u64(4, 6), 12);
+        assert_eq!(lcm_u64(12, 18), 36);
+        assert_eq!(lcm_u64(0, 5), 0);
+    }
 
     #[test]
     fn test_prime_factorize_small() {

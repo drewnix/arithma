@@ -1,6 +1,8 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
+use crate::integer::{gcd_u64, lcm_u64};
+
 // Define a trait for function handlers
 pub trait FunctionHandler {
     fn call(&self, args: Vec<f64>) -> Result<f64, String>;
@@ -55,6 +57,10 @@ lazy_static! {
         let mut registry = FunctionRegistry::new(); // Make sure registry is mutable
 
         // Register built-in LaTeX Math Commands
+
+        // GCD and LCM
+        registry.register_function("gcd", Box::new(GcdFunction));
+        registry.register_function("lcm", Box::new(LcmFunction));
 
         // Circular trigonometric
         registry.register_function("sin", Box::new(SinFunction));
@@ -115,11 +121,51 @@ lazy_static! {
         registry.register_function("liminf", Box::new(LimInfFunction)); // TODO: Implement Fully
         registry.register_function("limsup", Box::new(LimSupFunction)); // TODO: Implement Fully
         registry.register_function("arg", Box::new(ArgFunction)); // TODO: Implement Fully
-        registry.register_function("gcd", Box::new(GcdFunction));
         registry.register_function("lim", Box::new(LimFunction)); // TODO: Implement Fully
 
         registry
     };
+}
+
+// GCD and LCM
+pub struct GcdFunction;
+impl FunctionHandler for GcdFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() < 2 {
+            return Err("\\gcd requires at least two arguments.".to_string());
+        }
+
+        let args: Vec<u64> = args.into_iter().map(|x| x as u64).collect();
+        let mut result = args[0];
+        for &num in &args[1..] {
+            result = gcd_u64(result, num);
+        }
+        Ok(result as f64)
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        None // Variable number of arguments
+    }
+}
+
+pub struct LcmFunction;
+impl FunctionHandler for LcmFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() < 2 {
+            return Err("\\lcm requires at least two arguments.".to_string());
+        }
+
+        let args: Vec<u64> = args.into_iter().map(|x| x as u64).collect();
+        let mut result = args[0];
+        for &num in &args[1..] {
+            result = lcm_u64(result, num);
+        }
+        Ok(result as f64)
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        None // Variable number of arguments
+    }
 }
 
 // Circular trigonometric
@@ -755,44 +801,6 @@ impl FunctionHandler for LimSupFunction {
             return Err("\\limsup requires at least one argument.".to_string());
         }
         Ok(args.into_iter().fold(f64::NEG_INFINITY, |a, b| a.max(b))) // Maximum value approximation
-    }
-
-    fn get_arg_count(&self) -> Option<usize> {
-        None // Variable number of arguments
-    }
-}
-
-pub struct GcdFunction;
-impl FunctionHandler for GcdFunction {
-    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
-        if args.len() < 2 {
-            return Err("\\gcd requires at least two arguments.".to_string());
-        }
-
-        fn gcd(a: u64, b: u64) -> u64 {
-            let mut a = a;
-            let mut b = b;
-            while b != 0 {
-                let temp = b;
-                b = a % b;
-                a = temp;
-            }
-            a
-        }
-
-        // Convert arguments to integers
-        let args: Vec<u64> = args
-            .into_iter()
-            .map(|x| x as u64) // Truncate floating point numbers to integers
-            .collect();
-
-        // Compute GCD of all arguments
-        let mut result = args[0];
-        for &num in &args[1..] {
-            result = gcd(result, num);
-        }
-
-        Ok(result as f64) // Return the GCD
     }
 
     fn get_arg_count(&self) -> Option<usize> {

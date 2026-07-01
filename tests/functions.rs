@@ -19,6 +19,27 @@ mod function_tests {
     }
 
     #[test]
+    fn test_gcd_function() {
+        assert_eq!(evaluate_expression("\\gcd{24, 36}").unwrap(), 12.0);
+        assert_eq!(evaluate_expression("\\gcd{48, 18}").unwrap(), 6.0);
+        assert_eq!(evaluate_expression("\\gcd{2, 3, 4}").unwrap(), 1.0);
+        assert_eq!(evaluate_expression("\\gcd{12, 18, 24}").unwrap(), 6.0);
+        assert!(evaluate_expression("\\gcd{6}")
+            .unwrap_err()
+            .contains("at least two"));
+    }
+
+    #[test]
+    fn test_lcm_function() {
+        assert_eq!(evaluate_expression("\\lcm{4, 6}").unwrap(), 12.0);
+        assert_eq!(evaluate_expression("\\lcm{12, 18}").unwrap(), 36.0);
+        assert_eq!(evaluate_expression("\\lcm{2, 3, 4}").unwrap(), 12.0);
+        assert!(evaluate_expression("\\lcm{6}")
+            .unwrap_err()
+            .contains("at least two"));
+    }
+
+    #[test]
     fn test_function_arg_validation() {
         // Test sin function with incorrect number of arguments
         let result = evaluate_expression("\\sin{0, 1}").unwrap_err();
@@ -170,12 +191,6 @@ mod function_tests {
     fn test_sup_function() {
         let result = evaluate_expression("\\sup{3, 1, 4, 2}").unwrap(); // sup(3, 1, 4, 2) = 4
         assert_eq!(result, 4.0);
-    }
-
-    #[test]
-    fn test_gcd_function() {
-        let result = evaluate_expression("\\gcd{24, 36}").unwrap(); // gcd(24, 36) = 12
-        assert_eq!(result, 12.0);
     }
 
     #[test]
