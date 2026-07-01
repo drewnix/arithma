@@ -329,6 +329,60 @@ mod latex_parser_tests {
     }
 
     #[test]
+    fn test_implicit_mul_sqrt_number() {
+        let result = eval_latex_expression(r"\sqrt{16}2").unwrap();
+        assert_eq!(result, 8.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_nth_root_number() {
+        let result = eval_latex_expression(r"\sqrt[3]{8}2").unwrap();
+        assert_eq!(result, 4.0); // ∛8 · 2 = 2 · 2
+    }
+
+    #[test]
+    fn test_implicit_mul_sqrt_sqrt() {
+        let result = eval_latex_expression(r"\sqrt{16}\sqrt{16}").unwrap();
+        assert_eq!(result, 16.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_frac_number() {
+        let result = eval_latex_expression(r"\frac{1}{2}2").unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_frac_frac() {
+        let result = eval_latex_expression(r"\frac{1}{2}\frac{1}{2}").unwrap();
+        assert_eq!(result, 0.25);
+    }
+
+    #[test]
+    fn test_implicit_mul_number_frac() {
+        let result = eval_latex_expression(r"2\frac{1}{2}").unwrap();
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_number_sqrt() {
+        let result = eval_latex_expression(r"2\sqrt{16}").unwrap();
+        assert_eq!(result, 8.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_sin_number() {
+        let result = eval_latex_expression(r"\sin(\frac{\pi}{2})2").unwrap();
+        assert_eq!(result, 2.0);
+    }
+
+    #[test]
+    fn test_implicit_mul_number_sin() {
+        let result = eval_latex_expression(r"2\sin(\frac{\pi}{2})").unwrap();
+        assert_eq!(result, 2.0);
+    }
+
+    #[test]
     fn test_neg_power_precedence() {
         let mut env = Environment::new();
         env.set("x", 3.0);

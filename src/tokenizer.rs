@@ -81,6 +81,14 @@ fn needs_implicit_mul_before_brace(last: &str, tokens: &[String]) -> bool {
     last == ")" || last == "}" || is_decimal_literal(last) || is_variable_token(last)
 }
 
+/// Prior token can bind implicitly with a following value (number, call, paren, …).
+fn needs_implicit_mul_after_token(last: &str, tokens: &[String]) -> bool {
+    if last == "}" && closes_script_bound(tokens) {
+        return false;
+    }
+    last == ")" || last == "}" || is_decimal_literal(last) || is_variable_token(last)
+}
+
 fn greek_letter(name: &str) -> Option<char> {
     match name {
         "pi" => Some('π'),
@@ -239,7 +247,7 @@ impl<'a> Tokenizer<'a> {
             // Handle numbers
             if is_decimal_char(c) {
                 if let Some(last) = last_token.as_ref() {
-                    if last == ")" {
+                    if last == ")" || (last == "}" && !closes_script_bound(&tokens)) {
                         tokens.push("*".to_string());
                     }
                 }
@@ -289,7 +297,7 @@ impl<'a> Tokenizer<'a> {
             // Handle alphabetic variables like x, y, etc.
             else if c.is_alphabetic() {
                 if let Some(last) = last_token.as_ref() {
-                    if is_decimal_literal(last) || last == ")" || is_variable_token(last) {
+                    if needs_implicit_mul_after_token(last, &tokens) {
                         tokens.push("*".to_string());
                     }
                 }
@@ -351,9 +359,7 @@ impl<'a> Tokenizer<'a> {
 
         // Implicit multiplication: x\sin(x), 2\frac{1}{2}, )\cos(x)
         if let Some(last) = tokens.last() {
-            let needs_mul = last == ")"
-                || is_decimal_literal(last)
-                || (last.len() == 1 && last.chars().next().is_some_and(|c| c.is_alphabetic()));
+            let needs_mul = needs_implicit_mul_after_token(last, tokens);
             let is_value_producing = is_trig_or_hyperbolic(&stripped_token)
                 || is_log_or_exp(&stripped_token)
                 || matches!(stripped_token.as_str(), "sqrt" | "frac")
@@ -1129,6 +1135,41 @@ mod tests {
             tokens,
             vec!["sum", "_", "{", "i", "=", "a", "}", "^", "{", "b", "}", "{", "i", "+", "c", "}"]
         );
+    }
+
+    #[test]
+    fn test_tokenize_sqrt_juxtaposed_number_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\sqrt{16}2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["sqrt", "{", "16", "}", "*", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_nth_root_juxtaposed_number_implicit_mul() {
+        // \sqrt[3]{8}2 → (8)^(1/(3)) * 2
+        let mut tokenizer = Tokenizer::new(r"\sqrt[3]{8}2");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "8", ")", "^", "(", "1", "/", "(", "3", ")", ")", "*", "2"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sqrt_juxtaposed_sqrt_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\sqrt{16}\sqrt{16}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["sqrt", "{", "16", "}", "*", "sqrt", "{", "16", "}"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sqrt_juxtaposed_brace_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\sqrt{2}{x}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["sqrt", "{", "2", "}", "*", "{", "x", "}"]);
     }
 
     #[test]
