@@ -561,6 +561,10 @@ impl<'a> Tokenizer<'a> {
                 tokens.push("sum".to_string());
                 // The tokenizer will continue with the _ and ^ tokens handled separately
             }
+            "prod" => {
+                tokens.push("prod".to_string());
+                // The tokenizer will continue with the _ and ^ tokens handled separately
+            }
             "log" => {
                 // \log_b(x) or \log_{b}(x) → ln(x)/ln(b)
                 // \log(x) → log(x) as before (base-10)
@@ -1134,6 +1138,26 @@ mod tests {
         assert_eq!(
             tokens,
             vec!["sum", "_", "{", "i", "=", "a", "}", "^", "{", "b", "}", "{", "i", "+", "c", "}"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_product_unbraced_upper_braced_body_no_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\prod_{i=1}^3{i}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["prod", "_", "{", "i", "=", "1", "}", "^", "3", "{", "i", "}"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_product_braced_body_no_implicit_mul() {
+        let mut tokenizer = Tokenizer::new(r"\prod_{i=a}^{b} {i+c}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["prod", "_", "{", "i", "=", "a", "}", "^", "{", "b", "}", "{", "i", "+", "c", "}"]
         );
     }
 

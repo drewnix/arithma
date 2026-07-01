@@ -255,4 +255,26 @@ mod substitute_tests {
         let eval_result = Evaluator::evaluate(&result, &Environment::new()).unwrap();
         assert_eq!(eval_result, 30.0);
     }
+
+    #[test]
+    fn test_product_with_substitution() {
+        // Test product with substitution: Π_{i=1}^{n} (i+k)
+        let expr = parse_expression("\\prod_{i=1}^{n} {i+k}").unwrap();
+
+        let n_replacement = parse_expression("5").unwrap();
+        let k_replacement = parse_expression("3").unwrap();
+
+        let result = substitute(
+            &expr,
+            &[
+                ("n".to_string(), n_replacement),
+                ("k".to_string(), k_replacement),
+            ],
+        )
+        .unwrap();
+
+        // Result should be Π_{i=1}^{5} (i+3) = 4 * 5 * 6 * 7 * 8 = 6720
+        let eval_result = Evaluator::evaluate(&result, &Environment::new()).unwrap();
+        assert_eq!(eval_result, 6720.0);
+    }
 }

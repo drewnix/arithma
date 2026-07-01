@@ -175,6 +175,31 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
             }
         }
 
+        Node::Product(index, start, end, body) => {
+            // If the product uses the same index variable, don't substitute in the body
+            // to avoid variable capture issues
+            if index == var_name {
+                let start_subst = substitute_variable(start, var_name, value)?;
+                let end_subst = substitute_variable(end, var_name, value)?;
+                Ok(Node::Product(
+                    index.clone(),
+                    Box::new(start_subst),
+                    Box::new(end_subst),
+                    body.clone(),
+                ))
+            } else {
+                let start_subst = substitute_variable(start, var_name, value)?;
+                let end_subst = substitute_variable(end, var_name, value)?;
+                let body_subst = substitute_variable(body, var_name, value)?;
+                Ok(Node::Product(
+                    index.clone(),
+                    Box::new(start_subst),
+                    Box::new(end_subst),
+                    Box::new(body_subst),
+                ))
+            }
+        }
+
         Node::Function(name, args) => {
             let mut new_args = Vec::new();
             for arg in args {
@@ -300,6 +325,36 @@ mod tests {
         // Sum from i=1 to i=3 of (i+2) = (1+2) + (2+2) + (3+2) = 3 + 4 + 5 = 12
         let eval_result = Evaluator::evaluate(&result, &env).unwrap();
         assert_eq!(eval_result, 12.0);
+    }
+
+    #[test]
+    fn test_substitution_in_product() {
+        // Test Π_{i=a}^{b} (i+c) with a = 1, b = n, c = 2
+        let expr = parse_expression("\\prod_{i=a}^{b} {i+c}").unwrap();
+        let a_replacement = parse_expression("1").unwrap();
+        let b_replacement = parse_expression("n").unwrap();
+        let c_replacement = parse_expression("2").unwrap();
+
+        let result = substitute(
+            &expr,
+            &[
+                ("a".to_string(), a_replacement),
+                ("b".to_string(), b_replacement),
+                ("c".to_string(), c_replacement),
+            ],
+        )
+        .unwrap();
+
+        let expected = parse_expression("\\prod_{i=1}^{n} {i+2}").unwrap();
+        assert_eq!(format!("{}", result), format!("{}", expected));
+
+        // Test with evaluation
+        let mut env = Environment::new();
+        env.set("n", 3.0);
+
+        // Product from i=1 to i=3 of (i+2) = (1+2) * (2+2) * (3+2) = 3 * 4 * 5 = 60
+        let eval_result = Evaluator::evaluate(&result, &env).unwrap();
+        assert_eq!(eval_result, 60.0);
     }
 
     #[test]

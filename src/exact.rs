@@ -543,6 +543,30 @@ mod tests {
     }
 
     #[test]
+    fn test_evaluate_exact_product() {
+        let env = crate::environment::Environment::new();
+
+        // prod_{i=1}^{4} i = 24 exactly
+        let expr = crate::node::Node::Product(
+            "i".to_string(),
+            Box::new(crate::node::Node::Num(ExactNum::one())),
+            Box::new(crate::node::Node::Num(ExactNum::integer(4))),
+            Box::new(crate::node::Node::Variable("i".to_string())),
+        );
+        let result = crate::evaluator::Evaluator::evaluate_exact(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            ExactNum::integer(24),
+            "prod 1..4 of i should be 24, got {}",
+            result
+        );
+        assert!(
+            matches!(result, ExactNum::Rational(_)),
+            "integer product should stay rational"
+        );
+    }
+
+    #[test]
     fn test_environment_exact_variable() {
         let mut env = crate::environment::Environment::new();
         env.set_exact("x", ExactNum::rational(1, 3));

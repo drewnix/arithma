@@ -1058,6 +1058,63 @@ impl Simplifiable for Node {
                     Box::new(body_simplified),
                 ))
             }
+            Node::Product(index_var, start, end, body) => {
+                let start_simplified = start.simplify(env)?;
+                let end_simplified = end.simplify(env)?;
+                let body_simplified = body.simplify(env)?;
+
+                // Try to evaluate if bounds are constant values
+                if let (Node::Num(ref start_n), Node::Num(ref end_n)) =
+                    (&start_simplified, &end_simplified)
+                {
+                    if start_n.is_integer() && end_n.is_integer() {
+                        let start_val = start_n.to_f64();
+                        let end_val = end_n.to_f64();
+
+                        let range_size = (end_val - start_val + 1.0) as usize;
+                        if range_size <= 10 {
+                            let mut prod_node = Node::Num(ExactNum::one());
+                            let mut prod_env = env.clone();
+
+                            let start_i = start_val as i64;
+                            let end_i = end_val as i64;
+
+                            for i in start_i..=end_i {
+                                prod_env.set_exact(index_var, ExactNum::integer(i));
+
+                                let substituted_body = crate::substitute::substitute_variable(
+                                    &body_simplified,
+                                    index_var,
+                                    &Node::Num(ExactNum::integer(i)),
+                                )?;
+
+                                prod_node =
+                                    Node::Multiply(Box::new(prod_node), Box::new(substituted_body));
+                            }
+
+                            return prod_node.simplify(env);
+                        }
+                    }
+                }
+
+                if let Some(result) = try_symbolic_product(
+                    index_var,
+                    &start_simplified,
+                    &end_simplified,
+                    &body_simplified,
+                    env,
+                ) {
+                    return result;
+                }
+
+                // If we can't find a closed form, return with simplified components
+                Ok(Node::Product(
+                    index_var.clone(),
+                    Box::new(start_simplified),
+                    Box::new(end_simplified),
+                    Box::new(body_simplified),
+                ))
+            }
             Node::Abs(operand) => {
                 let simplified = operand.simplify(env)?;
                 if let Node::Num(ref n) = simplified {
@@ -2693,6 +2750,156 @@ fn try_symbolic_summation(
 
     // Telescoping via partial fractions: 1/(k(k+1)) → PF → 1/k - 1/(k+1) → telescoping
     if let Some(result) = try_telescoping_via_partial_fractions(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
+    None
+}
+
+/// Geometric product: ∏_{k=start}^{end} a·r^k = a^count · r^{(start+end)·count/2}
+fn try_geometric_product(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    let (coeff, base) = detect_geometric(body, index_var)?;
+
+    let count = Node::Add(
+        Box::new(Node::Subtract(
+            Box::new(end.clone()),
+            Box::new(start.clone()),
+        )),
+        Box::new(Node::Num(ExactNum::integer(1))),
+    );
+    let coeff_power = Node::Power(Box::new(coeff), Box::new(count.clone()));
+    let exponent_sum = Node::Divide(
+        Box::new(Node::Multiply(
+            Box::new(Node::Add(Box::new(start.clone()), Box::new(end.clone()))),
+            Box::new(count),
+        )),
+        Box::new(Node::Num(ExactNum::integer(2))),
+    );
+    let result = Node::Multiply(
+        Box::new(coeff_power),
+        Box::new(Node::Power(Box::new(base), Box::new(exponent_sum))),
+    );
+
+    Some(result.simplify(env))
+}
+
+/// ∏_{k=1}^{m} k as a product node (used for closed forms like ∏(2k-1)).
+fn factorial_product_node(index_var: &str, upper: Node) -> Node {
+    Node::Product(
+        index_var.to_string(),
+        Box::new(Node::Num(ExactNum::one())),
+        Box::new(upper),
+        Box::new(Node::Variable(index_var.to_string())),
+    )
+}
+
+/// ∏_{k=1}^{n} (2k-1) = (2n)! / (2^n · n!) — analogue of Σ(2k-1) = n².
+fn try_product_of_odd_numbers(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    if !matches!(start, Node::Num(n) if n.is_one()) {
+        return None;
+    }
+
+    let poly = Polynomial::from_node(body, index_var).ok()?;
+    if poly.degree()? != 1 {
+        return None;
+    }
+    if poly.coeff(1) != BigRational::from_integer(2.into())
+        || poly.coeff(0) != BigRational::from_integer(BigInt::from(-1))
+    {
+        return None;
+    }
+
+    if let Node::Num(end_n) = end {
+        if end_n.is_integer() {
+            let n = end_n.to_f64() as i64;
+            if n < 1 {
+                return Some(Ok(Node::Num(ExactNum::one())));
+            }
+            let mut product = ExactNum::one();
+            for k in 1..=n {
+                product = product * ExactNum::integer(2 * k - 1);
+            }
+            return Some(Ok(Node::Num(product)));
+        }
+    }
+
+    let two_n = Node::Multiply(
+        Box::new(Node::Num(ExactNum::integer(2))),
+        Box::new(end.clone()),
+    );
+    let result = Node::Divide(
+        Box::new(factorial_product_node("i", two_n)),
+        Box::new(Node::Multiply(
+            Box::new(Node::Power(
+                Box::new(Node::Num(ExactNum::integer(2))),
+                Box::new(end.clone()),
+            )),
+            Box::new(factorial_product_node("j", end.clone())),
+        )),
+    );
+    Some(result.simplify(env))
+}
+
+/// Try to find a symbolic closed form for a product.
+fn try_symbolic_product(
+    index_var: &str,
+    start: &Node,
+    end: &Node,
+    body: &Node,
+    env: &Environment,
+) -> Option<Result<Node, String>> {
+    // Constant body: ∏_{k=a}^{b} c = c^(b − a + 1)
+    if !body.contains_variable(index_var) {
+        let count = Node::Add(
+            Box::new(Node::Subtract(
+                Box::new(end.clone()),
+                Box::new(start.clone()),
+            )),
+            Box::new(Node::Num(ExactNum::integer(1))),
+        );
+        let result = Node::Power(Box::new(body.clone()), Box::new(count));
+        return Some(result.simplify(env));
+    }
+
+    // ∏_{k=1}^{n} k when body is the index variable
+    if let Node::Variable(v) = body {
+        if v == index_var {
+            if let Node::Num(start_n) = start {
+                if start_n == &ExactNum::one() {
+                    if let Node::Num(end_n) = end {
+                        if end_n.is_integer() {
+                            let end_i = end_n.to_f64() as i64;
+                            if end_i >= 0 {
+                                let mut fact = ExactNum::one();
+                                for i in 2..=end_i {
+                                    fact = fact * ExactNum::integer(i);
+                                }
+                                return Some(Ok(Node::Num(fact)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(result) = try_product_of_odd_numbers(index_var, start, end, body, env) {
+        return Some(result);
+    }
+
+    if let Some(result) = try_geometric_product(index_var, start, end, body, env) {
         return Some(result);
     }
 

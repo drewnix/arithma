@@ -99,9 +99,12 @@ pub fn get_precedence(op: &str) -> i32 {
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     log::debug!("Building expression tree from tokens: {:?}", tokens);
 
-    // Special handling for summation notation: \sum_{i=1}^{n} i
+    // Special handling for indexed notation: \sum_{i=1}^{n} i, \prod_{k=1}^{n} k
     if tokens.contains(&"sum".to_string()) {
-        return parse_summation(&tokens);
+        return parse_indexed_notation(&tokens, IndexedNotation::Sum);
+    }
+    if tokens.contains(&"prod".to_string()) {
+        return parse_indexed_notation(&tokens, IndexedNotation::Prod);
     }
 
     let rpn = shunting_yard(tokens)?;
@@ -234,28 +237,38 @@ pub fn parse_latex(latex: &str, env: &crate::environment::Environment) -> Result
     }
 }
 
-/// Parse a summation expression like \sum_{i=1}^{n} i
-fn parse_summation(tokens: &[String]) -> Result<Node, String> {
-    // Find the position of the sum token
-    let sum_pos = tokens
-        .iter()
-        .position(|t| t == "sum")
-        .ok_or("Expected 'sum' token")?;
+enum IndexedNotation {
+    Sum,
+    Prod,
+}
 
-    // Check for underscore after sum
-    if sum_pos + 1 >= tokens.len() || tokens[sum_pos + 1] != "_" {
-        return Err("Expected '_' after 'sum'".to_string());
+/// Parse indexed notation like \sum_{i=1}^{n} i or \prod_{k=1}^{n} k.
+fn parse_indexed_notation(tokens: &[String], kind: IndexedNotation) -> Result<Node, String> {
+    let (op_token, op_label) = match kind {
+        IndexedNotation::Sum => ("sum", "summation"),
+        IndexedNotation::Prod => ("prod", "product"),
+    };
+
+    // Find the position of the operator token
+    let op_pos = tokens
+        .iter()
+        .position(|t| t == op_token)
+        .ok_or_else(|| format!("Expected '{op_token}' token"))?;
+
+    // Check for underscore after operator
+    if op_pos + 1 >= tokens.len() || tokens[op_pos + 1] != "_" {
+        return Err(format!("Expected '_' after '{op_token}'"));
     }
 
     // Check for opening brace for lower bound
-    if sum_pos + 2 >= tokens.len() || tokens[sum_pos + 2] != "{" {
+    if op_pos + 2 >= tokens.len() || tokens[op_pos + 2] != "{" {
         return Err("Expected '{' after '_'".to_string());
     }
 
     // Extract the index variable and starting value
     // Format is typically: i = 1
     let mut lower_bound_tokens = Vec::new();
-    let mut i = sum_pos + 3;
+    let mut i = op_pos + 3;
     let mut brace_count = 1;
 
     // Extract the index variable
@@ -337,7 +350,7 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
         i += 1;
     }
 
-    // Extract the expression to be summed
+    // Extract the body expression (summand or multiplicand)
     // The expression can be a single token or surrounded by braces
     let mut body_tokens = Vec::new();
 
@@ -367,62 +380,60 @@ fn parse_summation(tokens: &[String]) -> Result<Node, String> {
             i += 1;
         }
     } else {
-        // If there's no brace, extract the summation body with advanced balancing
-        parse_unbraced_summation_body(&tokens[i..], &mut body_tokens, &mut i);
+        // If there's no brace, extract the indexed body with advanced balancing
+        parse_unbraced_indexed_body(&tokens[i..], &mut body_tokens, &mut i);
     }
 
     // Parse the start, end, and body expressions with better error handling
     let start_expr = build_expression_tree(lower_bound_tokens)
-        .map_err(|e| format!("Error in summation lower bound: {}", e))?;
+        .map_err(|e| format!("Error in {op_label} lower bound: {e}"))?;
 
     let end_expr = build_expression_tree(upper_bound_tokens)
-        .map_err(|e| format!("Error in summation upper bound: {}", e))?;
+        .map_err(|e| format!("Error in {op_label} upper bound: {e}"))?;
 
     // Debug logging for body tokens
-    log::debug!("Body tokens for summation: {:?}", body_tokens);
+    log::debug!("Body tokens for {op_label}: {:?}", body_tokens);
 
-    let body_expr = build_expression_tree(body_tokens)
-        .map_err(|e| format!("Error in summation body: {}", e))?;
+    let body_expr =
+        build_expression_tree(body_tokens).map_err(|e| format!("Error in {op_label} body: {e}"))?;
 
-    // The rest of the tokens after the summation need to be parsed
-    let mut remaining_tokens = Vec::new();
-    remaining_tokens.extend(tokens.iter().skip(i).cloned());
+    // The rest of the tokens after the indexed notation need to be parsed
+    let remaining_tokens: Vec<String> = tokens.iter().skip(i).cloned().collect();
 
-    let summation_node = Node::Summation(
-        index_var,
-        Box::new(start_expr),
-        Box::new(end_expr),
-        Box::new(body_expr),
-    );
+    let indexed_node = match kind {
+        IndexedNotation::Sum => Node::Summation(
+            index_var,
+            Box::new(start_expr),
+            Box::new(end_expr),
+            Box::new(body_expr),
+        ),
+        IndexedNotation::Prod => Node::Product(
+            index_var,
+            Box::new(start_expr),
+            Box::new(end_expr),
+            Box::new(body_expr),
+        ),
+    };
 
-    // If there are no additional tokens, return the summation node
+    // If there are no additional tokens, return the indexed node
     if remaining_tokens.is_empty() {
-        return Ok(summation_node);
+        return Ok(indexed_node);
     }
 
     // If there's an equation, we need to parse the right side
     if remaining_tokens.contains(&"=".to_string()) {
         let eq_pos = remaining_tokens.iter().position(|t| t == "=").unwrap();
 
-        let right_tokens = remaining_tokens[eq_pos + 1..].to_vec();
-        let right_expr = build_expression_tree(right_tokens)?;
-
-        return Ok(Node::Equation(
-            Box::new(summation_node),
-            Box::new(right_expr),
-        ));
+        let right_expr = build_expression_tree(remaining_tokens[eq_pos + 1..].to_vec())?;
+        return Ok(Node::Equation(Box::new(indexed_node), Box::new(right_expr)));
     }
 
     // If there are remaining tokens, something might be wrong, but we'll try to handle it gracefully
-    Ok(summation_node)
+    Ok(indexed_node)
 }
 
-/// Parse an unbraced summation body, handling cases like i^2, i*j, etc.
-fn parse_unbraced_summation_body(
-    tokens: &[String],
-    body_tokens: &mut Vec<String>,
-    pos: &mut usize,
-) {
+/// Parse an unbraced indexed-notation body, handling cases like i^2, i*j, etc.
+fn parse_unbraced_indexed_body(tokens: &[String], body_tokens: &mut Vec<String>, pos: &mut usize) {
     let mut i = 0;
     let mut paren_depth: i32 = 0;
 
@@ -440,7 +451,7 @@ fn parse_unbraced_summation_body(
                     break;
                 }
             }
-            "=" | "sum" | ">" | "<" | ">=" | "<=" => break,
+            "=" | "sum" | "prod" | ">" | "<" | ">=" | "<=" => break,
             "+" | "-" if paren_depth == 0 && !body_tokens.is_empty() => break,
             _ => {
                 body_tokens.push(tokens[i].clone());

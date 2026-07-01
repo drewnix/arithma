@@ -117,6 +117,11 @@ fn collect_variables(node: &Node, vars: &mut Vec<String>) {
             collect_variables(end, vars);
             collect_variables(body, vars);
         }
+        Node::Product(_index, start, end, body) => {
+            collect_variables(start, vars);
+            collect_variables(end, vars);
+            collect_variables(body, vars);
+        }
         Node::Function(_, args) => {
             for arg in args {
                 collect_variables(arg, vars);

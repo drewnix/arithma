@@ -517,6 +517,153 @@ mod algebra_tests {
     }
 
     #[test]
+    fn test_product() {
+        let env = Environment::new();
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{5} i", &env).unwrap();
+        assert_eq!(result, 120.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{4}{i^2}", &env).unwrap();
+        assert_eq!(result, 576.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{3}{i^3}", &env).unwrap();
+        assert_eq!(result, 216.0);
+    }
+
+    #[test]
+    fn test_product_edge_cases() {
+        let env = Environment::new();
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{5}i", &env).unwrap();
+        assert_eq!(result, 120.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{3}{i^2}", &env).unwrap();
+        assert_eq!(result, 36.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=5}^{3}{i}", &env).unwrap();
+        assert_eq!(result, 1.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=7}^{7}{i^2}", &env).unwrap();
+        assert_eq!(result, 49.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{4}{i*i + 2*i}", &env).unwrap();
+        assert_eq!(result, 8640.0);
+    }
+
+    #[test]
+    fn test_product_complex() {
+        let mut env = Environment::new();
+        env.set("n", 5.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{n}{i}", &env).unwrap();
+        assert_eq!(result, 120.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{n}{2*i - 1}", &env).unwrap();
+        assert_eq!(result, 945.0);
+    }
+
+    #[test]
+    fn test_product_unbraced() {
+        let env = Environment::new();
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^3{i}", &env).unwrap();
+        assert_eq!(result, 6.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{3}i", &env).unwrap();
+        assert_eq!(result, 6.0);
+    }
+
+    #[test]
+    fn test_product_with_variables() {
+        let mut env = Environment::new();
+        env.set("n", 5.0);
+
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{n}{i}", &env).unwrap();
+        assert_eq!(result, 120.0);
+
+        env.set("x", 2.0);
+        let result = evaluate_expression_with_env("\\prod_{i=1}^{3}{i*x}", &env).unwrap();
+        assert_eq!(result, 48.0);
+    }
+
+    #[test]
+    fn test_product_error_handling() {
+        let result = evaluate_expression("\\prod_{i=1}^{5}{j}").unwrap_err();
+        assert!(result.contains("Variable 'j' is not defined"));
+
+        let result = evaluate_expression("\\prod_{i=1}^{k}{i}").unwrap_err();
+        assert!(result.contains("Variable 'k' is not defined"));
+
+        let result = evaluate_expression("\\prod_{i=1}^{5{i}").unwrap_err();
+        assert!(
+            result.contains("Unclosed upper bound brace")
+                || result.contains("brace")
+                || result.contains("parsing")
+        );
+    }
+
+    // Symbolic product closed forms
+
+    fn simplify_product(input: &str) -> String {
+        use arithma::simplify::Simplifiable;
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        format!("{}", expr.simplify(&env).unwrap())
+    }
+
+    #[test]
+    fn test_product_symbolic_factorial() {
+        assert_eq!(simplify_product("\\prod_{k=1}^{5} k"), "120");
+    }
+
+    #[test]
+    fn test_product_symbolic_constant() {
+        assert_eq!(simplify_product("\\prod_{k=1}^{n} 2"), "2^{n}");
+        assert_eq!(simplify_product("\\prod_{k=1}^{4} 3"), "81");
+    }
+
+    #[test]
+    fn test_product_symbolic_geometric() {
+        // ∏_{k=0}^{n} 2^k = 2^{n(n+1)/2}
+        let mut env = Environment::new();
+        let closed = simplify_product("\\prod_{k=0}^{n} 2^k");
+        env.set("n", 3.0);
+        assert_eq!(evaluate_expression_with_env(&closed, &env).unwrap(), 64.0);
+        env.set("n", 4.0);
+        assert_eq!(evaluate_expression_with_env(&closed, &env).unwrap(), 1024.0);
+    }
+
+    #[test]
+    fn test_product_symbolic_odd_numbers() {
+        // Analogue of Σ(2k-1) = n²
+        assert_eq!(simplify_product("\\prod_{k=1}^{5} {2k - 1}"), "945");
+        let mut env = Environment::new();
+        env.set("n", 5.0);
+        assert_eq!(
+            evaluate_expression_with_env("\\prod_{k=1}^{n} {2k - 1}", &env).unwrap(),
+            945.0
+        );
+        env.set("n", 4.0);
+        assert_eq!(
+            evaluate_expression_with_env("\\prod_{k=1}^{n} {2k - 1}", &env).unwrap(),
+            105.0
+        );
+    }
+
+    #[test]
+    fn test_product_simplify_produces_closed_form() {
+        let simplified = simplify_product("\\prod_{k=1}^{5} k");
+        assert!(
+            !simplified.contains("\\prod"),
+            "Should produce closed form, got: {}",
+            simplified
+        );
+        assert_eq!(simplified, "120");
+    }
+
+    #[test]
     fn test_min_and_max_functions() {
         let env = Environment::new();
 

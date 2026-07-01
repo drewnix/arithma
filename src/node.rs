@@ -33,6 +33,9 @@ pub enum Node {
     // Summation: index_var, start, end, body
     Summation(String, Box<Node>, Box<Node>, Box<Node>),
 
+    // Product: index_var, start, end, body
+    Product(String, Box<Node>, Box<Node>, Box<Node>),
+
     // Function calls
     Function(String, Vec<Node>), // For functions like sin, cos
 }
@@ -61,6 +64,15 @@ impl Node {
                 .iter()
                 .any(|(e, c)| e.contains_variable(var) || c.contains_variable(var)),
             Node::Summation(idx, start, end, body) => {
+                if idx == var {
+                    start.contains_variable(var) || end.contains_variable(var)
+                } else {
+                    start.contains_variable(var)
+                        || end.contains_variable(var)
+                        || body.contains_variable(var)
+                }
+            }
+            Node::Product(idx, start, end, body) => {
                 if idx == var {
                     start.contains_variable(var) || end.contains_variable(var)
                 } else {
@@ -258,6 +270,13 @@ impl fmt::Display for Node {
                 write!(
                     f,
                     "\\sum_{{{} = {}}}^{{{}}}{{{}}}",
+                    index_var, start, end, body
+                )
+            }
+            Node::Product(index_var, start, end, body) => {
+                write!(
+                    f,
+                    "\\prod_{{{} = {}}}^{{{}}}{{{}}}",
                     index_var, start, end, body
                 )
             }
