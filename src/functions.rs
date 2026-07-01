@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
-use crate::integer::{factorial_u64, gcd_u64, lcm_u64};
+use crate::integer::{gcd_u64, lcm_u64};
 
 // Define a trait for function handlers
 pub trait FunctionHandler {
@@ -62,6 +62,7 @@ lazy_static! {
         registry.register_function("gcd", Box::new(GcdFunction));
         registry.register_function("lcm", Box::new(LcmFunction));
         registry.register_function("factorial", Box::new(FactorialFunction));
+        registry.register_function("binom", Box::new(BinomFunction));
 
         // Circular trigonometric
         registry.register_function("sin", Box::new(SinFunction));
@@ -179,12 +180,30 @@ impl FunctionHandler for FactorialFunction {
         if n < 0.0 || n.fract() != 0.0 {
             return Err("\\factorial requires a non-negative integer.".to_string());
         }
-        let result = factorial_u64(n as u64)?;
-        Ok(result as f64)
+        Ok(crate::integer::factorial_exact(n as usize).to_f64())
     }
 
     fn get_arg_count(&self) -> Option<usize> {
         Some(1)
+    }
+}
+
+pub struct BinomFunction;
+impl FunctionHandler for BinomFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 2 {
+            return Err("\\binom requires exactly two arguments.".to_string());
+        }
+        let n = args[0];
+        let k = args[1];
+        if n < 0.0 || k < 0.0 || n.fract() != 0.0 || k.fract() != 0.0 {
+            return Err("\\binom requires non-negative integer arguments.".to_string());
+        }
+        Ok(crate::integer::binom_exact(n as usize, k as usize).to_f64())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(2)
     }
 }
 

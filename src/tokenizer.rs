@@ -370,7 +370,7 @@ impl<'a> Tokenizer<'a> {
             let needs_mul = needs_implicit_mul_after_token(last, tokens);
             let is_value_producing = is_trig_or_hyperbolic(&stripped_token)
                 || is_log_or_exp(&stripped_token)
-                || matches!(stripped_token.as_str(), "sqrt" | "frac")
+                || matches!(stripped_token.as_str(), "sqrt" | "frac" | "binom")
                 || greek_letter(&stripped_token).is_some();
             if needs_mul && is_value_producing {
                 tokens.push("*".to_string());
@@ -551,6 +551,47 @@ impl<'a> Tokenizer<'a> {
                         }
                     }
                 }
+            }
+            "binom" => {
+                current_token.clear();
+                if self.chars.peek() != Some(&'{') {
+                    self.errors
+                        .push("\\binom requires two braced arguments.".to_string());
+                    return;
+                }
+                self.chars.next();
+                let Some(numer_str) = self.consume_brace_group() else {
+                    self.errors
+                        .push("\\binom: unclosed first argument.".to_string());
+                    return;
+                };
+                while let Some(&c) = self.chars.peek() {
+                    if c.is_whitespace() {
+                        self.chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if self.chars.peek() != Some(&'{') {
+                    self.errors
+                        .push("\\binom requires two braced arguments.".to_string());
+                    return;
+                }
+                self.chars.next();
+                let Some(denom_str) = self.consume_brace_group() else {
+                    self.errors
+                        .push("\\binom: unclosed second argument.".to_string());
+                    return;
+                };
+                let numer_tokens = Tokenizer::new(&numer_str).tokenize();
+                let denom_tokens = Tokenizer::new(&denom_str).tokenize();
+                tokens.push("(".to_string());
+                tokens.extend(numer_tokens);
+                tokens.push(")".to_string());
+                tokens.push("(".to_string());
+                tokens.extend(denom_tokens);
+                tokens.push(")".to_string());
+                tokens.push("binom".to_string());
             }
             // Handle absolute value delimiters \left| and \right|
             "left" => {
@@ -899,6 +940,23 @@ mod tests {
         let mut tokenizer = Tokenizer::new("\\frac{3}{4}");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["(", "3", ")", "/", "(", "4", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_latex_binom() {
+        let mut tokenizer = Tokenizer::new("\\binom{5}{2}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokenizer.errors.is_empty());
+        assert_eq!(tokens, vec!["(", "5", ")", "(", "2", ")", "binom"]);
+    }
+
+    #[test]
+    fn test_tokenize_latex_binom_missing_second_arg() {
+        let mut tokenizer = Tokenizer::new("\\binom{5}");
+        let tokens = tokenizer.tokenize();
+        assert!(tokens.is_empty());
+        assert_eq!(tokenizer.errors.len(), 1);
+        assert!(tokenizer.errors[0].contains("two braced arguments"));
     }
 
     #[test]
