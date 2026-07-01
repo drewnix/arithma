@@ -16,6 +16,7 @@ pub enum Node {
     Sqrt(Box<Node>),
     Abs(Box<Node>),
     Negate(Box<Node>),
+    Factorial(Box<Node>),
 
     // Comparators
     Greater(Box<Node>, Box<Node>),
@@ -53,7 +54,7 @@ impl Node {
             | Node::LessEqual(l, r)
             | Node::Equal(l, r)
             | Node::Equation(l, r) => l.contains_variable(var) || r.contains_variable(var),
-            Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+            Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) | Node::Factorial(inner) => {
                 inner.contains_variable(var)
             }
             Node::Function(_, args) => args.iter().any(|a| a.contains_variable(var)),
@@ -83,6 +84,7 @@ impl Node {
             Node::Add(_, _) | Node::Subtract(_, _) => 2,
             Node::Multiply(_, _) | Node::Divide(_, _) => 3,
             Node::Power(_, _) => 4,
+            Node::Factorial(_) => 5,
             Node::Negate(_) => 5,
             _ => 10, // atoms, functions, sqrt, abs — never need outer parens
         }
@@ -239,6 +241,22 @@ impl fmt::Display for Node {
                     write!(f, "-({})", operand)
                 } else {
                     write!(f, "-{}", operand)
+                }
+            }
+            Node::Factorial(operand) => {
+                let needs_parens = matches!(
+                    **operand,
+                    Node::Add(_, _)
+                        | Node::Subtract(_, _)
+                        | Node::Multiply(_, _)
+                        | Node::Divide(_, _)
+                        | Node::Power(_, _)
+                        | Node::Negate(_)
+                );
+                if needs_parens {
+                    write!(f, "({})!", operand)
+                } else {
+                    write!(f, "{}!", operand)
                 }
             }
             Node::Greater(left, right) => write!(f, "{} > {}", left, right),

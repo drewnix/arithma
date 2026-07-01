@@ -309,6 +309,14 @@ impl<'a> Tokenizer<'a> {
             else if c == '-' {
                 self.tokenize_minus(&mut tokens, &last_token);
             }
+            // Postfix factorial: 5!, (n+1)!
+            else if c == '!' {
+                if !current_token.is_empty() {
+                    tokens.push(current_token.clone());
+                    current_token.clear();
+                }
+                tokens.push("FACT".to_string());
+            }
 
             last_token = tokens.last().cloned();
         }
@@ -1301,5 +1309,16 @@ mod tests {
             "Empty token from \\;: {:?}",
             tokens3
         );
+    }
+
+    #[test]
+    fn test_tokenize_factorial_postfix() {
+        let mut tokenizer = Tokenizer::new("5!");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["5", "FACT"]);
+
+        let mut tokenizer = Tokenizer::new("(3+2)!");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["(", "3", "+", "2", ")", "FACT"]);
     }
 }

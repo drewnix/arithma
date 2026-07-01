@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod function_tests {
-    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+    use arithma::{build_expression_tree, Environment, Evaluator, ExactNum, Node, Tokenizer};
 
     fn evaluate_expression_with_env(latex: &str, env: &Environment) -> Result<f64, String> {
         // Create an instance of the Tokenizer
@@ -12,11 +12,21 @@ mod function_tests {
         Evaluator::evaluate(&parsed_expr, env)
     }
 
+    fn simplify_expression(latex: &str) -> Result<Node, String> {
+        let mut tokenizer = Tokenizer::new(latex);
+        let tokens = tokenizer.tokenize();
+        let parsed = build_expression_tree(tokens)?;
+        let env = Environment::new();
+        Evaluator::simplify(&parsed, &env)
+    }
+
     // Helper function to evaluate LaTeX expression and return the result
     fn evaluate_expression(latex: &str) -> Result<f64, String> {
         let env = Environment::new();
         evaluate_expression_with_env(latex, &env)
     }
+
+    // Integer arithmetic
 
     #[test]
     fn test_gcd_function() {
@@ -37,6 +47,68 @@ mod function_tests {
         assert!(evaluate_expression("\\lcm{6}")
             .unwrap_err()
             .contains("at least two"));
+    }
+
+    #[test]
+    fn test_factorial_function() {
+        assert_eq!(evaluate_expression("\\factorial{5}").unwrap(), 120.0);
+        assert_eq!(evaluate_expression("\\factorial{0}").unwrap(), 1.0);
+        assert!(evaluate_expression("\\factorial{-1}")
+            .unwrap_err()
+            .contains("non-negative"));
+        assert!(evaluate_expression("\\factorial{21}")
+            .unwrap_err()
+            .contains("overflow"));
+    }
+
+    #[test]
+    fn test_factorial_postfix() {
+        assert_eq!(evaluate_expression("5!").unwrap(), 120.0);
+        assert_eq!(evaluate_expression("(3+2)!").unwrap(), 120.0);
+        assert_eq!(evaluate_expression("5! + 1").unwrap(), 121.0);
+        assert!(evaluate_expression("21!").unwrap_err().contains("overflow"));
+    }
+
+    #[test]
+    fn test_factorial_simplify_parity() {
+        let postfix = simplify_expression("5!").unwrap();
+        let command = simplify_expression("\\factorial{5}").unwrap();
+        assert_eq!(postfix, command);
+        assert_eq!(postfix, Node::Num(ExactNum::integer(120)));
+    }
+
+    #[test]
+    fn test_factorial_precedence() {
+        assert_eq!(evaluate_expression("2^3!").unwrap(), 64.0);
+        assert_eq!(evaluate_expression("(2^3)!").unwrap(), 40320.0);
+    }
+
+    #[test]
+    fn test_factorial_negation() {
+        assert_eq!(evaluate_expression("-5!").unwrap(), -120.0);
+        assert!(evaluate_expression("(-5)!")
+            .unwrap_err()
+            .contains("non-negative"));
+    }
+
+    #[test]
+    fn test_factorial_non_integer() {
+        assert!(evaluate_expression("\\factorial{5.5}")
+            .unwrap_err()
+            .contains("non-negative"));
+    }
+
+    #[test]
+    fn test_factorial_substitution() {
+        let mut env = Environment::new();
+        env.set("x", 4.0);
+        assert_eq!(evaluate_expression_with_env("x!", &env).unwrap(), 24.0);
+    }
+
+    #[test]
+    fn test_factorial_nested_bang() {
+        // 3!! parses as (3!)!, not double factorial
+        assert_eq!(evaluate_expression("3!!").unwrap(), 720.0);
     }
 
     #[test]

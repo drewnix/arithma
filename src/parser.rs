@@ -20,6 +20,8 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
         } else if token == "NEG" {
             log::debug!("Unary minus detected, pushing to operator stack");
             operator_stack.push(token);
+        } else if token == "FACT" {
+            output_queue.push(token);
         } else if token == "ABS_START" {
             operator_stack.push(token);
         } else if token == "ABS_END" {
@@ -127,6 +129,11 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 .pop()
                 .ok_or_else(|| "Not enough operands for unary minus".to_string())?;
             stack.push(Node::Negate(Box::new(operand)));
+        } else if token == "FACT" {
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for factorial".to_string())?;
+            stack.push(Node::Factorial(Box::new(operand)));
         } else if "+-*/^".contains(&token) {
             // Binary operators require two operands
             let right = stack

@@ -1,7 +1,7 @@
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
-use crate::integer::{gcd_u64, lcm_u64};
+use crate::integer::{factorial_u64, gcd_u64, lcm_u64};
 
 // Define a trait for function handlers
 pub trait FunctionHandler {
@@ -58,9 +58,10 @@ lazy_static! {
 
         // Register built-in LaTeX Math Commands
 
-        // GCD and LCM
+        // Integer arithmetic
         registry.register_function("gcd", Box::new(GcdFunction));
         registry.register_function("lcm", Box::new(LcmFunction));
+        registry.register_function("factorial", Box::new(FactorialFunction));
 
         // Circular trigonometric
         registry.register_function("sin", Box::new(SinFunction));
@@ -127,7 +128,7 @@ lazy_static! {
     };
 }
 
-// GCD and LCM
+// Integer arithmetic
 pub struct GcdFunction;
 impl FunctionHandler for GcdFunction {
     fn call(&self, args: Vec<f64>) -> Result<f64, String> {
@@ -165,6 +166,25 @@ impl FunctionHandler for LcmFunction {
 
     fn get_arg_count(&self) -> Option<usize> {
         None // Variable number of arguments
+    }
+}
+
+pub struct FactorialFunction;
+impl FunctionHandler for FactorialFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\factorial requires exactly one argument.".to_string());
+        }
+        let n = args[0];
+        if n < 0.0 || n.fract() != 0.0 {
+            return Err("\\factorial requires a non-negative integer.".to_string());
+        }
+        let result = factorial_u64(n as u64)?;
+        Ok(result as f64)
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
     }
 }
 

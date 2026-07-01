@@ -105,6 +105,10 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
             let operand_subst = substitute_variable(operand, var_name, value)?;
             Ok(Node::Negate(Box::new(operand_subst)))
         }
+        Node::Factorial(operand) => {
+            let operand_subst = substitute_variable(operand, var_name, value)?;
+            Ok(Node::Factorial(Box::new(operand_subst)))
+        }
 
         Node::Greater(left, right) => {
             let left_subst = substitute_variable(left, var_name, value)?;
