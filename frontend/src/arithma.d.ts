@@ -4,7 +4,8 @@
 declare module 'arithma' {
   export default function init(options?: { path?: string }): Promise<void>;
 
-  // Evaluate / Simplify
+  // Format / Evaluate / Simplify
+  export function format_latex_js(latex: string): string;
   export function evaluate_latex_expression_js(latex: string, environment: string): string;
   export function simplify_latex_js(latex: string): string;
 

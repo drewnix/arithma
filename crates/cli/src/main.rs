@@ -1,6 +1,8 @@
 use arithma::simplify::Simplifiable;
 use arithma::tokenizer::normalize_var;
-use arithma::{build_expression_tree, Environment, Evaluator, Node, Tokenizer};
+use arithma::{
+    build_expression_tree, parse_latex, parse_latex_raw, Environment, Evaluator, Node, Tokenizer,
+};
 use std::io::{self, Write};
 
 fn main() {
@@ -21,6 +23,7 @@ fn main() {
     }
 
     match cmd {
+        "format" => cmd_format(cmd, &args[2..]),
         "simplify" => cmd_simplify(cmd, &args[2..]),
         "differentiate" | "diff" => cmd_differentiate(cmd, &args[2..]),
         "integrate" => cmd_integrate(cmd, &args[2..]),
@@ -50,6 +53,7 @@ Usage: arithma [command] [arguments]
        arithma              (launches interactive REPL)
 
 Commands:
+  format <expr>                      Parse and print canonical LaTeX (no simplify)
   simplify <expr>                    Simplify an expression
   differentiate <expr> [var]         Differentiate (alias: diff)
   integrate <expr> [var] [lo hi]      Integral (definite with bounds)
@@ -68,6 +72,7 @@ Commands:
 All expressions use LaTeX notation. Variable defaults to x where applicable.
 
 Examples:
+  arithma format \"\\frac{{2}}{{2+{{\\pi}}}}+.5{{\\pi}}\"
   arithma simplify \"x^2 + 2x + 1\"
   arithma diff \"\\\\sin(x^2)\" x
   arithma integrate \"3x^2\" x
@@ -100,15 +105,18 @@ fn usage(cmd: &str, syntax: &str, alternates: &[&str], hints: &[&str]) -> ! {
     std::process::exit(1);
 }
 
-fn parse_and_simplify(expr: &str, env: &Environment) -> Result<String, String> {
-    let mut tokenizer = Tokenizer::new(expr);
-    let tokens = tokenizer.tokenize();
-    if let Some(err) = tokenizer.errors.into_iter().next() {
-        return Err(err);
+fn cmd_format(cmd: &str, args: &[String]) {
+    if args.is_empty() {
+        usage(cmd, "<expr>", NONE, NONE);
     }
-    let parsed = build_expression_tree(tokens)?;
-    let simplified = parsed.simplify(env).unwrap_or(parsed);
-    Ok(format!("{}", simplified))
+    let expr = &args[0];
+    match parse_latex_raw(expr).map(|node| format!("{node}")) {
+        Ok(result) => println!("{result}"),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn cmd_simplify(cmd: &str, args: &[String]) {
@@ -117,8 +125,8 @@ fn cmd_simplify(cmd: &str, args: &[String]) {
     }
     let expr = &args[0];
     let env = Environment::new();
-    match parse_and_simplify(expr, &env) {
-        Ok(result) => println!("{}", result),
+    match parse_latex(expr, &env).map(|node| format!("{node}")) {
+        Ok(result) => println!("{result}"),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -538,9 +546,9 @@ fn cmd_substitute(cmd: &str, args: &[String]) {
     match arithma::substitute::substitute_latex(expr, &subs) {
         Ok(result) => {
             let env = Environment::new();
-            match parse_and_simplify(&result, &env) {
-                Ok(simplified) => println!("{}", simplified),
-                Err(_) => println!("{}", result),
+            match parse_latex(&result, &env).map(|node| format!("{node}")) {
+                Ok(simplified) => println!("{simplified}"),
+                Err(_) => println!("{result}"),
             }
         }
         Err(e) => {
@@ -608,7 +616,7 @@ fn cmd_ode(cmd: &str, args: &[String]) {
 }
 
 fn repl() {
-    println!("Arithma — type 'exit' to quit, '--help' for commands.");
+    println!("Arithma — type 'exit' to quit, '--help' for commands, 'format <expr>' for canonical LaTeX.");
     let env = Environment::new();
 
     loop {
@@ -627,6 +635,14 @@ fn repl() {
         }
         if input == "--help" || input == "help" {
             print_help();
+            continue;
+        }
+
+        if let Some(expr) = input.strip_prefix("format ") {
+            match parse_latex_raw(expr.trim()).map(|node| format!("{node}")) {
+                Ok(result) => println!("{result}"),
+                Err(e) => println!("Error: {e}"),
+            }
             continue;
         }
 

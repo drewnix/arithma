@@ -9,25 +9,30 @@ use crate::limits::limit_latex;
 use crate::matrix::parse_latex_matrix;
 use crate::node::Node;
 use crate::ode::solve_ode_latex;
-use crate::parser::build_expression_tree;
+use crate::parser::{build_expression_tree, parse_latex, parse_latex_raw};
 use crate::series::taylor_series_latex;
 use crate::simplify::Simplifiable;
 use crate::substitute::substitute_latex;
 use crate::tokenizer::Tokenizer;
 use wasm_bindgen::prelude::*;
 
+/// Canonical LaTeX from parse only (no simplification).
+#[allow(unexpected_cfgs)]
+#[wasm_bindgen]
+pub fn format_latex_js(latex_expr: &str) -> Result<String, JsValue> {
+    parse_latex_raw(latex_expr)
+        .map(|node| format!("{node}"))
+        .map_err(|e| JsValue::from_str(&e))
+}
+
+/// Simplify LaTeX. Returns unsimplified output if simplification fails.
 #[allow(unexpected_cfgs)]
 #[wasm_bindgen]
 pub fn simplify_latex_js(latex_expr: &str) -> Result<String, JsValue> {
-    let mut tokenizer = Tokenizer::new(latex_expr);
-    let tokens = tokenizer.tokenize();
-    let expr = build_expression_tree(tokens)
-        .map_err(|e| JsValue::from_str(&format!("Error parsing LaTeX: {}", e)))?;
-    let env = crate::environment::Environment::new();
-    let simplified = expr
-        .simplify(&env)
-        .map_err(|e| JsValue::from_str(&format!("Error simplifying: {}", e)))?;
-    Ok(format!("{}", simplified))
+    let env = Environment::new();
+    parse_latex(latex_expr, &env)
+        .map(|node| format!("{node}"))
+        .map_err(|e| JsValue::from_str(&e))
 }
 
 #[allow(unexpected_cfgs)]

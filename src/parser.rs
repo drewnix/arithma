@@ -228,20 +228,21 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     Ok(stack.pop().unwrap())
 }
 
-/// Parse a LaTeX expression string into a Node AST
-pub fn parse_latex(latex: &str, env: &crate::environment::Environment) -> Result<Node, String> {
+/// Parse a LaTeX expression string into a Node AST (no simplification)
+pub fn parse_latex_raw(latex: &str) -> Result<Node, String> {
     let mut tokenizer = crate::tokenizer::Tokenizer::new(latex);
     let tokens = tokenizer.tokenize();
     if let Some(err) = tokenizer.errors.into_iter().next() {
         return Err(err);
     }
-    let expr = build_expression_tree(tokens)?;
+    build_expression_tree(tokens)
+}
 
-    // Simplify the expression using the environment
-    match expr.simplify(env) {
-        Ok(simplified) => Ok(simplified),
-        Err(_) => Ok(expr), // Fall back to the original expression if simplification fails
-    }
+/// Parse a LaTeX expression string into a Node AST and simplify using the environment.
+/// If simplification fails, returns the parsed (unsimplified) expression.
+pub fn parse_latex(latex: &str, env: &crate::environment::Environment) -> Result<Node, String> {
+    let expr = parse_latex_raw(latex)?;
+    Ok(expr.simplify(env).unwrap_or(expr))
 }
 
 enum IndexedNotation {
@@ -507,5 +508,38 @@ fn parse_unbraced_indexed_body(tokens: &[String], body_tokens: &mut Vec<String>,
                 // For higher powers or non-numeric exponents, leave as is
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod format_simplify_tests {
+    use super::{parse_latex, parse_latex_raw};
+    use crate::environment::Environment;
+
+    /// Same input as `arithma format` in CLI help.
+    const MESSY: &str = r"\frac{2}{2+{\pi}}+.5{\pi}";
+
+    fn format_latex(latex: &str) -> String {
+        format!("{}", parse_latex_raw(latex).unwrap())
+    }
+
+    fn simplify_latex(latex: &str) -> String {
+        let env = Environment::new();
+        format!("{}", parse_latex(latex, &env).unwrap())
+    }
+
+    #[test]
+    fn format_vs_simplify_on_messy_input() {
+        assert_eq!(format_latex(MESSY), r"\frac{2}{2 + \pi} + 0.5 \cdot \pi");
+        assert_eq!(
+            simplify_latex(MESSY),
+            r"\frac{\pi^{2} + 2\pi + 4}{2\pi + 4}"
+        );
+    }
+
+    #[test]
+    fn format_vs_simplify_on_literals() {
+        assert_eq!(format_latex("1 + 1"), "1 + 1");
+        assert_eq!(simplify_latex("1 + 1"), "2");
     }
 }

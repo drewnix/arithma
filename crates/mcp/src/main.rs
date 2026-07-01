@@ -14,8 +14,8 @@ use arithma::simplify::Simplifiable;
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
 use arithma::{
-    build_expression_tree, factor_over_q, partial_fractions_latex, Environment, Evaluator, Node,
-    Polynomial, Tokenizer,
+    build_expression_tree, factor_over_q, parse_latex, parse_latex_raw, partial_fractions_latex,
+    Environment, Evaluator, Node, Polynomial, Tokenizer,
 };
 
 fn main() {
@@ -118,6 +118,20 @@ fn assumptions_schema() -> Value {
 
 fn tools_schema() -> Value {
     json!([
+        {
+            "name": "format",
+            "description": "Parse LaTeX and return canonical form without simplification. Use to normalize messy input (spacing, implicit multiplication, nested braces) while preserving algebraic structure.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "expr": {
+                        "type": "string",
+                        "description": "LaTeX expression to format, e.g. \"\\frac{2}{2+{\\pi}}+.5{\\pi}\""
+                    }
+                },
+                "required": ["expr"]
+            }
+        },
         {
             "name": "simplify",
             "description": "Simplify a mathematical expression. Returns the simplified form in LaTeX. Handles polynomial normalization, trigonometric identities, logarithmic properties, and multivariate GCD cancellation. Supports optional assumptions about variables (e.g. positive, integer) to enable additional simplifications like sqrt(x^2) → x when x > 0.",
@@ -489,6 +503,7 @@ fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
     let result = match tool_name {
+        "format" => tool_format(&args),
         "simplify" => tool_simplify(&args),
         "differentiate" => tool_differentiate(&args),
         "integrate" => tool_integrate(&args),
@@ -549,14 +564,12 @@ fn env_from_args(args: &Value) -> Result<Environment, String> {
 }
 
 fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<String, String> {
-    let mut tokenizer = Tokenizer::new(expr_str);
-    let tokens = tokenizer.tokenize();
-    if let Some(err) = tokenizer.errors.into_iter().next() {
-        return Err(err);
-    }
-    let expr = build_expression_tree(tokens)?;
-    let simplified = expr.simplify(env).unwrap_or(expr);
-    Ok(format!("{}", simplified))
+    parse_latex(expr_str, env).map(|node| format!("{node}"))
+}
+
+fn tool_format(args: &Value) -> Result<String, String> {
+    let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
+    parse_latex_raw(expr).map(|node| format!("{node}"))
 }
 
 fn tool_simplify(args: &Value) -> Result<String, String> {
