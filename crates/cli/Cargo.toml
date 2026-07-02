@@ -1,0 +1,12 @@
+[package]
+name = "arithma-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "arithma"
+path = "src/main.rs"
+
+[dependencies]
+arithma = { path = "../.." }
+env_logger = "0.9"

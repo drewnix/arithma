@@ -1,0 +1,14 @@
+[package]
+name = "arithma-mcp-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "arithma-mcp"
+path = "src/main.rs"
+
+[dependencies]
+arithma = { path = "../.." }
+serde_json = "1.0"
+num-bigint = "0.4"
+num-rational = "0.4"

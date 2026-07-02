@@ -15,7 +15,6 @@ dependencies = [
 name = "arithma"
 version = "0.1.0"
 dependencies = [
- "env_logger",
  "lazy_static",
  "log",
  "num-bigint",
@@ -26,6 +25,24 @@ dependencies = [
  "serde",
  "serde_json",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "arithma-cli"
+version = "0.1.0"
+dependencies = [
+ "arithma",
+ "env_logger",
+]
+
+[[package]]
+name = "arithma-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "arithma",
+ "num-bigint",
+ "num-rational",
+ "serde_json",
 ]
 
 [[package]]
