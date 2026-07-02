@@ -144,6 +144,24 @@ impl Evaluator {
 
                 Ok(sum)
             }
+            Node::Product(ref index_var, start, end, body) => {
+                let start_val = Self::evaluate_exact(start, env)?;
+                let end_val = Self::evaluate_exact(end, env)?;
+
+                let start_i = start_val.to_f64() as i64;
+                let end_i = end_val.to_f64() as i64;
+
+                let mut prod_env = env.clone();
+                let mut product = ExactNum::one();
+
+                for i in start_i..=end_i {
+                    prod_env.set_exact(index_var, ExactNum::integer(i));
+                    let value = Self::evaluate_exact(body, &prod_env)?;
+                    product = product * value;
+                }
+
+                Ok(product)
+            }
             Node::Piecewise(conditions) => {
                 for (expr, cond) in conditions {
                     let cond_val = Self::evaluate_exact(cond, env)?;

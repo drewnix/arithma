@@ -313,6 +313,9 @@ fn contains_var(node: &Node, var: &str) -> bool {
         Node::Summation(_, start, end, body) => {
             contains_var(start, var) || contains_var(end, var) || contains_var(body, var)
         }
+        Node::Product(_, start, end, body) => {
+            contains_var(start, var) || contains_var(end, var) || contains_var(body, var)
+        }
         Node::Piecewise(cases) => cases
             .iter()
             .any(|(val, cond)| contains_var(val, var) || contains_var(cond, var)),

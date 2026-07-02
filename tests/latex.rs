@@ -95,6 +95,12 @@ mod round_trip_tests {
         env.set("x", 0.0);
         assert_round_trip_value("\\sin(x) + 1", 1.0, &env);
     }
+
+    #[test]
+    fn test_round_trip_product() {
+        let env = Environment::new();
+        assert_round_trip_value("\\prod_{i=1}^{5} i", 120.0, &env);
+    }
 }
 
 #[cfg(test)]

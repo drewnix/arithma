@@ -183,6 +183,42 @@ pub fn evaluate_latex_expression_js(latex_expr: &str, env_json: &str) -> Result<
         }
     }
 
+    if latex_expr.contains("\\prod_") && latex_expr.contains("^") {
+        if let Some(captures) = regex::Regex::new(r"\\prod_\{([a-z])=(\d+)\}\^(\d+)([a-z])\^(\d+)")
+            .ok()
+            .and_then(|re| re.captures(latex_expr))
+        {
+            let var = captures.get(1).unwrap().as_str();
+            let start = captures
+                .get(2)
+                .unwrap()
+                .as_str()
+                .parse::<i64>()
+                .unwrap_or(1);
+            let end = captures
+                .get(3)
+                .unwrap()
+                .as_str()
+                .parse::<i64>()
+                .unwrap_or(10);
+            let body_var = captures.get(4).unwrap().as_str();
+            let exponent = captures
+                .get(5)
+                .unwrap()
+                .as_str()
+                .parse::<i64>()
+                .unwrap_or(1);
+
+            if var == body_var {
+                let mut product = 1_i64;
+                for i in start..=end {
+                    product *= i.pow(exponent as u32);
+                }
+                return Ok(product.to_string());
+            }
+        }
+    }
+
     // Create an instance of the Tokenizer
     let mut tokenizer = Tokenizer::new(latex_expr); // Pass input as a reference
 

@@ -1,6 +1,7 @@
 use crate::exact::ExactNum;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
+use crate::substitute::substitute_variable;
 
 pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
@@ -248,6 +249,47 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                     )
                 }
             }
+        }
+
+        // Generalized product rule: d/dx ∏_{i=a}^{b} f(i,x) = Σ_k (df(k,x)/dx · ∏_{j≠k} f(j,x))
+        Node::Product(index, start, end, body) => {
+            if index == var_name || !body.contains_variable(var_name) {
+                return Ok(Node::Num(ExactNum::zero()));
+            }
+
+            // Bounds must not depend on the differentiation variable.
+            let bound_is_const = |b: &Node| -> Result<bool, String> {
+                Ok(matches!(differentiate(b, var_name)?, Node::Num(n) if n.is_zero()))
+            };
+            if !(bound_is_const(start)? && bound_is_const(end)?) {
+                return Err(
+                    "Differentiation of products with variable bounds not yet implemented"
+                        .to_string(),
+                );
+            }
+
+            // Expand the finite product ∏_{i=a}^{b} f(i, x) into an explicit chain
+            // of factors, then let the ordinary product rule (Node::Multiply) derive
+            // it. This reproduces the generalized product rule without hand-rolling it.
+            let bound_err = || {
+                "Differentiation of product notation requires constant integer bounds when the body depends on the differentiation variable".to_string()
+            };
+            let (start_i, end_i) = match (start.as_ref(), end.as_ref()) {
+                (Node::Num(a), Node::Num(b)) => (
+                    a.to_i64().ok_or_else(bound_err)?,
+                    b.to_i64().ok_or_else(bound_err)?,
+                ),
+                _ => return Err(bound_err()),
+            };
+
+            let expanded = (start_i..=end_i)
+                .map(|i| substitute_variable(body, index, &Node::Num(ExactNum::integer(i))))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .reduce(|acc, n| Node::Multiply(Box::new(acc), Box::new(n)))
+                .unwrap_or_else(|| Node::Num(ExactNum::one()));
+
+            differentiate(&expanded, var_name)
         }
 
         // Function differentiation
@@ -693,6 +735,31 @@ mod tests {
         let derivative = differentiate(&expr, "y").unwrap();
         let result = evaluate_expression(&derivative, &env).unwrap();
         assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_derivative_of_product_notation() {
+        // d/dx ∏_{i=1}^{3} (x+i): at x=0 → 2·3 + 1·3 + 1·2 = 11
+        let expr = parse_expression("\\prod_{i=1}^{3} {x + i}").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        let mut env = Environment::new();
+        env.set("x", 0.0);
+        assert_eq!(evaluate_expression(&derivative, &env).unwrap(), 11.0);
+
+        // ∏_{i=1}^{3} (x·i) = 6x³ → d/dx = 18x², at x=2 → 72
+        let expr = parse_expression("\\prod_{i=1}^{3} {x \\cdot i}").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        env.set("x", 2.0);
+        assert_eq!(evaluate_expression(&derivative, &env).unwrap(), 72.0);
+
+        // Index-only body: d/dx ∏_{k=1}^{5} k = 0
+        let expr = parse_expression("\\prod_{k=1}^{5} k").unwrap();
+        let derivative = differentiate(&expr, "x").unwrap();
+        assert_eq!(evaluate_expression(&derivative, &env).unwrap(), 0.0);
+
+        // Bound index: d/dk ∏_{k=1}^{3} k = 0
+        let derivative = differentiate(&expr, "k").unwrap();
+        assert_eq!(evaluate_expression(&derivative, &env).unwrap(), 0.0);
     }
 
     #[test]

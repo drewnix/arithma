@@ -101,6 +101,17 @@ Works with symbolic bounds (`Σ_{k=1}^{n} k = n(n+1)/2`)
 and evaluates to exact numbers when bounds are constant
 (`Σ_{k=1}^{100} k = 5050`).
 
+**Symbolic product notation.** Closed-form evaluation of ∏ expressions:
+constant bodies (`∏_{k=1}^{n} c = c^n`), factorial-style index products
+(`∏_{k=1}^{n} k = n!` when n is numeric), odd-number products
+(`∏_{k=1}^{n}(2k-1) = (2n)!/(2^n·n!)`, numeric bounds evaluate exactly),
+and geometric products (`∏_{k=0}^{n} r^k = r^{n(n+1)/2}`).
+Works with symbolic bounds and evaluates exactly for constant bounds
+(`∏_{k=1}^{5} k = 120`). For `∏(2k-1)` with symbolic `n`, the closed form
+is correct but displayed as nested `\prod` terms (e.g.
+`(∏_{i=1}^{2n} i) / (2^n · ∏_{j=1}^{n} j)`) rather than a single compact
+polynomial like summation's `Σ(2k-1) = n²`.
+
 **ODEs.** Four classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
 (`dy/dx + P(x)*y = Q(x)` via integrating factor), second-order
 constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
@@ -282,6 +293,18 @@ $ arithma simplify "\sum_{k=1}^{n} k^2"
 
 $ arithma simplify "\sum_{k=0}^{n} 2^k"
 2^{n + 1} - 1
+
+$ arithma simplify "\prod_{k=1}^{n} 2"
+2^{n}
+
+$ arithma simplify "\prod_{k=1}^{5} k"
+120
+
+$ arithma simplify "\prod_{k=1}^{5} {2k - 1}"
+945
+
+$ arithma simplify "\prod_{k=0}^{n} 2^k"
+2^{\frac{n \cdot (n + 1)}{2}}
 
 $ arithma solve "x^2 - 4 > 0"
 (-∞, -2) ∪ (2, ∞)
