@@ -2,6 +2,7 @@ use std::iter::Peekable;
 use std::str::Chars;
 
 use crate::exact::ExactNum;
+use crate::function_meta::{inverse_from_minus_one_power, is_log_or_exp, is_trig_or_hyperbolic};
 use crate::functions::FUNCTION_REGISTRY;
 use num_rational::BigRational;
 
@@ -15,6 +16,85 @@ fn is_decimal_literal(token: &str) -> bool {
 
 fn is_repeating_decimal_prefix(token: &str) -> bool {
     is_decimal_literal(token) && token.matches('.').count() == 1
+}
+
+/// Parsed exponent in `\func^exp(arg)` notation.
+#[derive(Debug, PartialEq)]
+enum FuncExponent {
+    /// Integer −1: inverse function when the base supports it, else `(func(arg))^{-1}`.
+    MinusOne,
+    /// Tokens appended after `^` in `(func(arg))^…`.
+    Power(Vec<String>),
+}
+
+/// Remove whitespace inside an exponent (`- 1` and `-1` are the same).
+fn collapse_exponent_whitespace(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Classify a function exponent string (from `{…}` or unbraced `^` read).
+fn parse_func_exponent(power_raw: &str) -> Option<FuncExponent> {
+    let trimmed = power_raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let collapsed = collapse_exponent_whitespace(trimmed);
+    if collapsed == "-1" {
+        return Some(FuncExponent::MinusOne);
+    }
+    if let Some(rest) = collapsed.strip_prefix('-') {
+        if is_decimal_literal(rest) {
+            return Some(FuncExponent::Power(vec![
+                "NEG".to_string(),
+                rest.to_string(),
+            ]));
+        }
+    } else if is_decimal_literal(&collapsed) {
+        return Some(FuncExponent::Power(vec![collapsed]));
+    }
+    let sub = Tokenizer::new(trimmed).tokenize();
+    if sub.is_empty() {
+        return None;
+    }
+    if sub.len() == 1 {
+        Some(FuncExponent::Power(sub))
+    } else {
+        let mut tokens = vec!["(".to_string()];
+        tokens.extend(sub);
+        tokens.push(")".to_string());
+        Some(FuncExponent::Power(tokens))
+    }
+}
+
+/// Emit `arcsin(arg)` or `(func(arg))^power` for `\func^exp(arg)`.
+fn emit_func_power_call(
+    tokens: &mut Vec<String>,
+    base: &str,
+    arg_tokens: &[String],
+    exp: &FuncExponent,
+) {
+    if matches!(exp, FuncExponent::MinusOne) {
+        if let Some(inverse) = inverse_from_minus_one_power(base, "-1") {
+            tokens.push(inverse.to_string());
+            tokens.push("(".to_string());
+            tokens.extend(arg_tokens.iter().cloned());
+            tokens.push(")".to_string());
+            return;
+        }
+    }
+
+    let power_tokens = match exp {
+        FuncExponent::MinusOne => vec!["NEG".to_string(), "1".to_string()],
+        FuncExponent::Power(t) => t.clone(),
+    };
+    tokens.push("(".to_string());
+    tokens.push(base.to_string());
+    tokens.push("(".to_string());
+    tokens.extend(arg_tokens.iter().cloned());
+    tokens.push(")".to_string());
+    tokens.push(")".to_string());
+    tokens.push("^".to_string());
+    tokens.extend(power_tokens);
 }
 
 fn discard_overline_brace_group(tokenizer: &mut Tokenizer<'_>) {
@@ -125,48 +205,6 @@ fn greek_letter(name: &str) -> Option<char> {
         "Omega" => Some('Ω'),
         _ => None,
     }
-}
-
-fn is_trig_or_hyperbolic(name: &str) -> bool {
-    matches!(
-        name,
-        // Circular trigonometric
-        "sin"
-        | "cos"
-        | "tan"
-        // Reciprocal trigonometric
-        | "csc"
-        | "sec"
-        | "cot"
-        // Inverse circular trigonometric
-        | "arcsin"
-        | "arccos"
-        | "arctan"
-        // Inverse reciprocal trigonometric
-        | "arccsc"
-        | "arcsec"
-        | "arccot"
-        // Hyperbolic
-        | "sinh"
-        | "cosh"
-        | "tanh"
-        // Reciprocal hyperbolic
-        | "csch"
-        | "sech"
-        | "coth"
-        // Inverse hyperbolic
-        | "arcsinh"
-        | "arccosh"
-        | "arctanh"
-        // Inverse reciprocal hyperbolic
-        | "arccsch"
-        | "arcsech"
-        | "arccoth"
-    )
-}
-
-fn is_log_or_exp(name: &str) -> bool {
-    matches!(name, "log" | "ln" | "lg" | "exp")
 }
 
 pub fn latex_name(c: char) -> Option<&'static str> {
@@ -377,55 +415,39 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        // Handle \sin^2(x) → sin(x)^2 pattern for known trig/math functions
+        // Handle \sin^2(x) → (sin(x))^2, \sin^{-1}(x) → arcsin(x), etc.
         if (is_trig_or_hyperbolic(&stripped_token) || is_log_or_exp(&stripped_token))
             && self.chars.peek() == Some(&'^')
         {
             self.chars.next(); // consume '^'
-                               // Read exponent: either {group} or single character
-            let power_str = if self.chars.peek() == Some(&'{') {
-                self.chars.next(); // consume '{'
-                self.consume_brace_group().unwrap_or_default()
-            } else if let Some(&c) = self.chars.peek() {
-                self.chars.next();
-                c.to_string()
-            } else {
-                String::new()
-            };
-            // Skip whitespace before argument
-            while self.chars.peek().is_some_and(|c| c.is_whitespace()) {
-                self.chars.next();
-            }
-            // If next char is '(', consume the balanced paren group and reorder
+            self.skip_whitespace_chars();
             if self.chars.peek() == Some(&'(') {
-                self.chars.next(); // consume '('
-                let mut depth = 1;
-                let mut arg_str = String::new();
-                while let Some(&ch) = self.chars.peek() {
-                    self.chars.next();
-                    if ch == '(' {
-                        depth += 1;
-                    }
-                    if ch == ')' {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
-                        }
-                    }
-                    arg_str.push(ch);
-                }
-                // Emit: ( func ( arg_tokens ) ) ^ power
-                let arg_tokens = Tokenizer::new(&arg_str).tokenize();
-                tokens.push("(".to_string());
-                tokens.push(stripped_token.clone());
-                tokens.push("(".to_string());
-                tokens.extend(arg_tokens);
-                tokens.push(")".to_string());
-                tokens.push(")".to_string());
+                tokens.push(stripped_token);
                 tokens.push("^".to_string());
-                tokens.push(power_str);
                 current_token.clear();
                 return;
+            }
+            let power_str = self.read_function_exponent_raw();
+            self.skip_whitespace_chars(); // before argument
+                                          // Support `\func^exp(arg)`, `\func^exp{arg}`, and `\func^exp\left(arg\right)`.
+            let arg_str = if self.chars.peek() == Some(&'(') {
+                self.chars.next(); // consume '('
+                Some(self.read_until_matching_paren())
+            } else if self.chars.peek() == Some(&'{') {
+                self.chars.next(); // consume '{'
+                self.consume_brace_group()
+            } else if self.chars.peek() == Some(&'\\') {
+                self.read_left_right_paren_arg()
+            } else {
+                None
+            };
+            if let Some(arg_str) = arg_str {
+                let arg_tokens = Tokenizer::new(&arg_str).tokenize();
+                if let Some(exp) = parse_func_exponent(&power_str) {
+                    emit_func_power_call(tokens, &stripped_token, &arg_tokens, &exp);
+                    current_token.clear();
+                    return;
+                }
             }
         }
 
@@ -750,6 +772,100 @@ impl<'a> Tokenizer<'a> {
             content.push(c);
         }
         None
+    }
+
+    /// After an opening `(` has been consumed, read up to its matching `)`
+    /// (also consumed) and return the inner text. Nesting is tracked by raw
+    /// `(`/`)`; any `\left`/`\right` inside are preserved and resolved when the
+    /// captured text is re-tokenized.
+    fn read_until_matching_paren(&mut self) -> String {
+        let mut depth = 1i32;
+        let mut content = String::new();
+        for c in self.chars.by_ref() {
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            content.push(c);
+        }
+        content
+    }
+
+    /// Read braced `{exp}` or unbraced exponent after `\func^`.
+    fn read_function_exponent_raw(&mut self) -> String {
+        if self.chars.peek() == Some(&'{') {
+            self.chars.next();
+            self.consume_brace_group().unwrap_or_default()
+        } else {
+            self.read_unbraced_exponent()
+        }
+    }
+
+    fn skip_whitespace_chars(&mut self) {
+        while self.chars.peek().is_some_and(|c| c.is_whitespace()) {
+            self.chars.next();
+        }
+    }
+
+    /// Consume `\name` when `name` matches; leaves cursor after the command name.
+    fn try_consume_latex_command(&mut self, name: &str) -> bool {
+        self.skip_whitespace_chars();
+        let mut probe = self.chars.clone();
+        if probe.next() != Some('\\') {
+            return false;
+        }
+        let mut cmd = String::new();
+        while probe.peek().is_some_and(|c| c.is_alphabetic()) {
+            cmd.push(probe.next().unwrap());
+        }
+        if cmd == name {
+            self.chars = probe;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Read `\left( … \right)` and return the inner content. The matching `)` is
+    /// found by paren counting; a trailing `\right` (and any nested `\left`/`\right`)
+    /// left in the captured text is a no-op when that text is re-tokenized.
+    fn read_left_right_paren_arg(&mut self) -> Option<String> {
+        if !self.try_consume_latex_command("left") {
+            return None;
+        }
+        self.skip_whitespace_chars();
+        if self.chars.next()? != '(' {
+            return None;
+        }
+        Some(self.read_until_matching_paren())
+    }
+
+    /// Read an unbraced exponent after `^`, e.g. `2`, `-1`, `-2.5`, or single letter `a`.
+    fn read_unbraced_exponent(&mut self) -> String {
+        let mut s = String::new();
+        if self.chars.peek() == Some(&'-') {
+            s.push(self.chars.next().unwrap());
+            self.skip_whitespace_chars();
+        }
+        while let Some(&c) = self.chars.peek() {
+            if is_decimal_char(c) {
+                s.push(self.chars.next().unwrap());
+            } else {
+                break;
+            }
+        }
+        if !s.is_empty() {
+            return s;
+        }
+        if let Some(&c) = self.chars.peek() {
+            self.chars.next();
+            return c.to_string();
+        }
+        String::new()
     }
 
     /// Handle shorthand fraction (like \frac23)
@@ -1139,9 +1255,202 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_func_exponent() {
+        use super::{parse_func_exponent, FuncExponent};
+
+        assert!(matches!(
+            parse_func_exponent("-1"),
+            Some(FuncExponent::MinusOne)
+        ));
+        assert!(matches!(
+            parse_func_exponent("  -1  "),
+            Some(FuncExponent::MinusOne)
+        ));
+        assert!(matches!(
+            parse_func_exponent("- 1"),
+            Some(FuncExponent::MinusOne)
+        ));
+        assert!(matches!(
+            parse_func_exponent("-      1"),
+            Some(FuncExponent::MinusOne)
+        ));
+        assert_eq!(
+            parse_func_exponent("- 2"),
+            Some(FuncExponent::Power(vec!["NEG".into(), "2".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("-2"),
+            Some(FuncExponent::Power(vec!["NEG".into(), "2".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("-1.0"),
+            Some(FuncExponent::Power(vec!["NEG".into(), "1.0".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("- 1.0"),
+            Some(FuncExponent::Power(vec!["NEG".into(), "1.0".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("2"),
+            Some(FuncExponent::Power(vec!["2".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("a"),
+            Some(FuncExponent::Power(vec!["a".into()]))
+        );
+        assert_eq!(
+            parse_func_exponent("1/2"),
+            Some(FuncExponent::Power(vec![
+                "(".into(),
+                "1".into(),
+                "/".into(),
+                "2".into(),
+                ")".into()
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_paren_brace_neg_one_not_arcsin() {
+        // \sin^({-1})(x): the `(` after `^` is not `(arg)` — outside the `\func^exp(arg)` pattern.
+        // Not arcsin; keep `^(` as ordinary power notation.
+        let tokens = Tokenizer::new("\\sin^({-1})(x)").tokenize();
+        assert_eq!(
+            tokens,
+            vec![
+                "sin".to_string(),
+                "^".to_string(),
+                "(".to_string(),
+                "{".to_string(),
+                "NEG".to_string(),
+                "1".to_string(),
+                "}".to_string(),
+                ")".to_string(),
+                "*".to_string(),
+                "(".to_string(),
+                "x".to_string(),
+                ")".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_inv_before_arg() {
+        // \sin^{-1}(x) → arcsin(x)
+        let mut tokenizer = Tokenizer::new("\\sin^{-1}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["arcsin", "(", "x", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_inv_left_right_arg() {
+        let tokens = Tokenizer::new(r"\sin^{-1}\left(\frac{1}{2}\right)").tokenize();
+        assert_eq!(
+            tokens,
+            vec!["arcsin", "(", "(", "1", ")", "/", "(", "2", ")", ")"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_inv_before_braced_arg() {
+        // \sin^{-1}{x} → arcsin(x), matching common LaTeX function-call syntax.
+        let mut tokenizer = Tokenizer::new("\\sin^{-1}{x}");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["arcsin", "(", "x", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_inv_unbraced_before_arg() {
+        // \sin^-1(x) → arcsin(x)
+        let mut tokenizer = Tokenizer::new("\\sin^-1(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["arcsin", "(", "x", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_inv_spaced_before_arg() {
+        for input in ["\\sin^{- 1}(x)", "\\sin^{-      1}(x)", "\\sin^- 1(x)"] {
+            let tokens = Tokenizer::new(input).tokenize();
+            assert_eq!(tokens, vec!["arcsin", "(", "x", ")"], "input: {input}");
+        }
+    }
+
+    #[test]
+    fn test_tokenize_sin_neg_two_before_arg() {
+        // \sin^{-2}(x) → (sin(x))^{-2}
+        let mut tokenizer = Tokenizer::new("\\sin^{-2}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "sin", "(", "x", ")", ")", "^", "NEG", "2"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_neg_one_point_zero_before_arg() {
+        // \sin^{-1.0}(x) → (sin(x))^{-1.0}, not arcsin
+        let mut tokenizer = Tokenizer::new("\\sin^{-1.0}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "sin", "(", "x", ")", ")", "^", "NEG", "1.0"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_sin_power_variable_before_arg() {
+        // \sin^{a}(x) → (sin(x))^a
+        let mut tokenizer = Tokenizer::new("\\sin^{a}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["(", "sin", "(", "x", ")", ")", "^", "a"]);
+    }
+
+    #[test]
+    fn test_tokenize_tanh_inv_before_arg() {
+        let mut tokenizer = Tokenizer::new("\\tanh^{-1}(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["arctanh", "(", "x", ")"]);
+    }
+
+    #[test]
+    fn test_tokenize_log_inv_is_reciprocal_power() {
+        let tokens = Tokenizer::new(r"\log^{-1}(x)").tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "log", "(", "x", ")", ")", "^", "NEG", "1"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_exp_inv_is_reciprocal_not_ln() {
+        let tokens = Tokenizer::new(r"\exp^{-1}(x)").tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "exp", "(", "x", ")", ")", "^", "NEG", "1"]
+        );
+    }
+
+    #[test]
+    fn test_tokenize_arcsin_inv_is_reciprocal_not_sin() {
+        let tokens = Tokenizer::new(r"\arcsin^{-1}(x)").tokenize();
+        assert_eq!(
+            tokens,
+            vec!["(", "arcsin", "(", "x", ")", ")", "^", "NEG", "1"]
+        );
+    }
+
+    #[test]
     fn test_tokenize_sin_power_before_arg() {
         // \sin^2(x) should reorder to (sin(x))^2
         let mut tokenizer = Tokenizer::new("\\sin^2(x)");
+        let tokens = tokenizer.tokenize();
+        assert_eq!(tokens, vec!["(", "sin", "(", "x", ")", ")", "^", "2"]);
+    }
+
+    #[test]
+    fn test_tokenize_sin_power_before_braced_arg() {
+        // \sin^2{x} should reorder to (sin(x))^2, not drop the exponent.
+        let mut tokenizer = Tokenizer::new("\\sin^2{x}");
         let tokens = tokenizer.tokenize();
         assert_eq!(tokens, vec!["(", "sin", "(", "x", ")", ")", "^", "2"]);
     }

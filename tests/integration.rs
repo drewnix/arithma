@@ -927,6 +927,20 @@ mod integration_tests {
         );
     }
 
+    // ── integrate_standard_function (function_meta order) ─────
+
+    // --- Circular trigonometric ---
+    #[test]
+    fn test_ln_abs_convention_tan() {
+        let result = integrate_latex("\\tan(x)", "x").unwrap();
+        assert!(
+            result.contains("|"),
+            "∫tan(x) should use -ln|cos(x)|, got: {}",
+            result
+        );
+    }
+
+    // --- Hyperbolic ---
     #[test]
     fn test_ln_abs_convention_tanh() {
         let result = integrate_latex("\\tanh(x)", "x").unwrap();
@@ -937,12 +951,146 @@ mod integration_tests {
         );
     }
 
+    // --- Reciprocal hyperbolic ---
     #[test]
-    fn test_ln_abs_convention_tan() {
-        let result = integrate_latex("\\tan(x)", "x").unwrap();
+    fn test_integrate_csch() {
+        let result = integrate_latex("\\csch(x)", "x").unwrap();
         assert!(
-            result.contains("|"),
-            "∫tan(x) should use -ln|cos(x)|, got: {}",
+            result.contains("tanh"),
+            "∫csch(x) should contain tanh, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_sech() {
+        let result = integrate_latex("\\sech(x)", "x").unwrap();
+        assert!(
+            result.contains("arctan"),
+            "∫sech(x) should contain arctan, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_coth() {
+        let result = integrate_latex("\\coth(x)", "x").unwrap();
+        assert!(
+            result.contains("sinh"),
+            "∫coth(x) should contain sinh, got: {}",
+            result
+        );
+    }
+
+    // --- Inverse circular trigonometric ---
+    #[test]
+    fn test_integrate_arcsin() {
+        let result = integrate_latex("\\arcsin(x)", "x").unwrap();
+        assert!(
+            result.contains("arcsin") && result.contains("sqrt"),
+            "∫arcsin(x) should contain arcsin and sqrt, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_arctan() {
+        let result = integrate_latex("\\arctan(x)", "x").unwrap();
+        assert!(
+            result.contains("arctan") && result.contains("ln"),
+            "∫arctan(x) should contain arctan and ln, got: {}",
+            result
+        );
+    }
+
+    // --- Inverse reciprocal trigonometric ---
+    #[test]
+    fn test_integrate_arccsc() {
+        let result = integrate_latex("\\arccsc(x)", "x").unwrap();
+        assert!(
+            result.contains("arccsc") && result.contains("ln"),
+            "∫arccsc(x) should contain arccsc and ln, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_arcsec() {
+        let result = integrate_latex("\\arcsec(x)", "x").unwrap();
+        assert!(
+            result.contains("arcsec") && result.contains("ln"),
+            "∫arcsec(x) should contain arcsec and ln, got: {}",
+            result
+        );
+    }
+
+    // --- Inverse hyperbolic ---
+    #[test]
+    fn test_integrate_arcsinh() {
+        let result = integrate_latex("\\arcsinh(x)", "x").unwrap();
+        assert!(
+            result.contains("arcsinh"),
+            "∫arcsinh(x) should contain arcsinh, got: {}",
+            result
+        );
+    }
+
+    // --- Inverse reciprocal hyperbolic ---
+    #[test]
+    fn test_integrate_arccsch() {
+        // ∫arccsch(x) = x·arccsch(x) + arcsinh(x)
+        let result = integrate_latex("\\arccsch(x)", "x").unwrap();
+        assert!(
+            result.contains("arccsch") && result.contains("arcsinh"),
+            "∫arccsch(x) should contain arccsch and arcsinh, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_arcsech() {
+        // ∫arcsech(x) = x·arcsech(x) + arcsin(x)
+        let result = integrate_latex("\\arcsech(x)", "x").unwrap();
+        assert!(
+            result.contains("arcsech") && result.contains("arcsin"),
+            "∫arcsech(x) should contain arcsech and arcsin, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_integrate_arccoth() {
+        // ∫arccoth(x) = x·arccoth(x) + ½ln|1-x²|
+        let result = integrate_latex("\\arccoth(x)", "x").unwrap();
+        assert!(
+            result.contains("arccoth") && result.contains("ln"),
+            "∫arccoth(x) should contain arccoth and ln, got: {}",
+            result
+        );
+    }
+
+    // --- Logarithmic and exponential ---
+    #[test]
+    fn test_integrate_lg() {
+        let result = integrate_latex("\\lg(x)", "x").unwrap();
+        assert!(
+            result.contains("ln"),
+            "∫lg(x) should contain ln, got: {}",
+            result
+        );
+        // Base-2 antiderivative divides by ln(2), not ln(10)
+        let ln10 = std::f64::consts::LN_10;
+        assert!(
+            !result.contains(&ln10.to_string()[..8]),
+            "∫lg(x) should not divide by ln(10), got: {}",
+            result
+        );
+        let ln2 = std::f64::consts::LN_2;
+        assert!(
+            result.contains("ln(2)")
+                || result.contains("\\ln(2)")
+                || result.contains(&format!("{:.6}", ln2)[..6]),
+            "∫lg(x) should divide by ln(2), got: {}",
             result
         );
     }

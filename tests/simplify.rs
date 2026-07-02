@@ -676,6 +676,35 @@ mod test_simplify {
         assert_eq!(simplified, Node::Variable("x".to_string()));
     }
 
+    /// `exp` = e^x, so only `exp(ln x)` cancels to `x`. `exp(log x)` stays symbolic
+    /// (or folds inner log only: `exp(log(10))` → `exp(1)`).
+    #[test]
+    fn test_exp_log_ten_simplify_vs_raw_evaluate() {
+        use arithma::build_expression_tree;
+        use arithma::parse_latex;
+        use arithma::Tokenizer;
+        let env = Environment::new();
+
+        let parsed = parse_latex("\\exp(\\log(10))", &env).unwrap();
+        assert_eq!(format!("{}", parsed), "\\exp(1)");
+        assert!((Evaluator::evaluate(&parsed, &env).unwrap() - std::f64::consts::E).abs() < 1e-10);
+
+        let mut tok = Tokenizer::new("\\exp(\\log(10))");
+        let expr = build_expression_tree(tok.tokenize()).unwrap();
+        let raw = Evaluator::evaluate(&expr, &env).unwrap();
+        assert!(
+            (raw - std::f64::consts::E).abs() < 1e-10,
+            "exp(log₁₀(10)) = e, got {}",
+            raw
+        );
+
+        let simplified = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", simplified), "\\exp(1)");
+        assert!(
+            (Evaluator::evaluate(&simplified, &env).unwrap() - std::f64::consts::E).abs() < 1e-10
+        );
+    }
+
     #[test]
     fn test_sqrt_of_x_squared() {
         let env = Environment::new();
@@ -722,9 +751,54 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_ln_odd_power_negative_x_undefined_on_reals() {
+        let env = Environment::new();
+        // ln(x^3) → 3·ln(x); on R both are undefined when x < 0 (unlike ln(x*y) split bug).
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Power(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Num(ExactNum::integer(3))),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        let mut env_neg = Environment::new();
+        env_neg.set("x", -2.0);
+        let raw = Evaluator::evaluate(&expr, &env_neg).unwrap();
+        let folded = Evaluator::evaluate(&simplified, &env_neg).unwrap();
+        assert!(raw.is_nan(), "ln((-2)^3) is undefined on reals");
+        assert!(folded.is_nan(), "3·ln(-2) is undefined on reals");
+
+        let mut env_pos = Environment::new();
+        env_pos.set("x", 2.0);
+        let raw_pos = Evaluator::evaluate(&expr, &env_pos).unwrap();
+        let folded_pos = Evaluator::evaluate(&simplified, &env_pos).unwrap();
+        assert!((raw_pos - folded_pos).abs() < 1e-10);
+    }
+
+    #[test]
     fn test_ln_of_product() {
         let env = Environment::new();
-        // ln(x * y) → ln(x) + ln(y)
+        // Without sign assumptions, ln(x*y) must not split: x and y may both be negative.
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Multiply(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Variable("y".to_string())),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert!(matches!(simplified, Node::Function(_, _)));
+    }
+
+    #[test]
+    fn test_ln_of_product_with_positive_assumptions() {
+        use arithma::assumptions::{Assumption, Assumptions};
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::Positive);
+        assumptions.assume("y", Assumption::Positive);
+        let env = Environment::with_assumptions(assumptions);
+        // ln(x * y) → ln(x) + ln(y), valid when x,y > 0.
         let expr = Node::Function(
             "ln".to_string(),
             vec![Node::Multiply(
@@ -739,7 +813,26 @@ mod test_simplify {
     #[test]
     fn test_ln_of_quotient() {
         let env = Environment::new();
-        // ln(x / y) → ln(x) - ln(y)
+        // Without sign assumptions, ln(x/y) must not split: x and y may both be negative.
+        let expr = Node::Function(
+            "ln".to_string(),
+            vec![Node::Divide(
+                Box::new(Node::Variable("x".to_string())),
+                Box::new(Node::Variable("y".to_string())),
+            )],
+        );
+        let simplified = expr.simplify(&env).unwrap();
+        assert!(matches!(simplified, Node::Function(_, _)));
+    }
+
+    #[test]
+    fn test_ln_of_quotient_with_positive_assumptions() {
+        use arithma::assumptions::{Assumption, Assumptions};
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::Positive);
+        assumptions.assume("y", Assumption::Positive);
+        let env = Environment::with_assumptions(assumptions);
+        // ln(x / y) → ln(x) - ln(y), valid when x,y > 0.
         let expr = Node::Function(
             "ln".to_string(),
             vec![Node::Divide(
@@ -749,6 +842,52 @@ mod test_simplify {
         );
         let simplified = expr.simplify(&env).unwrap();
         assert!(matches!(simplified, Node::Subtract(_, _)));
+    }
+
+    #[test]
+    fn test_log_and_lg_product_quotient_require_positive_assumptions() {
+        for name in ["log", "lg"] {
+            let env = Environment::new();
+            let product = Node::Function(
+                name.to_string(),
+                vec![Node::Multiply(
+                    Box::new(Node::Variable("x".to_string())),
+                    Box::new(Node::Variable("y".to_string())),
+                )],
+            );
+            assert!(
+                matches!(product.simplify(&env).unwrap(), Node::Function(_, _)),
+                "{} product should stay intact without sign assumptions",
+                name
+            );
+
+            let quotient = Node::Function(
+                name.to_string(),
+                vec![Node::Divide(
+                    Box::new(Node::Variable("x".to_string())),
+                    Box::new(Node::Variable("y".to_string())),
+                )],
+            );
+            assert!(
+                matches!(quotient.simplify(&env).unwrap(), Node::Function(_, _)),
+                "{} quotient should stay intact without sign assumptions",
+                name
+            );
+
+            use arithma::assumptions::{Assumption, Assumptions};
+            let mut assumptions = Assumptions::new();
+            assumptions.assume("x", Assumption::Positive);
+            assumptions.assume("y", Assumption::Positive);
+            let positive_env = Environment::with_assumptions(assumptions);
+            assert!(matches!(
+                product.simplify(&positive_env).unwrap(),
+                Node::Add(_, _)
+            ));
+            assert!(matches!(
+                quotient.simplify(&positive_env).unwrap(),
+                Node::Subtract(_, _)
+            ));
+        }
     }
 
     #[test]
@@ -806,7 +945,7 @@ mod test_simplify {
         let ln_x_sq = parse_latex("\\ln{x^2}", &env).unwrap();
         assert_eq!(
             format!("{}", Evaluator::simplify(&ln_x_sq, &env).unwrap()),
-            "2\\ln(x)"
+            "2\\ln(|x|)"
         );
     }
 
@@ -2212,6 +2351,19 @@ mod test_simplify {
         );
     }
 
+    // --- `\func^exp(arg)` LaTeX: parse → simplify ---
+
+    #[test]
+    fn test_latex_sin_inv_half_to_pi_over_six() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex(r"\sin^{-1}\left(\frac{1}{2}\right)", &env).unwrap();
+        let s = format!("{}", Evaluator::simplify(&expr, &env).unwrap());
+        assert!(
+            s.contains("\\pi") && s.contains("6"),
+            "expected π/6, got {s}"
+        );
+    }
+
     #[test]
     fn test_cos_integer_stays_symbolic() {
         let env = Environment::new();
@@ -2224,6 +2376,17 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_latex_tan_inv_one_to_pi_over_four() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex(r"\tan^{-1}(1)", &env).unwrap();
+        let s = format!("{}", Evaluator::simplify(&expr, &env).unwrap());
+        assert!(
+            s.contains("\\pi") && s.contains("4"),
+            "expected π/4, got {s}"
+        );
+    }
+
+    #[test]
     fn test_tan_integer_stays_symbolic() {
         let env = Environment::new();
         let expr = arithma::parse_latex("\\tan{1}", &env).unwrap();
@@ -2231,6 +2394,21 @@ mod test_simplify {
         assert!(
             matches!(&result, Node::Function(name, _) if name == "tan"),
             "tan(1) should stay symbolic, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_latex_sin_squared_is_power_not_inverse() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex(r"\sin^{2}(x)", &env).unwrap();
+        let s = format!("{}", Evaluator::simplify(&expr, &env).unwrap());
+        assert!(
+            s.contains("\\sin") && s.contains("2"),
+            "expected (sin x)^2 form, got {s}"
+        );
+        assert!(
+            !s.contains("arcsin"),
+            "sin^2 must not become arcsin, got {s}"
         );
     }
 
@@ -2248,5 +2426,16 @@ mod test_simplify {
         let expr = arithma::parse_latex("\\sin{\\pi}", &env).unwrap();
         let result = Evaluator::simplify(&expr, &env).unwrap();
         assert_eq!(result, Node::Num(ExactNum::integer(0)));
+    }
+
+    #[test]
+    fn test_latex_sin_inv_unbraced_left_right_arg() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex(r"\sin^-1\left(\frac{\sqrt{2}}{2}\right)", &env).unwrap();
+        let s = format!("{}", Evaluator::simplify(&expr, &env).unwrap());
+        assert!(
+            s.contains("\\pi") && s.contains("4"),
+            "expected π/4 from unbraced \\sin^-1, got {s}"
+        );
     }
 }

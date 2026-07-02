@@ -1,9 +1,11 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
+use crate::function_meta::is_transcendental_function;
 use crate::integer::{extract_square_factors, prime_factorize};
 use crate::multipoly::MultiPoly;
 use crate::node::Node;
 use crate::polynomial::Polynomial;
+use crate::simplify_literal::try_normalize_pi_multiple;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
@@ -32,40 +34,33 @@ fn try_rationalize(f: f64) -> Option<BigRational> {
     None
 }
 
-fn pi_node() -> Node {
-    Node::Variable("π".to_string())
+/// True when `exp` is a non-zero even integer (e.g. 2, -2, 4).
+fn is_even_integer_exponent(exp: &Node) -> bool {
+    match exp {
+        Node::Num(n) => n.to_i64().is_some_and(|e| e != 0 && e % 2 == 0),
+        Node::Negate(inner) => {
+            if let Node::Num(n) = inner.as_ref() {
+                n.to_i64().is_some_and(|e| e != 0 && e % 2 == 0)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
 }
 
-fn as_pi_multiple(node: &Node) -> Option<BigRational> {
+fn is_literal_positive(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::Num(n) if n.to_rational().is_some_and(|r| r.is_positive())
+    )
+}
+
+fn is_known_positive(node: &Node, env: &Environment) -> bool {
     match node {
-        Node::Variable(v) if v == "π" => Some(BigRational::one()),
-        Node::Negate(inner) => as_pi_multiple(inner).map(|r| -r),
-        Node::Divide(numer, denom) => {
-            if let Node::Num(ExactNum::Rational(d)) = denom.as_ref() {
-                if let Some(n_coeff) = as_pi_multiple(numer) {
-                    return Some(n_coeff / d);
-                }
-            }
-            None
-        }
-        Node::Multiply(left, right) => {
-            if let Node::Num(ExactNum::Rational(n)) = left.as_ref() {
-                if let Node::Variable(v) = right.as_ref() {
-                    if v == "π" {
-                        return Some(n.clone());
-                    }
-                }
-            }
-            if let Node::Num(ExactNum::Rational(n)) = right.as_ref() {
-                if let Node::Variable(v) = left.as_ref() {
-                    if v == "π" {
-                        return Some(n.clone());
-                    }
-                }
-            }
-            None
-        }
-        _ => None,
+        Node::Num(_) => is_literal_positive(node),
+        Node::Variable(v) => env.assumptions().is_positive(v),
+        _ => false,
     }
 }
 
@@ -91,169 +86,51 @@ fn try_fold_binom(args: &[Node]) -> Option<Node> {
     )))
 }
 
+/// Argument for `ln` inside `ln(a^b)`: use `|a|` when `b` is an even integer so
+/// `ln(x^2)` and `ln((-x)^2)` both become `2·ln|x|` on the real line.
+fn ln_power_log_arg(base: &Node, exp: &Node, env: &Environment) -> Node {
+    if is_even_integer_exponent(exp) {
+        if let Node::Variable(v) = base {
+            if env.assumptions().is_nonneg(v) {
+                return base.clone();
+            }
+        }
+        if is_literal_positive(base) {
+            return base.clone();
+        }
+        return Node::Abs(Box::new(base.clone()));
+    }
+    base.clone()
+}
+
 fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
     if name == "binom" {
         return try_fold_binom(args);
     }
-
-    if args.len() != 1 {
-        return None;
-    }
-    let arg = &args[0];
-
-    match name {
-        "ln" => {
-            if let Node::Num(n) = arg {
-                if n.is_one() {
-                    return Some(Node::Num(ExactNum::integer(0)));
-                }
-            }
-            if let Node::Variable(v) = arg {
-                if v == "e" {
-                    return Some(Node::Num(ExactNum::integer(1)));
-                }
-            }
-            None
-        }
-        "factorial" => {
-            if let Node::Num(n) = arg {
-                return try_fold_factorial_num(n);
-            }
-            None
-        }
-        "arctan" | "atan" => {
-            if let Node::Num(n) = arg {
-                let r = n.to_rational()?;
-                if r.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(0)));
-                }
-                if r.is_one() {
-                    return Some(Node::Divide(
-                        Box::new(pi_node()),
-                        Box::new(Node::Num(ExactNum::integer(4))),
-                    ));
-                }
-                if (-r.clone()).is_one() {
-                    return Some(Node::Negate(Box::new(Node::Divide(
-                        Box::new(pi_node()),
-                        Box::new(Node::Num(ExactNum::integer(4))),
-                    ))));
-                }
-            }
-            None
-        }
-        "arcsin" | "asin" => {
-            if let Node::Num(n) = arg {
-                let r = n.to_rational()?;
-                if r.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(0)));
-                }
-                if r.is_one() {
-                    return Some(Node::Divide(
-                        Box::new(pi_node()),
-                        Box::new(Node::Num(ExactNum::integer(2))),
-                    ));
-                }
-                if (-r.clone()).is_one() {
-                    return Some(Node::Negate(Box::new(Node::Divide(
-                        Box::new(pi_node()),
-                        Box::new(Node::Num(ExactNum::integer(2))),
-                    ))));
-                }
-            }
-            None
-        }
-        "sin" => {
-            if let Node::Num(n) = arg {
-                if n.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(0)));
-                }
-            }
-            let k = as_pi_multiple(arg)?;
-            let (numer, denom) = (k.numer().clone(), k.denom().clone());
-            let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
-            let half = BigInt::from(denom.to_i64()? / 2);
-            if n_mod.is_zero() {
-                return Some(Node::Num(ExactNum::integer(0)));
-            }
-            if denom == BigInt::from(2) && n_mod == BigInt::from(1) {
-                let quadrant = (numer / &denom) % BigInt::from(4);
-                let q = ((quadrant % 4) + 4) % 4;
-                if q == BigInt::from(0) {
-                    return Some(Node::Num(ExactNum::integer(1)));
-                } else if q == BigInt::from(2) {
-                    return Some(Node::Num(ExactNum::integer(-1)));
-                }
-            }
-            if denom == BigInt::from(1) && !n_mod.is_zero() {
-                return Some(Node::Num(ExactNum::integer(0)));
-            }
-            let _ = half;
-            None
-        }
-        "cos" => {
-            if let Node::Num(n) = arg {
-                if n.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(1)));
-                }
-            }
-            let k = as_pi_multiple(arg)?;
-            let (numer, denom) = (k.numer().clone(), k.denom().clone());
-            let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
-            if n_mod.is_zero() {
-                let full_periods = &numer / &denom;
-                let parity: BigInt = ((full_periods % 2) + 2) % 2;
-                if parity.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(1)));
-                } else {
-                    return Some(Node::Num(ExactNum::integer(-1)));
-                }
-            }
-            if denom == BigInt::from(2) && n_mod == BigInt::from(1) {
-                return Some(Node::Num(ExactNum::integer(0)));
-            }
-            None
-        }
-        "tan" => {
-            if let Node::Num(n) = arg {
-                if n.is_zero() {
-                    return Some(Node::Num(ExactNum::integer(0)));
-                }
-            }
-            let k = as_pi_multiple(arg)?;
-            let (numer, denom) = (k.numer().clone(), k.denom().clone());
-            let n_mod = ((numer % &denom) + &denom) % &denom;
-            if n_mod.is_zero() {
-                return Some(Node::Num(ExactNum::integer(0)));
-            }
-            if denom == BigInt::from(4) {
-                let q = (n_mod.to_i64()?) % 4;
-                if q == 1 {
-                    return Some(Node::Num(ExactNum::integer(1)));
-                }
-                if q == 3 {
-                    return Some(Node::Num(ExactNum::integer(-1)));
-                }
-            }
-            None
-        }
-        _ => None,
-    }
+    crate::simplify_literal::try_exact_function_value(name, args)
 }
 
-/// Rewrite `ln(n)` for positive integer `n` as a sum of `e·ln(p)` terms using prime
-/// factorization, keeping the result symbolic instead of evaluating to a float.
-fn factor_ln_integer(arg: &Node) -> Option<Node> {
-    let n = match arg {
-        Node::Num(num) => {
-            let v = num.to_i64()?;
-            if v <= 1 {
-                return None;
-            }
-            v as u64
-        }
+fn as_positive_integer_big(node: &Node) -> Option<BigInt> {
+    let r = match node {
+        Node::Num(n) => n.to_rational()?,
         _ => return None,
     };
+    if !r.is_integer() || r <= BigRational::one() {
+        return None;
+    }
+    Some(r.numer().clone())
+}
+
+/// Rewrite `log(n)` for positive integer `n` as a sum of `e·log(p)` terms using prime
+/// factorization, keeping the result symbolic instead of evaluating to a float.
+fn factor_log_integer(log_name: &str, arg: &Node) -> Option<Node> {
+    let bigint = as_positive_integer_big(arg)?;
+    // TODO: factor integers larger than u64::MAX (BigInt prime factorization); until then
+    // `log(10^k)` / `lg(2^k)` for huge `k` still work via simplify_literal.
+    let n = bigint.to_u64()?;
+    if n <= 1 {
+        return None;
+    }
 
     let factors = prime_factorize(n);
     let is_non_trivial = factors.len() > 1 || factors.iter().any(|&(_, e)| e > 1);
@@ -264,16 +141,16 @@ fn factor_ln_integer(arg: &Node) -> Option<Node> {
     let terms: Vec<Node> = factors
         .iter()
         .map(|&(prime, exponent)| {
-            let ln_prime = Node::Function(
-                "ln".to_string(),
+            let log_prime = Node::Function(
+                log_name.to_string(),
                 vec![Node::Num(ExactNum::integer(prime as i64))],
             );
             if exponent == 1 {
-                ln_prime
+                log_prime
             } else {
                 Node::Multiply(
                     Box::new(Node::Num(ExactNum::integer(exponent as i64))),
-                    Box::new(ln_prime),
+                    Box::new(log_prime),
                 )
             }
         })
@@ -285,6 +162,77 @@ fn factor_ln_integer(arg: &Node) -> Option<Node> {
         result = Node::Add(Box::new(result), Box::new(term));
     }
     Some(result)
+}
+
+fn is_named_log_base(log_name: &str, base: &Node) -> bool {
+    match log_name {
+        "ln" => match base {
+            Node::Variable(v) => v == "e",
+            Node::Num(b) => (b.to_f64() - std::f64::consts::E).abs() < 1e-14,
+            _ => false,
+        },
+        "log" => matches!(
+            base,
+            Node::Num(n) if n.to_rational() == Some(BigRational::from_integer(BigInt::from(10)))
+        ),
+        "lg" => matches!(
+            base,
+            Node::Num(n) if n.to_rational() == Some(BigRational::from_integer(BigInt::from(2)))
+        ),
+        _ => false,
+    }
+}
+
+/// Algebraic simplify rules shared by `ln`, `log`, and `lg`.
+fn simplify_log_function(log_name: &str, arg: &Node, env: &Environment) -> Option<Node> {
+    if let Node::Power(base, exp) = arg {
+        if is_named_log_base(log_name, base) {
+            return Some(*exp.clone());
+        }
+        let log_arg = ln_power_log_arg(base, exp, env);
+        let inner = Node::Function(log_name.to_string(), vec![log_arg])
+            .simplify(env)
+            .ok()?;
+        return Node::Multiply(exp.clone(), Box::new(inner))
+            .simplify(env)
+            .ok();
+    }
+    if log_name == "ln" {
+        if let Node::Function(inner_name, inner_args) = arg {
+            if inner_name == "exp" && inner_args.len() == 1 {
+                return Some(inner_args[0].clone());
+            }
+        }
+    }
+    if let Node::Multiply(a, b) = arg {
+        if !is_known_positive(a, env) || !is_known_positive(b, env) {
+            return None;
+        }
+        let log_a = Node::Function(log_name.to_string(), vec![*a.clone()])
+            .simplify(env)
+            .ok()?;
+        let log_b = Node::Function(log_name.to_string(), vec![*b.clone()])
+            .simplify(env)
+            .ok()?;
+        return Node::Add(Box::new(log_a), Box::new(log_b))
+            .simplify(env)
+            .ok();
+    }
+    if let Node::Divide(a, b) = arg {
+        if !is_known_positive(a, env) || !is_known_positive(b, env) {
+            return None;
+        }
+        let log_a = Node::Function(log_name.to_string(), vec![*a.clone()])
+            .simplify(env)
+            .ok()?;
+        let log_b = Node::Function(log_name.to_string(), vec![*b.clone()])
+            .simplify(env)
+            .ok()?;
+        return Node::Subtract(Box::new(log_a), Box::new(log_b))
+            .simplify(env)
+            .ok();
+    }
+    factor_log_integer(log_name, arg)?.simplify(env).ok()
 }
 
 fn is_zero_node(node: &Node) -> bool {
@@ -495,18 +443,20 @@ impl Simplifiable for Node {
                 if let (Node::Num(ref l_coef), Node::Variable(ref var)) =
                     (&left_simplified, &right_simplified)
                 {
-                    return Ok(Node::Multiply(
+                    let result = Node::Multiply(
                         Box::new(Node::Num(l_coef.clone())),
                         Box::new(Node::Variable(var.clone())),
-                    ));
+                    );
+                    return Ok(try_normalize_pi_multiple(&result).unwrap_or(result));
                 }
                 if let (Node::Variable(ref var), Node::Num(ref r_coef)) =
                     (&left_simplified, &right_simplified)
                 {
-                    return Ok(Node::Multiply(
+                    let result = Node::Multiply(
                         Box::new(Node::Num(r_coef.clone())),
                         Box::new(Node::Variable(var.clone())),
-                    ));
+                    );
+                    return Ok(try_normalize_pi_multiple(&result).unwrap_or(result));
                 }
 
                 // x^a * x^b → x^(a+b)
@@ -564,13 +514,14 @@ impl Simplifiable for Node {
                         ));
                     }
                 }
-                if let Some(normalized) = try_polynomial_normalize(&result) {
-                    Ok(normalized)
+                let result = if let Some(normalized) = try_polynomial_normalize(&result) {
+                    normalized
                 } else if let Some(normalized) = try_rational_normalize(&result, env) {
-                    Ok(normalized)
+                    normalized
                 } else {
-                    Ok(result)
-                }
+                    result
+                };
+                Ok(try_normalize_pi_multiple(&result).unwrap_or(result))
             }
             Node::Power(base, exponent) => {
                 let base_simplified = base.simplify(env)?;
@@ -782,6 +733,19 @@ impl Simplifiable for Node {
                 if let (Node::Num(ref l), Node::Num(ref r)) = (&left_simplified, &right_simplified)
                 {
                     return Ok(Node::Num(l / r));
+                }
+
+                // 1 / (n/m) → m/n — invert nested rational fraction
+                if let Node::Num(ref l) = left_simplified {
+                    if l.is_one() {
+                        if let Node::Divide(ref inner_num, ref inner_den) = right_simplified {
+                            if let (Node::Num(ref n), Node::Num(ref d)) =
+                                (&**inner_num, &**inner_den)
+                            {
+                                return Ok(Node::Num(d / n));
+                            }
+                        }
+                    }
                 }
 
                 // (n/expr) / m → (n/m) / expr — collapse nested numeric divisions
@@ -1060,10 +1024,12 @@ impl Simplifiable for Node {
                     return Ok(simplified);
                 }
 
-                Ok(Node::Divide(
-                    Box::new(left_simplified),
-                    Box::new(right_simplified),
-                ))
+                let result = Node::Divide(Box::new(left_simplified), Box::new(right_simplified));
+                if let Some(normalized) = try_normalize_pi_multiple(&result) {
+                    Ok(normalized)
+                } else {
+                    Ok(result)
+                }
             }
 
             Node::Summation(index_var, start, end, body) => {
@@ -1293,63 +1259,28 @@ impl Simplifiable for Node {
                 Ok(Node::Sqrt(Box::new(simplified)))
             }
             Node::Function(name, args) => {
+                // Fold `exp(ln x)` and `exp(k·ln a)` before inner rewrites (e.g. `log(10) → 1`).
+                if name == "exp" && args.len() == 1 {
+                    if let Some(result) = try_exact_function_value(name, args) {
+                        return result.simplify(env);
+                    }
+                }
+
                 let simplified_args: Vec<Node> = args
                     .iter()
                     .map(|a| a.simplify(env))
                     .collect::<Result<Vec<_>, _>>()?;
 
                 if simplified_args.len() == 1 {
+                    if let Some(exact) = try_exact_function_value(name, &simplified_args) {
+                        return Ok(exact);
+                    }
+
                     let arg = &simplified_args[0];
                     match name.as_str() {
-                        "ln" => {
-                            // ln(e^x) → x
-                            if let Node::Power(base, exp) = arg {
-                                let is_e = match &**base {
-                                    Node::Variable(v) => v == "e",
-                                    Node::Num(b) => {
-                                        (b.to_f64() - std::f64::consts::E).abs() < 1e-14
-                                    }
-                                    _ => false,
-                                };
-                                if is_e {
-                                    return Ok(*exp.clone());
-                                }
-                                // ln(a^b) → b·ln(a), then re-simplify since ln(a)
-                                // may itself expand (e.g. a = x·y → ln(x)+ln(y))
-                                let inner_ln =
-                                    Node::Function("ln".to_string(), vec![*base.clone()])
-                                        .simplify(env)?;
-                                return Node::Multiply(exp.clone(), Box::new(inner_ln))
-                                    .simplify(env);
-                            }
-                            // ln(a·b) → ln(a) + ln(b), re-simplify each ln
-                            if let Node::Multiply(a, b) = arg {
-                                let ln_a = Node::Function("ln".to_string(), vec![*a.clone()])
-                                    .simplify(env)?;
-                                let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
-                                    .simplify(env)?;
-                                return Node::Add(Box::new(ln_a), Box::new(ln_b)).simplify(env);
-                            }
-                            // ln(a/b) → ln(a) - ln(b), re-simplify each ln
-                            if let Node::Divide(a, b) = arg {
-                                let ln_a = Node::Function("ln".to_string(), vec![*a.clone()])
-                                    .simplify(env)?;
-                                let ln_b = Node::Function("ln".to_string(), vec![*b.clone()])
-                                    .simplify(env)?;
-                                return Node::Subtract(Box::new(ln_a), Box::new(ln_b))
-                                    .simplify(env);
-                            }
-                            // ln(n) for positive integer n → Σ e·ln(p) via prime factorization
-                            if let Some(factored) = factor_ln_integer(arg) {
-                                return factored.simplify(env);
-                            }
-                        }
-                        "exp" => {
-                            // exp(ln(x)) → x
-                            if let Node::Function(inner_name, inner_args) = arg {
-                                if inner_name == "ln" && inner_args.len() == 1 {
-                                    return Ok(inner_args[0].clone());
-                                }
+                        "ln" | "log" | "lg" => {
+                            if let Some(result) = simplify_log_function(name, arg, env) {
+                                return Ok(result);
                             }
                         }
                         "sqrt" => {
@@ -1439,79 +1370,67 @@ impl Simplifiable for Node {
                                 }
                             }
                         }
-                        // sin(-x) → -sin(x)
-                        "sin" | "tan" | "sinh" | "tanh" => {
+                        // Odd functions: f(-x) → -f(x)
+                        "sin" | "tan" | "sinh" | "tanh" | "csc" | "cot" | "csch" | "coth"
+                        | "arcsin" | "arctan" | "arccot" | "arcsinh" | "arctanh" | "arccsch"
+                        | "arccoth" => {
                             if let Node::Negate(inner) = arg {
-                                return Ok(Node::Negate(Box::new(Node::Function(
-                                    name.clone(),
-                                    vec![*inner.clone()],
-                                ))));
+                                let inner_val = Node::Function(name.clone(), vec![*inner.clone()])
+                                    .simplify(env)?;
+                                return Ok(Node::Negate(Box::new(inner_val)));
                             }
                         }
-                        // cos(-x) → cos(x)
-                        "cos" | "cosh" => {
+                        // Even functions: f(-x) → f(x)
+                        "cos" | "cosh" | "sec" | "sech" => {
                             if let Node::Negate(inner) = arg {
-                                return Ok(Node::Function(name.clone(), vec![*inner.clone()]));
+                                return Node::Function(name.clone(), vec![*inner.clone()])
+                                    .simplify(env);
+                            }
+                        }
+                        // arccos(-x) → π − arccos(x), arcsec(-x) → π − arcsec(x)
+                        "arccos" | "arcsec" => {
+                            if let Node::Negate(inner) = arg {
+                                let inner_val = Node::Function(name.clone(), vec![*inner.clone()])
+                                    .simplify(env)?;
+                                return Node::Subtract(
+                                    Box::new(Node::Variable("π".to_string())),
+                                    Box::new(inner_val),
+                                )
+                                .simplify(env);
                             }
                         }
                         _ => {}
                     }
                 }
 
-                if let Some(exact) = try_exact_function_value(name, &simplified_args) {
-                    return Ok(exact);
+                if simplified_args.len() != 1 {
+                    if let Some(exact) = try_exact_function_value(name, &simplified_args) {
+                        return Ok(exact);
+                    }
                 }
 
-                // Keep ln of positive integers symbolic (primes and already-factored bases).
-                if name == "ln"
+                // Keep log of positive integers symbolic (primes and already-factored bases).
+                if matches!(name.as_str(), "ln" | "log" | "lg")
                     && simplified_args.len() == 1
                     && matches!(
                         &simplified_args[0],
-                        Node::Num(n) if n.to_i64().is_some_and(|v| v > 1)
+                        Node::Num(n) if n.to_rational()
+                            .is_some_and(|r| r.is_integer() && r > BigRational::one())
                     )
                 {
                     return Ok(Node::Function(name.clone(), simplified_args));
                 }
 
-                // Trig, inverse trig, and hyperbolic functions with numeric args that
-                // aren't special values should stay symbolic — no closed form exists.
-                // try_exact_function_value already handled special values above.
-                if matches!(
-                    name.as_str(),
-                    "sin"
-                        | "cos"
-                        | "tan"
-                        | "csc"
-                        | "sec"
-                        | "cot"
-                        | "arcsin"
-                        | "arccos"
-                        | "arctan"
-                        | "asin"
-                        | "acos"
-                        | "atan"
-                        | "arccsc"
-                        | "arcsec"
-                        | "arccot"
-                        | "sinh"
-                        | "cosh"
-                        | "tanh"
-                        | "csch"
-                        | "sech"
-                        | "coth"
-                        | "arcsinh"
-                        | "arccosh"
-                        | "arctanh"
-                        | "arccsch"
-                        | "arcsech"
-                        | "arccoth"
-                ) && simplified_args.iter().all(|a| matches!(a, Node::Num(_)))
-                {
-                    return Ok(Node::Function(name.clone(), simplified_args));
-                }
-
                 let all_numeric = simplified_args.iter().all(|a| matches!(a, Node::Num(_)));
-                if all_numeric {
+                // Preserve exactness: don't collapse a transcendental function of an
+                // exact argument to a float (e.g. sin(2) stays sin(2), not 0.909…).
+                // Fold only when some argument is already inexact, or the function
+                // yields a rational result (gcd, min, max, …).
+                let any_inexact = simplified_args
+                    .iter()
+                    .any(|a| matches!(a, Node::Num(ExactNum::Float(_))));
+                let keep_symbolic = is_transcendental_function(name) && !any_inexact;
+                if all_numeric && !keep_symbolic {
                     let f64_args: Vec<f64> = simplified_args
                         .iter()
                         .map(|a| {
@@ -3229,6 +3148,22 @@ mod tests {
         format!("{}", expr.simplify(&env).unwrap())
     }
 
+    // --- Circular trigonometric ---
+    #[test]
+    fn test_sin_zero_is_zero() {
+        assert_eq!(simplify_latex("\\sin(0)"), "0");
+    }
+
+    #[test]
+    fn test_cos_zero_is_one() {
+        assert_eq!(simplify_latex("\\cos(0)"), "1");
+    }
+
+    #[test]
+    fn test_tan_zero_is_zero() {
+        assert_eq!(simplify_latex("\\tan(0)"), "0");
+    }
+
     #[test]
     fn test_sin_pi_is_zero() {
         assert_eq!(simplify_latex("\\sin(\\pi)"), "0");
@@ -3250,38 +3185,8 @@ mod tests {
     }
 
     #[test]
-    fn test_arctan_one_is_pi_4() {
-        assert_eq!(simplify_latex("\\arctan(1)"), "\\frac{\\pi}{4}");
-    }
-
-    #[test]
-    fn test_arctan_zero_is_zero() {
-        assert_eq!(simplify_latex("\\arctan(0)"), "0");
-    }
-
-    #[test]
-    fn test_ln_one_is_zero() {
-        assert_eq!(simplify_latex("\\ln(1)"), "0");
-    }
-
-    #[test]
-    fn test_cos_zero_is_one() {
-        assert_eq!(simplify_latex("\\cos(0)"), "1");
-    }
-
-    #[test]
-    fn test_sin_zero_is_zero() {
-        assert_eq!(simplify_latex("\\sin(0)"), "0");
-    }
-
-    #[test]
-    fn test_tan_zero_is_zero() {
-        assert_eq!(simplify_latex("\\tan(0)"), "0");
-    }
-
-    #[test]
-    fn test_tan_pi_4_is_one() {
-        assert_eq!(simplify_latex("\\tan(\\frac{\\pi}{4})"), "1");
+    fn test_sin_2pi_is_zero() {
+        assert_eq!(simplify_latex("\\sin(2\\pi)"), "0");
     }
 
     #[test]
@@ -3290,8 +3195,582 @@ mod tests {
     }
 
     #[test]
-    fn test_sin_2pi_is_zero() {
-        assert_eq!(simplify_latex("\\sin(2\\pi)"), "0");
+    fn test_tan_pi_4_is_one() {
+        assert_eq!(simplify_latex("\\tan(\\frac{\\pi}{4})"), "1");
+    }
+
+    #[test]
+    fn test_sin_pi_6_is_half() {
+        assert_eq!(simplify_latex("\\sin(\\frac{\\pi}{6})"), "\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_sin_pi_8() {
+        let result = simplify_latex("\\sin(\\frac{\\pi}{8})");
+        assert!(
+            result.contains("sqrt"),
+            "sin(pi/8) should be exact sqrt form, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_cos_pi_12() {
+        let result = simplify_latex("\\cos(\\frac{\\pi}{12})");
+        assert!(
+            result.contains("sqrt"),
+            "cos(pi/12) should be exact sqrt form, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_cos_pi_3_is_half() {
+        assert_eq!(simplify_latex("\\cos(\\frac{\\pi}{3})"), "\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_sin_pi_4_is_sqrt2_over_2() {
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{\\pi}{4})"),
+            "\\frac{\\sqrt{2}}{2}"
+        );
+    }
+
+    #[test]
+    fn test_two_pi_over_8_displays_as_pi_over_4() {
+        assert_eq!(simplify_latex("\\frac{2\\pi}{8}"), "\\frac{\\pi}{4}");
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{2\\pi}{8})"),
+            "\\frac{\\sqrt{2}}{2}"
+        );
+    }
+
+    #[test]
+    fn test_exact_trig_pi_fifths() {
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{\\pi}{5})"),
+            "\\frac{\\sqrt{10 - 2\\sqrt{5}}}{4}"
+        );
+        assert_eq!(
+            simplify_latex("\\cos(\\frac{\\pi}{5})"),
+            "\\frac{\\sqrt{5} + 1}{4}"
+        );
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{\\pi}{10})"),
+            "\\frac{\\sqrt{5} - 1}{4}"
+        );
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{2\\pi}{5})"),
+            "\\frac{\\sqrt{10 + 2\\sqrt{5}}}{4}"
+        );
+        assert_eq!(
+            simplify_latex("\\tan(\\frac{\\pi}{5})"),
+            "\\sqrt{5 - 2\\sqrt{5}}"
+        );
+    }
+
+    // Quadrant/period sign correctness (angles outside the principal range).
+    #[test]
+    fn test_sin_7pi_6_is_neg_half() {
+        // Quadrant III: sin(7π/6) = −1/2
+        assert_eq!(simplify_latex("\\sin(\\frac{7\\pi}{6})"), "-\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_cos_7pi_6_is_neg_sqrt3_over_2() {
+        // Quadrant III: cos(7π/6) = −√3/2
+        assert_eq!(
+            simplify_latex("\\cos(\\frac{7\\pi}{6})"),
+            "-\\frac{\\sqrt{3}}{2}"
+        );
+    }
+
+    #[test]
+    fn test_cos_2pi_3_is_neg_half() {
+        // Quadrant II: cos(2π/3) = −1/2
+        assert_eq!(simplify_latex("\\cos(\\frac{2\\pi}{3})"), "-\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_sin_11pi_6_is_neg_half() {
+        // Quadrant IV: sin(11π/6) = −1/2
+        assert_eq!(simplify_latex("\\sin(\\frac{11\\pi}{6})"), "-\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_cos_11pi_12_is_negative() {
+        // Quadrant II: cos(11π/12) = −(√6+√2)/4
+        assert_eq!(
+            simplify_latex("\\cos(\\frac{11\\pi}{12})"),
+            "-\\frac{\\sqrt{6} + \\sqrt{2}}{4}"
+        );
+    }
+
+    #[test]
+    fn test_sin_5pi_2_is_one() {
+        // Coterminal with π/2 (5π/2 = 2π + π/2): sin = 1
+        assert_eq!(simplify_latex("\\sin(\\frac{5\\pi}{2})"), "1");
+    }
+
+    #[test]
+    fn test_sin_3pi_2_is_neg_one() {
+        assert_eq!(simplify_latex("\\sin(\\frac{3\\pi}{2})"), "-1");
+    }
+
+    #[test]
+    fn test_tan_3pi_4_is_neg_one() {
+        // tan(π − x) = −tan(x): tan(3π/4) = −1
+        assert_eq!(simplify_latex("\\tan(\\frac{3\\pi}{4})"), "-1");
+    }
+
+    #[test]
+    fn test_tan_5pi_4_is_one() {
+        // tan has period π: tan(5π/4) = tan(π/4) = 1
+        assert_eq!(simplify_latex("\\tan(\\frac{5\\pi}{4})"), "1");
+    }
+
+    #[test]
+    fn test_sin_neg_pi_6_is_neg_half() {
+        assert_eq!(simplify_latex("\\sin(-\\frac{\\pi}{6})"), "-\\frac{1}{2}");
+    }
+
+    #[test]
+    fn test_tan_pi_6_is_one_over_sqrt3() {
+        assert_eq!(
+            simplify_latex("\\tan(\\frac{\\pi}{6})"),
+            "\\frac{1}{\\sqrt{3}}"
+        );
+    }
+
+    #[test]
+    fn test_tan_pi_12() {
+        let r = simplify_latex("\\tan(\\frac{\\pi}{12})");
+        assert!(r.contains("2") && r.contains("\\sqrt{3}"), "got {}", r);
+    }
+
+    #[test]
+    fn test_arcsin_sqrt2_over_2_is_pi_4() {
+        assert_eq!(
+            simplify_latex("\\arcsin(\\frac{\\sqrt{2}}{2})"),
+            "\\frac{\\pi}{4}"
+        );
+    }
+
+    #[test]
+    fn test_arcsin_sqrt3_over_2_is_pi_3() {
+        assert_eq!(
+            simplify_latex("\\arcsin(\\frac{\\sqrt{3}}{2})"),
+            "\\frac{\\pi}{3}"
+        );
+    }
+
+    #[test]
+    fn test_arccos_neg_half_is_two_pi_thirds() {
+        assert_eq!(
+            simplify_latex("\\arccos(-\\frac{1}{2})"),
+            "\\frac{2\\pi}{3}"
+        );
+    }
+
+    #[test]
+    fn test_arccos_sqrt3_over_2_is_pi_6() {
+        assert_eq!(
+            simplify_latex("\\arccos(\\frac{\\sqrt{3}}{2})"),
+            "\\frac{\\pi}{6}"
+        );
+    }
+
+    #[test]
+    fn test_arctan_one_over_sqrt3_is_pi_6() {
+        assert_eq!(
+            simplify_latex("\\arctan(\\frac{1}{\\sqrt{3}})"),
+            "\\frac{\\pi}{6}"
+        );
+    }
+
+    #[test]
+    fn test_arctan_sqrt3_is_pi_3() {
+        assert_eq!(simplify_latex("\\arctan(\\sqrt{3})"), "\\frac{\\pi}{3}");
+    }
+
+    #[test]
+    fn test_log_power_ten() {
+        assert_eq!(simplify_latex("\\log(10^x)"), "x");
+    }
+
+    #[test]
+    fn test_log_product() {
+        assert_eq!(simplify_latex("\\log(2 \\cdot 3)"), "\\log(2) + \\log(3)");
+    }
+
+    #[test]
+    fn test_log_quotient() {
+        assert_eq!(
+            simplify_latex("\\log(\\frac{30}{5})"),
+            "\\log(2) + \\log(3)"
+        );
+    }
+
+    #[test]
+    fn test_log_composite_factorization() {
+        assert_eq!(simplify_latex("\\log(50)"), "\\log(2) + 2\\log(5)");
+    }
+
+    #[test]
+    fn test_lg_power_two() {
+        assert_eq!(simplify_latex("\\lg(2^x)"), "x");
+    }
+
+    #[test]
+    fn test_lg_product() {
+        assert_eq!(simplify_latex("\\lg(3 \\cdot 5)"), "\\lg(3) + \\lg(5)");
+    }
+
+    #[test]
+    fn test_lg_x_squared_uses_abs() {
+        assert_eq!(simplify_latex("\\lg(x^2)"), "2\\lg(|x|)");
+    }
+
+    // --- BigInt log, exp powers, inverse hyperbolic surds ---
+    #[test]
+    fn test_exp_ln_two_is_two() {
+        assert_eq!(simplify_latex("\\exp(\\ln(2))"), "2");
+    }
+
+    #[test]
+    fn test_exp_two_ln_three_is_nine() {
+        assert_eq!(simplify_latex("\\exp(2 \\cdot \\ln(3))"), "9");
+    }
+
+    #[test]
+    fn test_log_ten_to_the_twenty() {
+        assert_eq!(simplify_latex("\\log(100000000000000000000)"), "20");
+    }
+
+    #[test]
+    fn test_arcsinh_half() {
+        let r = simplify_latex("\\arcsinh(\\frac{1}{2})");
+        assert!(r.contains("ln") && r.contains("5"), "got {}", r);
+    }
+
+    #[test]
+    fn test_arccosh_three() {
+        let r = simplify_latex("\\arccosh(3)");
+        assert!(r.contains("ln") && r.contains("2"), "got {}", r);
+    }
+
+    #[test]
+    fn test_arctanh_inv_sqrt3() {
+        assert_eq!(
+            simplify_latex("\\arctanh(\\frac{1}{\\sqrt{3}})"),
+            "\\frac{1}{2} \\cdot \\ln(2 + \\sqrt{3})"
+        );
+    }
+
+    #[test]
+    fn test_sin_pi_twelfth_via_unreduced_angle() {
+        // 2π/24 = π/12
+        assert_eq!(
+            simplify_latex("\\sin(\\frac{2\\pi}{24})"),
+            simplify_latex("\\sin(\\frac{\\pi}{12})")
+        );
+    }
+
+    // --- Parity rules and unified inverse surd exact values ---
+    #[test]
+    fn test_csc_neg_pi_6_is_neg_two() {
+        assert_eq!(simplify_latex("\\csc(-\\frac{\\pi}{6})"), "-2");
+    }
+
+    #[test]
+    fn test_sec_neg_pi_3_is_two() {
+        assert_eq!(simplify_latex("\\sec(-\\frac{\\pi}{3})"), "2");
+    }
+
+    #[test]
+    fn test_cot_neg_pi_4_is_neg_one() {
+        assert_eq!(simplify_latex("\\cot(-\\frac{\\pi}{4})"), "-1");
+    }
+
+    #[test]
+    fn test_csch_neg_ln_two_is_neg_four_thirds() {
+        assert_eq!(simplify_latex("\\csch(-\\ln(2))"), "-\\frac{4}{3}");
+    }
+
+    #[test]
+    fn test_sech_neg_x_is_sech_x() {
+        assert_eq!(simplify_latex("\\sech(-x)"), "\\sech(x)");
+    }
+
+    #[test]
+    fn test_arcsin_neg_x_is_neg_arcsin_x() {
+        assert_eq!(simplify_latex("\\arcsin(-x)"), "-\\arcsin(x)");
+    }
+
+    #[test]
+    fn test_arccos_neg_x_is_pi_minus_arccos_x() {
+        assert_eq!(simplify_latex("\\arccos(-x)"), "\\pi - \\arccos(x)");
+    }
+
+    #[test]
+    fn test_arccsc_sqrt2_is_pi_4() {
+        assert_eq!(simplify_latex("\\arccsc(\\sqrt{2})"), "\\frac{\\pi}{4}");
+    }
+
+    #[test]
+    fn test_arcsec_sqrt2_is_pi_4() {
+        assert_eq!(simplify_latex("\\arcsec(\\sqrt{2})"), "\\frac{\\pi}{4}");
+    }
+
+    #[test]
+    fn test_arccot_sqrt3_is_pi_6() {
+        assert_eq!(simplify_latex("\\arccot(\\sqrt{3})"), "\\frac{\\pi}{6}");
+    }
+
+    #[test]
+    fn test_arccot_inv_sqrt3_is_pi_3() {
+        assert_eq!(
+            simplify_latex("\\arccot(\\frac{1}{\\sqrt{3}})"),
+            "\\frac{\\pi}{3}"
+        );
+    }
+
+    #[test]
+    fn test_arcsin_inv_sqrt2_is_pi_4() {
+        assert_eq!(
+            simplify_latex("\\arcsin(\\frac{1}{\\sqrt{2}})"),
+            "\\frac{\\pi}{4}"
+        );
+    }
+
+    // --- Reciprocal trigonometric ---
+    #[test]
+    fn test_csc_pi_2_is_one() {
+        assert_eq!(simplify_latex("\\csc(\\frac{\\pi}{2})"), "1");
+    }
+
+    #[test]
+    fn test_sec_zero_is_one() {
+        assert_eq!(simplify_latex("\\sec(0)"), "1");
+    }
+
+    #[test]
+    fn test_cot_pi_4_is_one() {
+        assert_eq!(simplify_latex("\\cot(\\frac{\\pi}{4})"), "1");
+    }
+
+    // --- Inverse circular trigonometric ---
+    #[test]
+    fn test_arctan_zero_is_zero() {
+        assert_eq!(simplify_latex("\\arctan(0)"), "0");
+    }
+
+    #[test]
+    fn test_arctan_one_is_pi_4() {
+        assert_eq!(simplify_latex("\\arctan(1)"), "\\frac{\\pi}{4}");
+    }
+
+    #[test]
+    fn test_arccos_zero_is_pi_2() {
+        assert_eq!(simplify_latex("\\arccos(0)"), "\\frac{\\pi}{2}");
+    }
+
+    #[test]
+    fn test_arccos_one_is_zero() {
+        assert_eq!(simplify_latex("\\arccos(1)"), "0");
+    }
+
+    #[test]
+    fn test_arccos_neg_one_is_pi() {
+        assert_eq!(simplify_latex("\\arccos(-1)"), "\\pi");
+    }
+
+    #[test]
+    fn test_sin_inv_one_is_pi_2() {
+        assert_eq!(simplify_latex("\\sin^{-1}(1)"), "\\frac{\\pi}{2}");
+    }
+
+    #[test]
+    fn test_sin_inv_unbraced_is_arcsin() {
+        assert_eq!(simplify_latex("\\sin^-1(1)"), "\\frac{\\pi}{2}");
+    }
+
+    #[test]
+    fn test_sin_neg_one_point_zero_is_power_not_arcsin() {
+        let result = simplify_latex("\\sin^{-1.0}(x)");
+        assert!(
+            result.contains("\\sin") && !result.contains("arcsin"),
+            "sin^{{-1.0}}(x) should be a power, not arcsin, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_sin_neg_two_is_power() {
+        assert_eq!(simplify_latex("\\sin^{-2}(x)"), "\\sin(x)^{-2}");
+    }
+
+    // --- Inverse reciprocal trigonometric ---
+    #[test]
+    fn test_arccsc_two_is_pi_6() {
+        assert_eq!(simplify_latex("\\arccsc(2)"), "\\frac{\\pi}{6}");
+    }
+
+    #[test]
+    fn test_arcsec_two_is_pi_3() {
+        assert_eq!(simplify_latex("\\arcsec(2)"), "\\frac{\\pi}{3}");
+    }
+
+    #[test]
+    fn test_arccot_zero_is_pi_2() {
+        assert_eq!(simplify_latex("\\arccot(0)"), "\\frac{\\pi}{2}");
+    }
+
+    #[test]
+    fn test_arccot_neg_one_is_neg_pi_4() {
+        assert_eq!(simplify_latex("\\arccot(-1)"), "-\\frac{\\pi}{4}");
+    }
+
+    // --- Reciprocal hyperbolic ---
+    #[test]
+    fn test_sech_zero_is_one() {
+        assert_eq!(simplify_latex("\\sech(0)"), "1");
+    }
+
+    // --- Hyperbolic exact (ln and inverse) ---
+    #[test]
+    fn test_sinh_ln_two_is_three_quarters() {
+        assert_eq!(simplify_latex("\\sinh(\\ln(2))"), "\\frac{3}{4}");
+    }
+
+    #[test]
+    fn test_cosh_ln_three_is_five_thirds() {
+        assert_eq!(simplify_latex("\\cosh(\\ln(3))"), "\\frac{5}{3}");
+    }
+
+    #[test]
+    fn test_tanh_ln_two_is_three_fifths() {
+        assert_eq!(simplify_latex("\\tanh(\\ln(2))"), "\\frac{3}{5}");
+    }
+
+    #[test]
+    fn test_csch_ln_two_is_four_thirds() {
+        assert_eq!(simplify_latex("\\csch(\\ln(2))"), "\\frac{4}{3}");
+    }
+
+    #[test]
+    fn test_arcsinh_one_is_ln_one_plus_sqrt2() {
+        assert_eq!(simplify_latex("\\arcsinh(1)"), "\\ln(1 + \\sqrt{2})");
+    }
+
+    #[test]
+    fn test_arccosh_two_is_ln_two_plus_sqrt3() {
+        assert_eq!(simplify_latex("\\arccosh(2)"), "\\ln(2 + \\sqrt{3})");
+    }
+
+    #[test]
+    fn test_arctanh_half_is_half_ln_three() {
+        assert_eq!(
+            simplify_latex("\\arctanh(\\frac{1}{2})"),
+            "\\frac{1}{2} \\cdot \\ln(3)"
+        );
+    }
+
+    #[test]
+    fn test_arctanh_third_is_half_ln_two() {
+        assert_eq!(
+            simplify_latex("\\arctanh(\\frac{1}{3})"),
+            "\\frac{1}{2} \\cdot \\ln(2)"
+        );
+    }
+
+    // --- Inverse hyperbolic ---
+    #[test]
+    fn test_arccosh_one_is_zero() {
+        assert_eq!(simplify_latex("\\arccosh(1)"), "0");
+    }
+
+    // --- Inverse reciprocal hyperbolic ---
+    #[test]
+    fn test_arcsech_one_is_zero() {
+        assert_eq!(simplify_latex("\\arcsech(1)"), "0");
+    }
+
+    // --- Logarithmic and exponential ---
+    #[test]
+    fn test_log_one_is_zero() {
+        assert_eq!(simplify_latex("\\log(1)"), "0");
+    }
+
+    #[test]
+    fn test_log_ten_is_one() {
+        assert_eq!(simplify_latex("\\log(10)"), "1");
+    }
+
+    #[test]
+    fn test_log_hundred_is_two() {
+        assert_eq!(simplify_latex("\\log(100)"), "2");
+    }
+
+    #[test]
+    fn test_lg_two_is_one() {
+        assert_eq!(simplify_latex("\\lg(2)"), "1");
+    }
+
+    #[test]
+    fn test_lg_eight_is_three() {
+        assert_eq!(simplify_latex("\\lg(8)"), "3");
+    }
+
+    #[test]
+    fn test_ln_one_is_zero() {
+        assert_eq!(simplify_latex("\\ln(1)"), "0");
+    }
+
+    #[test]
+    fn test_lg_one_is_zero() {
+        assert_eq!(simplify_latex("\\lg(1)"), "0");
+    }
+
+    #[test]
+    fn test_ln_exp_x_is_x() {
+        assert_eq!(simplify_latex("\\ln(\\exp(x))"), "x");
+    }
+
+    #[test]
+    fn test_exp_ln_x_is_x() {
+        assert_eq!(simplify_latex("\\exp(\\ln(x))"), "x");
+    }
+
+    #[test]
+    fn test_exp_log_x_stays_symbolic() {
+        assert_eq!(simplify_latex("\\exp(\\log(x))"), "\\exp(\\log(x))");
+    }
+
+    #[test]
+    fn test_exp_lg_x_stays_symbolic() {
+        assert_eq!(simplify_latex("\\exp(\\lg(x))"), "\\exp(\\lg(x))");
+    }
+
+    #[test]
+    fn test_exp_log_ten_folds_inner_log_only() {
+        // exp(log(10)) = exp(1) = e; must not cancel to 10 (exp is e^x, not 10^x).
+        assert_eq!(simplify_latex("\\exp(\\log(10))"), "\\exp(1)");
+    }
+
+    #[test]
+    fn test_ln_x_squared_uses_abs() {
+        assert_eq!(simplify_latex("\\ln(x^2)"), "2\\ln(|x|)");
+    }
+
+    #[test]
+    fn test_ln_neg_x_squared_uses_abs() {
+        assert_eq!(simplify_latex("\\ln((-x)^2)"), "2\\ln(|x|)");
+    }
+
+    #[test]
+    fn test_ln_e_power_x_is_x() {
+        assert_eq!(simplify_latex("\\ln(e^x)"), "x");
     }
 
     #[test]
