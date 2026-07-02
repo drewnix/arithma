@@ -897,6 +897,26 @@ impl Simplifiable for Node {
                     return Ok(Node::Num(ExactNum::one()));
                 }
 
+                // (a · b · … · f) / f → a · b · …  (skip when denominator is zero)
+                if !is_zero_node(&right_simplified) {
+                    let (negated, numer) = match &left_simplified {
+                        Node::Negate(inner) => (true, inner.as_ref()),
+                        _ => (false, &left_simplified),
+                    };
+                    let mut factors = Vec::new();
+                    collect_multiply_factors(numer, &mut factors);
+                    if factors.len() > 1 {
+                        if let Some(idx) = factors.iter().position(|f| f == &right_simplified) {
+                            factors.remove(idx);
+                            let mut cancelled = rebuild_multiply_product(factors);
+                            if negated {
+                                cancelled = Node::Negate(Box::new(cancelled));
+                            }
+                            return cancelled.simplify(env);
+                        }
+                    }
+                }
+
                 // sin(x) / cos(x) → tan(x), cos(x) / sin(x) → cot(x)
                 if let (
                     Node::Function(ref fname1, ref args1),
@@ -2172,13 +2192,21 @@ fn try_combine_fractions(
 }
 
 /// Collect all multiplicative factors from a nested Multiply tree.
-fn collect_multiply_factors<'a>(node: &'a Node, factors: &mut Vec<&'a Node>) {
+fn collect_multiply_factors(node: &Node, factors: &mut Vec<Node>) {
     if let Node::Multiply(left, right) = node {
         collect_multiply_factors(left, factors);
         collect_multiply_factors(right, factors);
     } else {
-        factors.push(node);
+        factors.push(node.clone());
     }
+}
+
+fn rebuild_multiply_product(mut factors: Vec<Node>) -> Node {
+    let mut result = factors.remove(0);
+    for factor in factors {
+        result = Node::Multiply(Box::new(result), Box::new(factor));
+    }
+    result
 }
 
 /// Try to simplify √(product) by extracting numeric square factors and even powers.
