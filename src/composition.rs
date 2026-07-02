@@ -103,7 +103,10 @@ fn collect_variables(node: &Node, vars: &mut Vec<String>) {
             collect_variables(left, vars);
             collect_variables(right, vars);
         }
-        Node::Sqrt(operand) | Node::Abs(operand) | Node::Negate(operand) => {
+        Node::Sqrt(operand)
+        | Node::Abs(operand)
+        | Node::Negate(operand)
+        | Node::Factorial(operand) => {
             collect_variables(operand, vars);
         }
         Node::Piecewise(conditions) => {
@@ -319,6 +322,18 @@ mod tests {
         let invalid = validate_composition(&f, "x", &g_invalid, &available_vars);
 
         assert!(invalid.is_err());
+    }
+
+    #[test]
+    fn test_validation_factorial_variable() {
+        let f = parse_expression("t + 1").unwrap();
+        let g = parse_expression("x!").unwrap();
+
+        let available = vec!["x".to_string()];
+        assert!(validate_composition(&f, "t", &g, &available).is_ok());
+
+        let missing = vec!["y".to_string()];
+        assert!(validate_composition(&f, "t", &g, &missing).is_err());
     }
 
     #[test]

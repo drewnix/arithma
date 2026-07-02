@@ -1,9 +1,12 @@
-//! Integer number-theory helpers (GCD/LCM, prime factorization, square-factor extraction).
+//! Integer number-theory helpers (GCD/LCM, factorial, prime factorization, square-factor extraction).
 
 use crate::exact::ExactNum;
 use crate::node::Node;
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::One;
 
-// GCD and LCM
+// Integer arithmetic
 
 /// Greatest common divisor of two non-negative integers (Euclidean algorithm).
 pub fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
@@ -21,6 +24,33 @@ pub fn lcm_u64(a: u64, b: u64) -> u64 {
         return 0;
     }
     a / gcd_u64(a, b) * b
+}
+
+/// Largest `n` with `n!` fitting in `u64` (20! = 2_432_902_008_176_640_000).
+pub const MAX_FACTORIAL_U64: u64 = 20;
+
+/// Factorial of a non-negative integer, returning an error if `n > MAX_FACTORIAL_U64`.
+pub fn factorial_u64(n: u64) -> Result<u64, String> {
+    if n > MAX_FACTORIAL_U64 {
+        return Err(format!(
+            "factorial overflow: {}! exceeds u64 range (max {}!)",
+            n, MAX_FACTORIAL_U64
+        ));
+    }
+    let mut result = 1u64;
+    for i in 2..=n {
+        result *= i;
+    }
+    Ok(result)
+}
+
+/// Exact factorial as `ExactNum` (uses rationals; supports Taylor series orders beyond 20).
+pub fn factorial_exact(n: usize) -> ExactNum {
+    let mut result = BigRational::one();
+    for i in 2..=n {
+        result *= BigRational::from_integer(BigInt::from(i));
+    }
+    ExactNum::Rational(result)
 }
 
 /// Prime-factorize `n` into `(prime, exponent)` pairs with `n = ∏ p^e`.
@@ -103,7 +133,13 @@ pub fn prime_factorize_latex(n: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_square_factors, gcd_u64, lcm_u64, prime_factorize, prime_factorize_latex};
+    use super::{
+        extract_square_factors, factorial_exact, factorial_u64, gcd_u64, lcm_u64, prime_factorize,
+        prime_factorize_latex, MAX_FACTORIAL_U64,
+    };
+    use crate::ExactNum;
+
+    // Integer arithmetic
 
     #[test]
     fn test_gcd_u64() {
@@ -117,6 +153,25 @@ mod tests {
         assert_eq!(lcm_u64(4, 6), 12);
         assert_eq!(lcm_u64(12, 18), 36);
         assert_eq!(lcm_u64(0, 5), 0);
+    }
+
+    #[test]
+    fn test_factorial_u64() {
+        assert_eq!(factorial_u64(0).unwrap(), 1);
+        assert_eq!(factorial_u64(1).unwrap(), 1);
+        assert_eq!(factorial_u64(5).unwrap(), 120);
+        assert_eq!(
+            factorial_u64(MAX_FACTORIAL_U64).unwrap(),
+            2432902008176640000
+        );
+        assert!(factorial_u64(21).unwrap_err().contains("overflow"));
+    }
+
+    #[test]
+    fn test_factorial_exact() {
+        assert_eq!(factorial_exact(0), ExactNum::integer(1));
+        assert_eq!(factorial_exact(1), ExactNum::integer(1));
+        assert_eq!(factorial_exact(5), ExactNum::integer(120));
     }
 
     #[test]

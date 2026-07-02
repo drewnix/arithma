@@ -766,7 +766,9 @@ fn contains_var(node: &Node, var: &str) -> bool {
         | Node::Multiply(a, b)
         | Node::Divide(a, b)
         | Node::Power(a, b) => contains_var(a, var) || contains_var(b, var),
-        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => contains_var(inner, var),
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) | Node::Factorial(inner) => {
+            contains_var(inner, var)
+        }
         Node::Function(_, args) => args.iter().any(|a| contains_var(a, var)),
         Node::Equation(a, b)
         | Node::Greater(a, b)

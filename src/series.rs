@@ -10,6 +10,7 @@ use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::exact::ExactNum;
 use crate::fps::FormalPowerSeries;
+use crate::integer::factorial_exact;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
@@ -91,14 +92,6 @@ pub fn taylor_series_latex(
     let env = Environment::new();
     let simplified = result.simplify(&env).unwrap_or(result);
     Ok(format!("{}", simplified))
-}
-
-fn factorial_exact(n: usize) -> ExactNum {
-    let mut result = BigRational::one();
-    for i in 2..=n {
-        result *= BigRational::from_integer(BigInt::from(i));
-    }
-    ExactNum::Rational(result)
 }
 
 /// Convert an ExactNum to rational if it's a float that represents an exact
@@ -657,13 +650,6 @@ mod tests {
         env.set("x", 0.5);
         let val = Evaluator::evaluate(&result, &env).unwrap();
         assert!((val - 1.9375).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_factorial() {
-        assert_eq!(factorial_exact(0), ExactNum::integer(1));
-        assert_eq!(factorial_exact(1), ExactNum::integer(1));
-        assert_eq!(factorial_exact(5), ExactNum::integer(120));
     }
 
     #[test]

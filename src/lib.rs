@@ -5,7 +5,8 @@ pub use crate::exact::ExactNum;
 
 pub mod integer;
 pub use crate::integer::{
-    extract_square_factors, gcd_u64, lcm_u64, prime_factorize, prime_factorize_latex,
+    extract_square_factors, factorial_exact, factorial_u64, gcd_u64, lcm_u64, prime_factorize,
+    prime_factorize_latex, MAX_FACTORIAL_U64,
 };
 
 mod node;

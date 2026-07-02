@@ -69,6 +69,16 @@ fn as_pi_multiple(node: &Node) -> Option<BigRational> {
     }
 }
 
+fn try_fold_factorial_num(n: &ExactNum) -> Option<Node> {
+    let value = n.to_f64();
+    if value >= 0.0 && value.fract() == 0.0 {
+        let result = crate::integer::factorial_u64(value as u64).ok()?;
+        Some(Node::Num(ExactNum::integer(result as i64)))
+    } else {
+        None
+    }
+}
+
 fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
     if args.len() != 1 {
         return None;
@@ -86,6 +96,12 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
                 if v == "e" {
                     return Some(Node::Num(ExactNum::integer(1)));
                 }
+            }
+            None
+        }
+        "factorial" => {
+            if let Node::Num(n) = arg {
+                return try_fold_factorial_num(n);
             }
             None
         }
@@ -705,6 +721,15 @@ impl Simplifiable for Node {
                     return Node::Subtract(b, a).simplify(env);
                 }
                 Ok(Node::Negate(Box::new(simplified)))
+            }
+            Node::Factorial(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    if let Some(folded) = try_fold_factorial_num(n) {
+                        return Ok(folded);
+                    }
+                }
+                Ok(Node::Factorial(Box::new(simplified)))
             }
             Node::Divide(left, right) => {
                 let left_simplified = left.simplify(env)?;
