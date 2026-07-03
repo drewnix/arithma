@@ -1,9 +1,12 @@
+use crate::assumptions::Assumptions;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::node::Node;
 use crate::tokenizer::normalize_var;
 
-const TEST_POINTS: &[f64] = &[0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0];
+const TEST_POINTS: &[f64] = &[
+    0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0, 0.8, 4.5,
+];
 
 const TOLERANCE: f64 = 1e-8;
 const MIN_POINTS_FOR_PASS: usize = 3;
@@ -21,18 +24,32 @@ pub struct Counterexample {
     pub rhs_value: f64,
 }
 
-pub fn verify_identity(lhs: &Node, rhs: &Node, variables: &[String]) -> VerifyResult {
+pub fn verify_identity(
+    lhs: &Node,
+    rhs: &Node,
+    variables: &[String],
+    assumptions: &Assumptions,
+) -> VerifyResult {
     let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
 
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
         let mut point_values = Vec::new();
+        let mut skip_point = false;
 
         for (j, var) in normalized.iter().enumerate() {
             let val = base_point + 0.3 * j as f64 + 0.1 * i as f64;
+            if !point_satisfies_assumptions(var, val, assumptions) {
+                skip_point = true;
+                break;
+            }
             env.set(var, val);
             point_values.push((var.clone(), val));
+        }
+
+        if skip_point {
+            continue;
         }
 
         let lhs_val = match Evaluator::evaluate(lhs, &env) {
@@ -67,6 +84,25 @@ pub fn verify_identity(lhs: &Node, rhs: &Node, variables: &[String]) -> VerifyRe
         counterexample: None,
         insufficient_points: insufficient,
     }
+}
+
+fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -> bool {
+    if assumptions.is_positive(var) && val <= 0.0 {
+        return false;
+    }
+    if assumptions.is_nonneg(var) && val < 0.0 {
+        return false;
+    }
+    if assumptions.is_negative(var) && val >= 0.0 {
+        return false;
+    }
+    if assumptions.is_nonzero(var) && val == 0.0 {
+        return false;
+    }
+    if assumptions.is_integer(var) && val.fract() != 0.0 {
+        return false;
+    }
+    true
 }
 
 fn values_match(a: f64, b: f64) -> bool {

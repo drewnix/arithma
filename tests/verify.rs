@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod verify_tests {
+    use arithma::assumptions::{Assumption, Assumptions};
     use arithma::{build_expression_tree, Tokenizer};
 
     fn parse(input: &str) -> arithma::Node {
@@ -12,7 +13,19 @@ mod verify_tests {
         let a_expr = parse(a);
         let b_expr = parse(b);
         let variables: Vec<String> = vars.iter().map(|s| s.to_string()).collect();
-        arithma::verify_identity(&a_expr, &b_expr, &variables)
+        arithma::verify_identity(&a_expr, &b_expr, &variables, &Assumptions::new())
+    }
+
+    fn verify_with_assumptions(
+        a: &str,
+        b: &str,
+        vars: &[&str],
+        assumptions: &Assumptions,
+    ) -> arithma::verify::VerifyResult {
+        let a_expr = parse(a);
+        let b_expr = parse(b);
+        let variables: Vec<String> = vars.iter().map(|s| s.to_string()).collect();
+        arithma::verify_identity(&a_expr, &b_expr, &variables, assumptions)
     }
 
     // ── Passing verifications ────────────────────────────────
@@ -93,7 +106,6 @@ mod verify_tests {
 
     #[test]
     fn zero_points_is_not_pass() {
-        // Use a variable name that doesn't exist in the expression
         let result = verify("x", "x", &["nonexistent_var_zzzz"]);
         assert!(!result.passed, "0 points tested should not be PASS");
         assert!(result.insufficient_points);
@@ -102,6 +114,54 @@ mod verify_tests {
             s.contains("INCONCLUSIVE"),
             "Should say INCONCLUSIVE, got: {}",
             s
+        );
+    }
+
+    // ── Assumption-aware verification ────────────────────────
+
+    #[test]
+    fn verify_sqrt_x_squared_fails_without_assumptions() {
+        let result = verify("\\sqrt{x^2}", "x", &["x"]);
+        assert!(
+            !result.passed,
+            "√(x²) = x should fail without assumptions (negative x is a counterexample)"
+        );
+    }
+
+    #[test]
+    fn verify_sqrt_x_squared_passes_with_positive() {
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::Positive);
+        let result = verify_with_assumptions("\\sqrt{x^2}", "x", &["x"], &assumptions);
+        assert!(
+            result.passed,
+            "√(x²) = x should pass with x > 0, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn verify_sqrt_x_squared_passes_with_nonneg() {
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::NonNegative);
+        let result = verify_with_assumptions("\\sqrt{x^2}", "x", &["x"], &assumptions);
+        assert!(
+            result.passed,
+            "√(x²) = x should pass with x ≥ 0, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn verify_enough_points_after_filtering() {
+        let mut assumptions = Assumptions::new();
+        assumptions.assume("x", Assumption::Positive);
+        let result = verify_with_assumptions("x", "x", &["x"], &assumptions);
+        assert!(result.passed);
+        assert!(
+            result.points_tested >= 3,
+            "Should have ≥3 positive test points, got: {}",
+            result.points_tested
         );
     }
 }

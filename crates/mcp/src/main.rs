@@ -406,7 +406,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "verify",
-            "description": "Numerically verify that two expressions are equal by evaluating both at multiple test points. Returns PASS with the number of points tested, or FAIL with a specific counterexample showing where the expressions disagree. Use this to cross-check symbolic results.",
+            "description": "Numerically verify that two expressions are equal by evaluating both at multiple test points. Returns PASS with the number of points tested, or FAIL with a specific counterexample showing where the expressions disagree. Use this to cross-check symbolic results. Supports assumptions to filter test points (e.g. only test positive values when x is assumed positive).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -422,7 +422,8 @@ fn tools_schema() -> Value {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "Variables in the expressions. Defaults to [\"x\"] if not provided."
-                    }
+                    },
+                    "assumptions": assumptions_schema()
                 },
                 "required": ["expr_a", "expr_b"]
             }
@@ -1025,7 +1026,13 @@ fn tool_verify(args: &Value) -> Result<String, String> {
         })
         .unwrap_or_else(|| vec!["x".to_string()]);
 
-    let result = arithma::verify_identity(&a_expr, &b_expr, &variables);
+    let assumptions = args
+        .get("assumptions")
+        .map(Assumptions::from_json)
+        .transpose()?
+        .unwrap_or_default();
+
+    let result = arithma::verify_identity(&a_expr, &b_expr, &variables, &assumptions);
     Ok(format!("{}", result))
 }
 
