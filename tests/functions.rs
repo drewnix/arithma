@@ -170,23 +170,23 @@ mod function_tests {
     }
 
     #[test]
-    fn test_sec_function_undefined() {
-        // Test sec(π/2), which should result in an undefined value (NaN)
-        let result = evaluate_expression("\\sec{\\frac{\\pi}{2}}").unwrap();
-        assert!(
-            result.is_nan(),
-            "Expected NaN for \\sec(π/2), got {:?}",
-            result
-        );
-    }
-
-    #[test]
     fn test_csc_function_undefined() {
         // Test csc(0), which should result in an undefined value (NaN)
         let result = evaluate_expression("\\csc{0}").unwrap();
         assert!(
             result.is_nan(),
             "Expected NaN for \\csc(0), got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_sec_function_undefined() {
+        // Test sec(π/2), which should result in an undefined value (NaN)
+        let result = evaluate_expression("\\sec{\\frac{\\pi}{2}}").unwrap();
+        assert!(
+            result.is_nan(),
+            "Expected NaN for \\sec(π/2), got {:?}",
             result
         );
     }
@@ -214,6 +214,18 @@ mod function_tests {
 
     #[test]
     fn test_inverse_reciprocal_trig() {
+        let arccsc = evaluate_expression("\\arccsc{2}").unwrap();
+        assert!(
+            (arccsc - std::f64::consts::FRAC_PI_6).abs() < 1e-10,
+            "arccsc(2) should be π/6, got {arccsc}"
+        );
+        let arcsec = evaluate_expression("\\arcsec{2}").unwrap();
+        assert!(
+            (arcsec - std::f64::consts::FRAC_PI_3).abs() < 1e-10,
+            "arcsec(2) should be π/3, got {arcsec}"
+        );
+        assert!(evaluate_expression("\\arcsec{0}").unwrap().is_nan());
+        assert!(evaluate_expression("\\arccsc{0}").unwrap().is_nan());
         let arccot = evaluate_expression("\\arccot{1}").unwrap();
         assert!(
             (arccot - std::f64::consts::FRAC_PI_4).abs() < 1e-10,
@@ -223,13 +235,6 @@ mod function_tests {
             evaluate_expression("\\arccot{0}").unwrap(),
             std::f64::consts::FRAC_PI_2
         );
-        let arcsec = evaluate_expression("\\arcsec{2}").unwrap();
-        assert!(
-            (arcsec - std::f64::consts::FRAC_PI_3).abs() < 1e-10,
-            "arcsec(2) should be π/3, got {arcsec}"
-        );
-        assert!(evaluate_expression("\\arcsec{0}").unwrap().is_nan());
-        assert!(evaluate_expression("\\arccsc{0}").unwrap().is_nan());
     }
 
     #[test]
@@ -241,13 +246,13 @@ mod function_tests {
 
     #[test]
     fn test_reciprocal_hyperbolic() {
-        assert_eq!(evaluate_expression("\\sech{0}").unwrap(), 1.0);
         let csch = evaluate_expression("\\csch{1}").unwrap();
         assert!(
             (csch - 1.0 / 1.0f64.sinh()).abs() < 1e-10,
             "csch(1) mismatch, got {csch}"
         );
         assert!(evaluate_expression("\\csch{0}").unwrap().is_nan());
+        assert_eq!(evaluate_expression("\\sech{0}").unwrap(), 1.0);
         assert!(evaluate_expression("\\coth{0}").unwrap().is_nan());
     }
 
@@ -262,18 +267,23 @@ mod function_tests {
 
     #[test]
     fn test_inverse_reciprocal_hyperbolic() {
+        let arccsch = evaluate_expression("\\arccsch{2}").unwrap();
+        assert!(
+            (arccsch - (0.5f64).asinh()).abs() < 1e-10,
+            "arccsch(2) mismatch, got {arccsch}"
+        );
+        assert!(evaluate_expression("\\arccsch{0}").unwrap().is_nan());
         let arcsech = evaluate_expression("\\arcsech{0.5}").unwrap();
         assert!(
             (arcsech - (2.0f64).acosh()).abs() < 1e-10,
             "arcsech(0.5) mismatch, got {arcsech}"
         );
+        assert!(evaluate_expression("\\arcsech{2}").unwrap().is_nan());
         let arccoth = evaluate_expression("\\arccoth{2}").unwrap();
         assert!(
             (arccoth - (0.5f64).atanh()).abs() < 1e-10,
             "arccoth(2) mismatch, got {arccoth}"
         );
-        assert!(evaluate_expression("\\arccsch{0}").unwrap().is_nan());
-        assert!(evaluate_expression("\\arcsech{2}").unwrap().is_nan());
     }
 
     #[test]

@@ -37,7 +37,9 @@ pub use crate::expression::{
 mod wasm_bindings;
 pub use crate::wasm_bindings::evaluate_latex_expression_js;
 
+mod function_meta;
 mod functions;
+mod simplify_literal;
 pub use crate::functions::FUNCTION_REGISTRY;
 
 pub mod simplify;

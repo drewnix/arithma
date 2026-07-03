@@ -78,6 +78,9 @@ lazy_static! {
         registry.register_function("arcsin", Box::new(ArcsinFunction));
         registry.register_function("arccos", Box::new(ArccosFunction));
         registry.register_function("arctan", Box::new(ArctanFunction));
+        registry.register_function("asin", Box::new(ArcsinFunction));
+        registry.register_function("acos", Box::new(ArccosFunction));
+        registry.register_function("atan", Box::new(ArctanFunction));
 
         // Inverse reciprocal trigonometric
         registry.register_function("arccsc", Box::new(ArccscFunction));
@@ -98,6 +101,9 @@ lazy_static! {
         registry.register_function("arcsinh", Box::new(ArcsinhFunction));
         registry.register_function("arccosh", Box::new(ArccoshFunction));
         registry.register_function("arctanh", Box::new(ArctanhFunction));
+        registry.register_function("asinh", Box::new(ArcsinhFunction));
+        registry.register_function("acosh", Box::new(ArccoshFunction));
+        registry.register_function("atanh", Box::new(ArctanhFunction));
 
         // Inverse reciprocal hyperbolic
         registry.register_function("arccsch", Box::new(ArccschFunction));

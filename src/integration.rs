@@ -1,5 +1,6 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
+use crate::function_meta::canonical_function_name;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
@@ -395,7 +396,26 @@ pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
 
 fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
     let x = || Node::Variable(var.to_string());
-    match name {
+    let half_x = || Node::Divide(Box::new(x()), Box::new(Node::Num(ExactNum::integer(2))));
+    let ln_abs = |inner: Node| Node::Function("ln".to_string(), vec![Node::Abs(Box::new(inner))]);
+    let ln_base = |b: i64| Node::Function("ln".to_string(), vec![Node::Num(ExactNum::integer(b))]);
+    let log_antiderivative = |base: i64| {
+        Node::Divide(
+            Box::new(Node::Subtract(
+                Box::new(Node::Multiply(
+                    Box::new(x()),
+                    Box::new(Node::Function("ln".to_string(), vec![x()])),
+                )),
+                Box::new(x()),
+            )),
+            Box::new(ln_base(base)),
+        )
+    };
+    let log10_antiderivative = || log_antiderivative(10);
+    let log2_antiderivative = || log_antiderivative(2);
+
+    match canonical_function_name(name) {
+        // --- Circular trigonometric ---
         // ∫sin(x) = -cos(x)
         "sin" => Ok(Node::Negate(Box::new(Node::Function(
             "cos".to_string(),
@@ -412,14 +432,7 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
             )))],
         )))),
         // ∫sec²(x) — handled if it comes through as sec*sec; skip for now
-        // ∫sec(x)  = ln|sec(x) + tan(x)|
-        "sec" => Ok(Node::Function(
-            "ln".to_string(),
-            vec![Node::Abs(Box::new(Node::Add(
-                Box::new(Node::Function("sec".to_string(), vec![x()])),
-                Box::new(Node::Function("tan".to_string(), vec![x()])),
-            )))],
-        )),
+        // --- Reciprocal trigonometric ---
         // ∫csc(x) = -ln|csc(x) + cot(x)|
         "csc" => Ok(Node::Negate(Box::new(Node::Function(
             "ln".to_string(),
@@ -428,6 +441,14 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
                 Box::new(Node::Function("cot".to_string(), vec![x()])),
             )))],
         )))),
+        // ∫sec(x) = ln|sec(x) + tan(x)|
+        "sec" => Ok(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Add(
+                Box::new(Node::Function("sec".to_string(), vec![x()])),
+                Box::new(Node::Function("tan".to_string(), vec![x()])),
+            )))],
+        )),
         // ∫cot(x) = ln|sin(x)|
         "cot" => Ok(Node::Function(
             "ln".to_string(),
@@ -436,8 +457,137 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
                 vec![x()],
             )))],
         )),
-        // ∫exp(x) = exp(x)
-        "exp" => Ok(Node::Function("exp".to_string(), vec![x()])),
+        // --- Inverse circular trigonometric ---
+        // ∫arcsin(x) = x·arcsin(x) + √(1-x²)
+        "arcsin" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arcsin".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_sqrt_one_minus_x_sq(var)),
+        )),
+        // ∫arccos(x) = x·arccos(x) - √(1-x²)
+        "arccos" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccos".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_sqrt_one_minus_x_sq(var)),
+        )),
+        // ∫arctan(x) = x·arctan(x) - ½ln(1+x²)
+        "arctan" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arctan".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_half_ln_one_plus_x_sq(var)),
+        )),
+        // --- Inverse reciprocal trigonometric ---
+        // ∫arccsc(x) = x·arccsc(x) + ln|x + √(x²-1)|
+        "arccsc" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccsc".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_ln_abs_x_plus_sqrt_x_sq_minus_one(var)),
+        )),
+        // ∫arcsec(x) = x·arcsec(x) - ln|x + √(x²-1)|
+        "arcsec" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arcsec".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_ln_abs_x_plus_sqrt_x_sq_minus_one(var)),
+        )),
+        // ∫arccot(x) = x·arccot(x) + ½ln(1+x²)
+        "arccot" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccot".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_half_ln_one_plus_x_sq(var)),
+        )),
+        // --- Hyperbolic ---
+        // ∫sinh(x) = cosh(x)
+        "sinh" => Ok(Node::Function("cosh".to_string(), vec![x()])),
+        // ∫cosh(x) = sinh(x)
+        "cosh" => Ok(Node::Function("sinh".to_string(), vec![x()])),
+        // ∫tanh(x) = ln|cosh(x)|
+        "tanh" => Ok(Node::Function(
+            "ln".to_string(),
+            vec![Node::Abs(Box::new(Node::Function(
+                "cosh".to_string(),
+                vec![x()],
+            )))],
+        )),
+        // --- Reciprocal hyperbolic ---
+        // ∫csch(x) = ln|tanh(x/2)|
+        "csch" => Ok(ln_abs(Node::Function("tanh".to_string(), vec![half_x()]))),
+        // ∫sech(x) = 2·arctan(e^x)
+        "sech" => Ok(Node::Multiply(
+            Box::new(Node::Num(ExactNum::integer(2))),
+            Box::new(Node::Function(
+                "arctan".to_string(),
+                vec![Node::Function("exp".to_string(), vec![x()])],
+            )),
+        )),
+        // ∫coth(x) = ln|sinh(x)|
+        "coth" => Ok(ln_abs(Node::Function("sinh".to_string(), vec![x()]))),
+        // --- Inverse hyperbolic ---
+        // ∫arcsinh(x) = x·arcsinh(x) - √(x²+1)
+        "arcsinh" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arcsinh".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_sqrt_one_plus_x_sq(var)),
+        )),
+        // ∫arccosh(x) = x·arccosh(x) - √(x²-1)
+        "arccosh" => Ok(Node::Subtract(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccosh".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_sqrt_x_sq_minus_one(var)),
+        )),
+        // ∫arctanh(x) = x·arctanh(x) + ½ln(1-x²)
+        "arctanh" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arctanh".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_half_ln_one_minus_x_sq(var)),
+        )),
+        // --- Inverse reciprocal hyperbolic ---
+        // ∫arccsch(x) = x·arccsch(x) + arcsinh(x)   (x > 0)
+        "arccsch" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccsch".to_string(), vec![x()])),
+            )),
+            Box::new(Node::Function("arcsinh".to_string(), vec![x()])),
+        )),
+        // ∫arcsech(x) = x·arcsech(x) + arcsin(x)    (0 < x < 1)
+        "arcsech" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arcsech".to_string(), vec![x()])),
+            )),
+            Box::new(Node::Function("arcsin".to_string(), vec![x()])),
+        )),
+        // ∫arccoth(x) = x·arccoth(x) + ½ln|1-x²|
+        "arccoth" => Ok(Node::Add(
+            Box::new(Node::Multiply(
+                Box::new(x()),
+                Box::new(Node::Function("arccoth".to_string(), vec![x()])),
+            )),
+            Box::new(integrate_half_ln_one_minus_x_sq(var)),
+        )),
+        // --- Logarithmic and exponential ---
+        // ∫log(x) = (x·ln(x) - x) / ln(10)
+        "log" => Ok(log10_antiderivative()),
+        // ∫lg(x) = (x·ln(x) - x) / ln(2)
+        "lg" => Ok(log2_antiderivative()),
         // ∫ln(x) = x·ln(x) - x
         "ln" => Ok(Node::Subtract(
             Box::new(Node::Multiply(
@@ -446,20 +596,78 @@ fn integrate_standard_function(name: &str, var: &str) -> Result<Node, String> {
             )),
             Box::new(x()),
         )),
-        // ∫sinh(x) = cosh(x)
-        "sinh" => Ok(Node::Function("cosh".to_string(), vec![x()])),
-        // ∫cosh(x) = sinh(x)
-        "cosh" => Ok(Node::Function("sinh".to_string(), vec![x()])),
-        // ∫tanh(x) = ln|cosh(x)| (cosh > 0, so |·| is redundant but consistent)
-        "tanh" => Ok(Node::Function(
-            "ln".to_string(),
-            vec![Node::Abs(Box::new(Node::Function(
-                "cosh".to_string(),
-                vec![x()],
-            )))],
-        )),
+        // ∫exp(x) = exp(x)
+        "exp" => Ok(Node::Function("exp".to_string(), vec![x()])),
         _ => Err(format!("Integration of {}(x) not implemented", name)),
     }
+}
+
+fn integrate_x_var(var: &str) -> Node {
+    Node::Variable(var.to_string())
+}
+
+fn integrate_x_sq(var: &str) -> Node {
+    Node::Power(
+        Box::new(integrate_x_var(var)),
+        Box::new(Node::Num(ExactNum::two())),
+    )
+}
+
+fn integrate_sqrt_one_minus_x_sq(var: &str) -> Node {
+    Node::Sqrt(Box::new(Node::Subtract(
+        Box::new(Node::Num(ExactNum::one())),
+        Box::new(integrate_x_sq(var)),
+    )))
+}
+
+fn integrate_sqrt_one_plus_x_sq(var: &str) -> Node {
+    Node::Sqrt(Box::new(Node::Add(
+        Box::new(integrate_x_sq(var)),
+        Box::new(Node::Num(ExactNum::one())),
+    )))
+}
+
+fn integrate_sqrt_x_sq_minus_one(var: &str) -> Node {
+    Node::Sqrt(Box::new(Node::Subtract(
+        Box::new(integrate_x_sq(var)),
+        Box::new(Node::Num(ExactNum::one())),
+    )))
+}
+
+fn integrate_half_ln_one_plus_x_sq(var: &str) -> Node {
+    Node::Multiply(
+        Box::new(Node::Num(ExactNum::rational(1, 2))),
+        Box::new(Node::Function(
+            "ln".to_string(),
+            vec![Node::Add(
+                Box::new(Node::Num(ExactNum::one())),
+                Box::new(integrate_x_sq(var)),
+            )],
+        )),
+    )
+}
+
+fn integrate_half_ln_one_minus_x_sq(var: &str) -> Node {
+    Node::Multiply(
+        Box::new(Node::Num(ExactNum::rational(1, 2))),
+        Box::new(Node::Function(
+            "ln".to_string(),
+            vec![Node::Subtract(
+                Box::new(Node::Num(ExactNum::one())),
+                Box::new(integrate_x_sq(var)),
+            )],
+        )),
+    )
+}
+
+fn integrate_ln_abs_x_plus_sqrt_x_sq_minus_one(var: &str) -> Node {
+    Node::Function(
+        "ln".to_string(),
+        vec![Node::Abs(Box::new(Node::Add(
+            Box::new(integrate_x_var(var)),
+            Box::new(integrate_sqrt_x_sq_minus_one(var)),
+        )))],
+    )
 }
 
 /// Extract (a, b) if the expression is of the form a*var + b (linear in var).
