@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1229 tests. 0 failures. 15 MCP tools. ~34K lines of Rust. Binary under 3 MB. Zero clippy warnings.**
+**1356 tests. 0 failures. 15 MCP tools. ~36K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
 
 ---
 
@@ -49,14 +49,18 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 - **BigRational**: all arithmetic in exact rational numbers. No floating-point until the user explicitly asks for evaluation.
 - **Radical preservation**: `√12 → 2√3`, `√(4a²) → 2|a|` (assumption-aware). Like-radical combination: `√8+√2 → 3√2`.
-- **Symbolic sqrt**: simplifier preserves `√2` as symbolic, never evaluates to float.
+- **Symbolic sqrt**: simplifier preserves `√2` as symbolic, never evaluates to float. `√a·√a → a`, `(√x)² → |x|` (or `x` with nonneg assumption).
+- **Repeating decimals**: `0.\overline{3} → 1/3` exactly, parsed at the tokenizer level. Supports non-repeating prefixes: `0.1\overline{6} → 1/6`.
+- **Factorial**: `n!` postfix and `\factorial{n}`. Exact evaluation via BigRational. `factorial_u64` for values ≤ 20!, `factorial_exact` for arbitrary size.
+- **Integer number theory**: prime factorization, GCD/LCM (`\gcd`, `\lcm` as multi-argument functions), square-factor extraction.
 
 ### Simplification
 
 - **Polynomial normalization**: canonical form for polynomial expressions.
 - **Trig identities**: sin²+cos² → 1, sin(-x) → -sin(x), cos(-x) → cos(x), k·sin/cos → k·tan.
-- **Logarithmic rules**: ln(a·b) → ln(a)+ln(b), ln(a^b) → b·ln(a), ln(e^x) → x, exp(ln(x)) → x.
-- **Special-value evaluation**: sin(kπ) → 0 for integer k, cos(nπ) → (-1)^n, sin(π/2) → 1, cos(π/2) → 0, arctan(1) → π/4, ln(1) → 0, tan(π/4) → 1.
+- **Logarithmic rules**: ln(a·b) → ln(a)+ln(b), ln(a^b) → b·ln(a), ln(e^x) → x, exp(ln(x)) → x. **Integer factorization**: ln(12) → 2·ln(2) + ln(3).
+- **Special-value evaluation**: sin(kπ) → 0 for integer k, cos(nπ) → (-1)^n, sin(π/2) → 1, cos(π/2) → 0, arctan(1) → π/4, ln(1) → 0, tan(π/4) → 1. Trig functions with non-special numeric args (sin(2), cos(3)) stay symbolic — no closed form exists.
+- **Shared factor cancellation**: `(3·x)/x → 3`, `(2·(ln(2)+ln(3)))/(ln(2)+ln(3)) → 2`.
 - **Rational content GCD**: `(-32α+32)/(16α+8)` → `(-4α+4)/(2α+1)`. Fraction coefficient cancellation for integer GCDs.
 - **Common-denominator combination**: `1/x + 1/(x+1)` → `(2x+1)/(x(x+1))`.
 - **Like function term collection**: `3·exp(x) + 5·exp(x)` → `8·exp(x)`, `a·sin(x) + b·sin(x)` → `(a+b)·sin(x)`.
@@ -64,13 +68,13 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Negation normalization**: `f·(-g) → -(f·g)`, nested negations eliminated.
 - **Assumption system**: 6 property types (positive, nonneg, negative, nonzero, real, integer). `√(x²) → x` when x ≥ 0. Conservative default.
 - **f64 → rational canonicalization**: float coefficients near simple rationals (denominators ≤ 100) are converted to exact BigRational. `0.5·x → (1/2)·x`, `0.333...·x → (1/3)·x`. Improves equivalence detection.
-- **Numeric verification**: `verify` tool evaluates two expressions at 10 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Known limitation:** `verify` does not currently filter test points by assumptions — it may produce spurious counterexamples for identities that hold only under constraints (e.g., `√(x²) = x` under `x ≥ 0`).
+- **Numeric verification**: `verify` tool evaluates two expressions at 12 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Assumption-aware**: test points are filtered by stated assumptions — `verify(√(x²), x, {x: positive})` correctly skips negative test points instead of producing spurious counterexamples.
 - **Idempotency contract**: simplification is stable — applying it twice gives the same result.
 
 ### Differentiation
 
 - Full chain rule, product rule, quotient rule.
-- All standard functions: trig, inverse trig, exp, ln, hyperbolic.
+- All 24 trig/hyperbolic functions: sin, cos, tan, csc, sec, cot, arcsin, arccos, arctan, arccsc, arcsec, arccot, sinh, cosh, tanh, csch, sech, coth, arcsinh, arccosh, arctanh, arccsch, arcsech, arccoth. Plus exp, ln.
 - Partial derivatives via the `differentiate` tool with variable specification.
 
 ### Integration
@@ -145,6 +149,14 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **General polynomial bodies**: linearity decomposition. `Σ(2k-1) = n²`.
 - **Constant/numeric bounds**: evaluates to exact number when possible. `Σ_{k=1}^{100} k = 5050`.
 
+### Symbolic Product Notation
+
+- **Constant body**: `∏_{k=1}^{n} c = c^n`.
+- **Factorial**: `∏_{k=1}^{n} k = n!` (numeric bounds evaluate exactly).
+- **Geometric products**: `∏_{k=0}^{n} r^k = r^{n(n+1)/2}`.
+- **Odd-number products**: `∏_{k=1}^{n}(2k-1)` with exact evaluation for numeric bounds.
+- Shared parser with summation via `IndexedNotation` enum.
+
 ### Series and Limits
 
 - **Taylor expansion**: univariate around numeric or symbolic center, with exact coefficients. Parametric expressions (e.g., `n/(1+(n-1)a)` expanded in `a`) produce symbolic coefficients.
@@ -186,10 +198,10 @@ All mathematical expressions are represented as a tree of `Node` variants:
 - `Num(ExactNum)` — exact rational or float
 - `Variable(String)` — symbolic variables and constants (including `π`)
 - Binary operators: `Add`, `Subtract`, `Multiply`, `Divide`, `Power`
-- Unary: `Negate`, `Sqrt`, `Abs`
+- Unary: `Negate`, `Sqrt`, `Abs`, `Factorial`
 - `Function(String, Vec<Node>)` — named function calls
 - `Equation(Node, Node)` — for equation solving
-- `Summation`, `Piecewise` — structural
+- `Summation`, `Product`, `Piecewise` — structural
 
 ### Number System (`ExactNum`)
 
@@ -219,18 +231,19 @@ input expression
 
 ### Crate Structure
 
-Currently a single crate. Workspace split planned when compile times become a bottleneck (~34K lines, approaching threshold):
+Cargo workspace with three members:
 
 ```
-arithma/
-├── arithma-core/        # Node, ExactNum, simplification
-├── arithma-parse/       # Tokenizer, parser, LaTeX rendering
-├── arithma-poly/        # Polynomial arithmetic, GCD, factoring
-├── arithma-calculus/    # Differentiation, integration, series, ODE
-├── arithma-linalg/     # Matrix operations
-├── arithma-wasm/       # WASM bindings
-└── arithma-mcp/        # MCP server
+arithma/                 # root: math engine library (lib only, no binaries)
+├── src/                 # all math modules, WASM bindings
+├── tests/               # integration tests
+├── crates/
+│   ├── cli/             # arithma CLI binary
+│   └── mcp/             # arithma-mcp server binary
+└── frontend/            # React + MathLive web calculator (WASM)
 ```
+
+The root crate is the public API — downstream Rust projects depend on `arithma`. The CLI and MCP server are thin wrappers. WASM builds target the root crate (`wasm-pack build --target web`).
 
 ---
 

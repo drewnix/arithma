@@ -10,7 +10,7 @@ exact rational arithmetic and well-chosen algorithms make possible.
 
 ## Why Arithma
 
-**Single binary, no dependencies.** The MCP server is 2.3 MB. No Python
+**Single binary, no dependencies.** The MCP server is 2.5 MB. No Python
 runtime, no Java, no Wolfram kernel, no network calls. Copy it anywhere and
 it works.
 
@@ -29,7 +29,7 @@ you get a mathematically rigorous explanation of why no closed form exists,
 not silence or a wrong answer. An agent that knows the boundary of what's
 computable can reason about that boundary.
 
-**1229 tests, zero failures.** Every algorithm is verified against known results.
+**1356 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -44,10 +44,20 @@ factors. Partial fraction decomposition. Expression equivalence checking.
 Greek letter LaTeX parsing (`\alpha` through `\omega`). Implicit
 multiplication (`u(3-2u)`, `α(x+1)`). **Radical simplification** with
 square-factor extraction (`√12 → 2√3`, `√(4a²) → 2|a|`), like-radical
-combination (`√8 + √2 → 3√2`), and common-denominator combination
-(`1/x + 1/(x+1) → (2x+1)/(x(x+1))`). Assumption system for
-domain-aware simplification: declare `x > 0` and `sqrt(x^2)` simplifies
-to `x` instead of `|x|`.
+combination across multi-term sums (`1 + √2 + √2 → 1 + 2√2`), √a·√a → a,
+(√x)² → |x|, and common-denominator combination
+(`1/x + 1/(x+1) → (2x+1)/(x(x+1))`). **Shared factor cancellation** in
+fractions (`3x/x → 3`). **Symbolic trig preservation** — `sin(2)`, `cos(3)`
+stay symbolic instead of evaluating to float; only special values like
+`sin(0)`, `sin(π)`, `cos(π/2)` evaluate. **Logarithmic integer factorization**
+— `ln(12) → 2·ln(2) + ln(3)`. **Repeating decimal input** via
+`\overline` — `0.\overline{3} → 1/3` exactly. **Factorial** — `n!` postfix
+and `\factorial{n}`, with exact evaluation. **GCD and LCM** — `\gcd` and
+`\lcm` as multi-argument functions. **Full trig/hyperbolic function
+registry** — all 24 functions (sin, cos, tan, csc, sec, cot + arc + hyperbolic
++ inverse hyperbolic variants). Assumption system for domain-aware
+simplification: declare `x > 0` and `sqrt(x^2)` simplifies to `x` instead
+of `|x|`.
 
 **Calculus.** Differentiation with full chain rule. Integration via heuristic
 methods (polynomial rules, transcendental table, integration by parts, u-sub,
@@ -371,10 +381,14 @@ Run `arithma --help` for full usage.
 
 ## Building
 
+Arithma is a Cargo workspace with three crates: the math engine library
+(root), the CLI (`crates/cli/`), and the MCP server (`crates/mcp/`).
+
 ```
-cargo build --release                     # both binaries
-cargo build --release --bin arithma-mcp   # MCP server only
-cargo test                                # run all 1229 tests
+cargo build --release --workspace         # all crates
+cargo build --release -p arithma-cli      # CLI only
+cargo build --release -p arithma-mcp-server # MCP server only
+cargo test --workspace                    # run all 1356 tests
 ```
 
 ## Design principles
@@ -391,41 +405,48 @@ them up from a table of special cases.
 
 ## Architecture
 
+Cargo workspace with three crates:
+
 ```
-src/
-  node.rs              -- expression AST
-  exact.rs             -- exact rational arithmetic (BigRational)
-  assumptions.rs       -- variable assumptions (positive, integer, etc.)
-  parser.rs            -- LaTeX tokenizer and parser
-  simplify.rs          -- rule-based simplification with idempotency contract
-  polynomial.rs        -- dense univariate polynomials over Q
-  multipoly.rs         -- multivariate polynomials (recursive representation)
-  mod_poly.rs          -- polynomial arithmetic over Z_p, Berlekamp-Zassenhaus
-  partial_fractions.rs -- partial fraction decomposition via extended GCD
-  derivative.rs        -- symbolic differentiation
-  integration.rs       -- symbolic integration (heuristics + Risch fallback)
-  rational_function.rs -- p(x)/q(x) arithmetic for Risch algorithm
-  ext_poly.rs          -- polynomials in tower variable θ over Q(x)
-  risch.rs             -- Risch algorithm: Hermite reduction, DE solver
-                          (polynomial and rational coefficients),
-                          exponential/logarithmic integration, Rothstein-Trager
-                          resultant method, non-elementary proofs
-  ode.rs               -- ODE solver (separable, linear, constant-coefficient,
-                          power series at ordinary points)
-  fps.rs               -- formal power series with lazy coefficient evaluation
-  series.rs            -- Taylor/Maclaurin series
-  limits.rs            -- symbolic limits
-  matrix.rs            -- matrix operations
-  expression.rs        -- equation solving (degree 1-4 + factoring)
-  systems.rs           -- systems of linear/polynomial equations (Gaussian elimination)
-  inequality.rs        -- polynomial/rational inequality solving
-  algebraic.rs         -- algebraic number fields Q(α), AlgPoly, Hermite reduction
-  evaluator.rs         -- numerical evaluation
-  verify.rs            -- numeric identity verification
-  bin/arithma-mcp.rs   -- MCP server (JSON-RPC 2.0 over stdio)
+src/                     -- arithma library (math engine)
+  node.rs                -- expression AST (Num, Variable, Add, ..., Factorial, Product)
+  exact.rs               -- exact rational arithmetic (BigRational), repeating decimals
+  integer.rs             -- number theory: factorial, GCD/LCM, prime factorization
+  assumptions.rs         -- variable assumptions (positive, integer, etc.)
+  tokenizer.rs           -- LaTeX tokenizer with implicit multiplication
+  parser.rs              -- expression tree builder, summation/product notation
+  simplify.rs            -- rule-based simplification with idempotency contract
+  polynomial.rs          -- dense univariate polynomials over Q
+  multipoly.rs           -- multivariate polynomials (recursive representation)
+  mod_poly.rs            -- polynomial arithmetic over Z_p, Berlekamp-Zassenhaus
+  partial_fractions.rs   -- partial fraction decomposition via extended GCD
+  functions.rs           -- function registry (24 trig/hyperbolic, log, exp, gcd, lcm, factorial)
+  derivative.rs          -- symbolic differentiation
+  integration.rs         -- symbolic integration (heuristics + Risch fallback)
+  rational_function.rs   -- p(x)/q(x) arithmetic for Risch algorithm
+  ext_poly.rs            -- polynomials in tower variable θ over Q(x)
+  risch.rs               -- Risch algorithm: Hermite reduction, DE solver,
+                            Rothstein-Trager, non-elementary proofs
+  summation.rs           -- symbolic summation (Faulhaber, geometric, telescoping)
+  ode.rs                 -- ODE solver (separable, linear, constant-coefficient,
+                            power series at ordinary points)
+  fps.rs                 -- formal power series with lazy coefficient evaluation
+  series.rs              -- Taylor/Maclaurin series
+  limits.rs              -- symbolic limits
+  matrix.rs              -- matrix operations
+  expression.rs          -- equation solving (degree 1-4 + factoring)
+  systems.rs             -- systems of equations (Gaussian elimination)
+  inequality.rs          -- polynomial/rational inequality solving
+  algebraic.rs           -- algebraic number fields Q(α), AlgPoly, Hermite reduction
+  evaluator.rs           -- numerical evaluation
+  verify.rs              -- numeric identity verification (assumption-aware)
+  wasm_bindings.rs       -- WebAssembly bindings via wasm-bindgen
+crates/cli/src/main.rs   -- CLI binary
+crates/mcp/src/main.rs   -- MCP server (JSON-RPC 2.0 over stdio)
+frontend/                -- React + MathLive web calculator (WASM)
 ```
 
-~34K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
+~36K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
 wraps `BigRational` for exact arithmetic, falling back to `f64` only for
 transcendental constants and function results. The parser reads LaTeX; the
 display implementation writes LaTeX. Round-trip stability is tested.
