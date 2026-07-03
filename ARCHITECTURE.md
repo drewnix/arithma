@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**~1500 tests. 0 failures. 16 MCP tools. ~36K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
+**1517 tests. 0 failures. 16 MCP tools. ~40K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
 
 ---
 

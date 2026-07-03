@@ -15,8 +15,8 @@ runtime, no Java, no Wolfram kernel, no network calls. Copy it anywhere and
 it works.
 
 **Exact arithmetic.** Every computation uses rational numbers (`BigRational`),
-not floating-point. `1/3 + 1/3 + 1/3 = 1`, not `0.9999999999999998`. Results
-are deterministic and reproducible.
+not floating-point. $\frac{1}{3} + \frac{1}{3} + \frac{1}{3} = 1$, not
+`0.9999999999999998`. Results are deterministic and reproducible.
 
 **Silence over lies.** If Arithma cannot compute something, it says so. It
 never guesses, approximates heuristically, or returns an unverified result.
@@ -24,11 +24,11 @@ An agent that gets "I can't do this" can try a different approach. An agent
 that gets a wrong answer propagates it through its entire reasoning chain.
 
 **Proves what's impossible.** The Risch algorithm doesn't just integrate — it
-can *prove* when no elementary antiderivative exists. Ask for ∫e^{-x²}dx and
-you get a mathematically rigorous explanation of why no closed form exists,
-not silence or a wrong answer.
+can *prove* when no elementary antiderivative exists. Ask for
+$\int e^{-x^2}\,dx$ and you get a mathematically rigorous explanation of why
+no closed form exists, not silence or a wrong answer.
 
-**1356 tests, zero failures.** Every algorithm is verified against known results.
+**1517 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -40,31 +40,36 @@ The simplifier has a verified idempotency contract:
 
 | Feature | Example |
 |---------|---------|
-| Polynomial factoring (Berlekamp-Zassenhaus) | `x⁴-1 → (x+1)(x-1)(x²+1)` |
-| Radical simplification | `√12 → 2√3`, `√(4a²) → 2\|a\|` |
-| Like-radical collection | `1 + √2 + √2 → 1 + 2√2` |
-| Radical products | `√2·√2 → 2`, `√2·3·√2 → 6` |
-| Fraction cancellation | `3x/x → 3` |
-| Trig identities | `sin²+cos² → 1`, `sin/cos → tan` |
-| Log rules | `ln(a·b) → ln(a)+ln(b)`, `ln(12) → 2·ln(2)+ln(3)` |
+| Polynomial factoring (Berlekamp-Zassenhaus) | $x^4-1 \to (x+1)(x-1)(x^2+1)$ |
+| Radical simplification | $\sqrt{12} \to 2\sqrt{3}$, $\sqrt{4a^2} \to 2\lvert a\rvert$ |
+| Like-radical collection | $1 + \sqrt{2} + \sqrt{2} \to 1 + 2\sqrt{2}$ |
+| Radical products | $\sqrt{2}\cdot\sqrt{2} \to 2$, $\sqrt{2}\cdot 3\cdot\sqrt{2} \to 6$ |
+| Fraction cancellation | $\frac{3x}{x} \to 3$ |
+| Trig identities | $\sin^2 + \cos^2 \to 1$, $\frac{\sin}{\cos} \to \tan$ |
+| Exact trig values | $\sin\!\left(\frac{\pi}{6}\right) \to \frac{1}{2}$, $\sin\!\left(\frac{\pi}{12}\right) \to \frac{\sqrt{6}-\sqrt{2}}{4}$ |
+| Symbolic trig | $\sin(2)$ stays symbolic — no closed form exists |
+| Inverse trig values | $\arcsin\!\left(\frac{\sqrt{2}}{2}\right) \to \frac{\pi}{4}$ |
+| Hyperbolic values | $\sinh(\ln 2) \to \frac{3}{4}$, $\operatorname{arccosh}(3) \to \ln(2+\sqrt{3})$ |
+| Log rules | $\ln(ab) \to \ln a + \ln b$, $\ln(12) \to 2\ln 2 + \ln 3$ |
+| Exp/log folding | $\exp(2\ln 3) \to 9$, $\exp(\ln x) \to x$ |
 | Partial fractions | Full decomposition via factoring |
-| Common denominator | `1/x + 1/(x+1) → (2x+1)/(x(x+1))` |
-| Assumption-aware | `√(x²) → x` when `x > 0` |
-| Symbolic trig | `sin(2)` stays symbolic; `sin(π/6) → 1/2` |
-| Repeating decimals | `0.\overline{3} → 1/3` |
-| Factorial & binomial | `n!`, `\binom{n}{k}` |
-| GCD / LCM | `\gcd(24, 36) → 12` |
+| Common denominator | $\frac{1}{x} + \frac{1}{x+1} \to \frac{2x+1}{x(x+1)}$ |
+| Assumption-aware | $\sqrt{x^2} \to x$ when $x > 0$ |
+| Repeating decimals | $0.\overline{3} \to \frac{1}{3}$ |
+| Factorial & binomial | $n!$, $\binom{n}{k}$ with exact evaluation |
+| GCD / LCM | $\gcd(24, 36) \to 12$ |
 
 ### Calculus
 
 | Feature | Example |
 |---------|---------|
-| Differentiation (chain rule) | `d/dx sin(x²) → 2x·cos(x²)` |
+| Differentiation (chain rule) | $\frac{d}{dx}\sin(x^2) \to 2x\cos(x^2)$ |
+| All 24 trig/hyperbolic functions | sin, cos, ..., arccoth — derivatives and integrals |
 | 8 integration methods | polynomial, parts, u-sub, trig, partial fractions, ... |
-| Risch algorithm | proves non-elementarity with explanation |
-| Multi-extension towers | `∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)` |
-| Parametric integration | `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)` |
-| Exact definite integrals | `∫₀¹ 1/(x²+1)dx = π/4` |
+| Risch algorithm | proves non-elementarity with certificate |
+| Multi-extension towers | $\int(\!e^x\ln x + \frac{e^x}{x})\,dx = e^x\ln x$ |
+| Parametric integration | $\int\frac{dx}{x^2+a} = \frac{1}{\sqrt{a}}\arctan\!\frac{x}{\sqrt{a}}$ |
+| Exact definite integrals | $\int_0^1\frac{dx}{x^2+1} = \frac{\pi}{4}$ |
 | Taylor series | exact rational coefficients, symbolic center |
 | Limits | L'Hôpital, series expansion, one-sided, at infinity |
 
@@ -73,29 +78,29 @@ The simplifier has a verified idempotency contract:
 | Feature | Example |
 |---------|---------|
 | Degree 1–4 exact | Cardano, Ferrari |
-| Exact radical roots | `x²-2=0 → ±√2` |
-| Parametric | `solve(ax²+bx+c=0, x)` → quadratic formula |
+| Exact radical roots | $x^2-2=0 \to x = \pm\sqrt{2}$ |
+| Parametric | $ax^2+bx+c=0 \to \frac{-b \pm \sqrt{b^2-4ac}}{2a}$ |
 | Systems | exact Gaussian elimination, polynomial substitution |
-| Inequalities | `x²-4 > 0 → (-∞,-2) ∪ (2,∞)` |
-| Rational equations | `1/x = 2 → x = 1/2` |
+| Inequalities | $x^2-4 > 0 \to (-\infty,-2) \cup (2,\infty)$ |
+| Rational equations | $\frac{1}{x} = 2 \to x = \frac{1}{2}$ |
 
 ### Summation & Products
 
 | Feature | Example |
 |---------|---------|
-| Faulhaber's formulas | `Σk² = n(n+1)(2n+1)/6` |
-| Geometric series | `Σr^k = (r^{n+1}-1)/(r-1)` |
-| Telescoping | `Σ(1/k - 1/(k+1)) = n/(n+1)` |
-| Product notation | `∏_{k=1}^{5} k = 120` |
-| Symbolic products | `∏_{k=1}^{n} c = c^n` |
+| Faulhaber's formulas | $\sum k^2 = \frac{n(n+1)(2n+1)}{6}$ |
+| Geometric series | $\sum r^k = \frac{r^{n+1}-1}{r-1}$ |
+| Telescoping | $\sum\!\left(\frac{1}{k} - \frac{1}{k+1}\right) = \frac{n}{n+1}$ |
+| Product notation | $\prod_{k=1}^{5} k = 120$ |
+| Symbolic products | $\prod_{k=1}^{n} c = c^n$ |
 
 ### ODEs & Series
 
 | Feature | Example |
 |---------|---------|
-| Separable | `dy/dx = g(x)·h(y)` |
+| Separable | $\frac{dy}{dx} = g(x)\cdot h(y)$ |
 | First-order linear | integrating factor |
-| Second-order constant-coefficient | `ay'' + by' + cy = 0` |
+| Second-order constant-coefficient | $ay'' + by' + cy = 0$ |
 | Power series solutions | Hermite, Legendre, arbitrary order |
 | Formal power series | lazy eval, composition, Lagrange inversion |
 
@@ -103,15 +108,15 @@ The simplifier has a verified idempotency contract:
 
 | Feature | Example |
 |---------|---------|
-| Determinant, inverse | exact over Q |
-| Eigenvalues | symbolic (2×2, 3×3), numerical (up to 4×4) |
-| Systems | Ax = b, RREF |
-| Algebraic number fields | exact arithmetic in Q(α) |
+| Determinant, inverse | exact over $\mathbb{Q}$ |
+| Eigenvalues | symbolic ($2\times 2$, $3\times 3$), numerical (up to $4\times 4$) |
+| Systems | $Ax = b$, RREF |
+| Algebraic number fields | exact arithmetic in $\mathbb{Q}(\alpha)$ |
 
 ### Verification
 
-| Feature | Example |
-|---------|---------|
+| Feature | Description |
+|---------|-------------|
 | Numeric cross-check | 12 test points, assumption-aware |
 | Expression equivalence | simplify-and-compare |
 | Non-elementarity proofs | Risch algorithm certificates |
@@ -132,12 +137,12 @@ stdio. 16 tools with LaTeX I/O:
 | `substitute` | Replace a variable with an expression |
 | `solve` | Equations or inequalities |
 | `solve_system` | Systems of linear/polynomial equations |
-| `factor` | Irreducible factoring over Q |
-| `partial_fractions` | Decompose P(x)/Q(x) |
+| `factor` | Irreducible factoring over $\mathbb{Q}$ |
+| `partial_fractions` | Decompose $P(x)/Q(x)$ |
 | `limit` | Symbolic limits |
 | `taylor_series` | Series expansion with exact coefficients |
 | `evaluate` | Numerical evaluation |
-| `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
+| `matrix` | Determinant, inverse, eigenvalues, rank, RREF, $Ax=b$ |
 | `equivalent` | Check if two expressions are equal |
 | `verify` | Numerically cross-check at multiple test points |
 | `solve_ode` | First-order, constant-coeff, and power series |
@@ -227,9 +232,6 @@ $ arithma integrate "\exp(-x^2)" x
 No elementary antiderivative exists. The Risch algorithm proves that
 the differential equation q' + (-2x)·q = 1 has no polynomial solution,
 so ∫1·exp(-x^2) dx cannot be expressed in terms of elementary functions.
-
-$ arithma integrate "\frac{1}{x^4 + 1}" x
-\frac{1}{8}·√2·ln(|x²+√2·x+1|) + ... + C
 ```
 
 All 13 subcommands: `format`, `simplify`, `differentiate` (`diff`), `integrate`,
@@ -246,7 +248,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1356 tests
+cargo test --workspace                    # run all 1517 tests
 ```
 
 ---
