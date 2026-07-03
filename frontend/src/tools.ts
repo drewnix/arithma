@@ -25,6 +25,17 @@ export type Tool = {
 };
 
 export const tools: Tool[] = [
+  // === Format ===
+  {
+    id: 'format',
+    name: 'Format',
+    icon: 'AlignLeft',
+    description: 'Canonical LaTeX (parse only, no simplify)',
+    category: 'evaluate',
+    params: [],
+    wasmFn: 'format_latex_js',
+  },
+
   // === Evaluate (catch-all) ===
   {
     id: 'evaluate',
