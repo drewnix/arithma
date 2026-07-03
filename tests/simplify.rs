@@ -2008,4 +2008,53 @@ mod test_simplify {
         let result = expr.simplify(&env).unwrap();
         assert_eq!(format!("{}", result), "-2x");
     }
+
+    #[test]
+    fn test_sin_integer_stays_symbolic() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sin{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert!(
+            matches!(&result, Node::Function(name, _) if name == "sin"),
+            "sin(2) should stay symbolic, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_cos_integer_stays_symbolic() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\cos{3}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert!(
+            matches!(&result, Node::Function(name, _) if name == "cos"),
+            "cos(3) should stay symbolic, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_tan_integer_stays_symbolic() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\tan{1}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert!(
+            matches!(&result, Node::Function(name, _) if name == "tan"),
+            "tan(1) should stay symbolic, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_trig_special_values_still_evaluate() {
+        let env = Environment::new();
+        let expr = arithma::parse_latex("\\sin{0}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, Node::Num(ExactNum::integer(0)));
+
+        let expr = arithma::parse_latex("\\cos{0}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, Node::Num(ExactNum::integer(1)));
+
+        let expr = arithma::parse_latex("\\sin{\\pi}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, Node::Num(ExactNum::integer(0)));
+    }
 }

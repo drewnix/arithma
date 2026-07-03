@@ -148,6 +148,11 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
             None
         }
         "sin" => {
+            if let Node::Num(n) = arg {
+                if n.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(0)));
+                }
+            }
             let k = as_pi_multiple(arg)?;
             let (numer, denom) = (k.numer().clone(), k.denom().clone());
             let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
@@ -171,6 +176,11 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
             None
         }
         "cos" => {
+            if let Node::Num(n) = arg {
+                if n.is_zero() {
+                    return Some(Node::Num(ExactNum::integer(1)));
+                }
+            }
             let k = as_pi_multiple(arg)?;
             let (numer, denom) = (k.numer().clone(), k.denom().clone());
             let n_mod = ((numer.clone() % &denom) + &denom) % &denom;
@@ -1439,6 +1449,43 @@ impl Simplifiable for Node {
                         &simplified_args[0],
                         Node::Num(n) if n.to_i64().is_some_and(|v| v > 1)
                     )
+                {
+                    return Ok(Node::Function(name.clone(), simplified_args));
+                }
+
+                // Trig, inverse trig, and hyperbolic functions with numeric args that
+                // aren't special values should stay symbolic — no closed form exists.
+                // try_exact_function_value already handled special values above.
+                if matches!(
+                    name.as_str(),
+                    "sin"
+                        | "cos"
+                        | "tan"
+                        | "csc"
+                        | "sec"
+                        | "cot"
+                        | "arcsin"
+                        | "arccos"
+                        | "arctan"
+                        | "asin"
+                        | "acos"
+                        | "atan"
+                        | "arccsc"
+                        | "arcsec"
+                        | "arccot"
+                        | "sinh"
+                        | "cosh"
+                        | "tanh"
+                        | "csch"
+                        | "sech"
+                        | "coth"
+                        | "arcsinh"
+                        | "arccosh"
+                        | "arctanh"
+                        | "arccsch"
+                        | "arcsech"
+                        | "arccoth"
+                ) && simplified_args.iter().all(|a| matches!(a, Node::Num(_)))
                 {
                     return Ok(Node::Function(name.clone(), simplified_args));
                 }
