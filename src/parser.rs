@@ -32,6 +32,26 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
                 output_queue.push(op);
             }
             output_queue.push("ABS".to_string());
+        } else if token == "FLOOR_START" {
+            operator_stack.push(token);
+        } else if token == "FLOOR_END" {
+            while let Some(op) = operator_stack.pop() {
+                if op == "FLOOR_START" {
+                    break;
+                }
+                output_queue.push(op);
+            }
+            output_queue.push("FLOOR".to_string());
+        } else if token == "CEIL_START" {
+            operator_stack.push(token);
+        } else if token == "CEIL_END" {
+            while let Some(op) = operator_stack.pop() {
+                if op == "CEIL_START" {
+                    break;
+                }
+                output_queue.push(op);
+            }
+            output_queue.push("CEIL".to_string());
         } else if token == ">"
             || token == "<"
             || token == ">="
@@ -126,6 +146,16 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
                 .pop()
                 .ok_or_else(|| "Not enough operands for ABS".to_string())?;
             stack.push(Node::Abs(Box::new(operand))); // Handle absolute value
+        } else if token == "FLOOR" {
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for floor".to_string())?;
+            stack.push(Node::Floor(Box::new(operand)));
+        } else if token == "CEIL" {
+            let operand = stack
+                .pop()
+                .ok_or_else(|| "Not enough operands for ceil".to_string())?;
+            stack.push(Node::Ceil(Box::new(operand)));
         } else if token == "NEG" {
             // Handle unary minus by applying it to the top of the stack
             let operand = stack

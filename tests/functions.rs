@@ -147,6 +147,64 @@ mod function_tests {
         assert_eq!(evaluate_expression("3!!").unwrap(), 720.0);
     }
 
+    // Absolute value and rounding
+
+    #[test]
+    fn test_floor_ceiling_delimiters() {
+        assert_eq!(evaluate_expression("\\lfloor 3.7 \\rfloor").unwrap(), 3.0);
+        assert_eq!(evaluate_expression("\\lceil 3.7 \\rceil").unwrap(), 4.0);
+        assert_eq!(evaluate_expression("\\lfloor -3.7 \\rfloor").unwrap(), -4.0);
+        assert_eq!(evaluate_expression("\\lceil -3.7 \\rceil").unwrap(), -3.0);
+    }
+
+    #[test]
+    fn test_floor_ceiling_functions() {
+        assert_eq!(evaluate_expression("\\floor{3.7}").unwrap(), 3.0);
+        assert_eq!(evaluate_expression("\\ceil{3.7}").unwrap(), 4.0);
+        assert_eq!(evaluate_expression("\\floor{-3.7}").unwrap(), -4.0);
+        assert_eq!(evaluate_expression("\\ceil{\\frac{7}{2}}").unwrap(), 4.0);
+    }
+
+    #[test]
+    fn test_round_trunc_functions() {
+        assert_eq!(evaluate_expression("\\round{3.5}").unwrap(), 4.0);
+        assert_eq!(evaluate_expression("\\round{-3.5}").unwrap(), -4.0);
+        assert_eq!(evaluate_expression("\\trunc{-3.7}").unwrap(), -3.0);
+        assert_eq!(evaluate_expression("\\round{\\frac{7}{2}}").unwrap(), 4.0);
+    }
+
+    #[test]
+    fn test_round_simplify_fold() {
+        assert_eq!(
+            simplify_expression("\\round{5}").unwrap(),
+            Node::Num(ExactNum::integer(5))
+        );
+    }
+
+    #[test]
+    fn test_floor_simplify_fold() {
+        assert_eq!(
+            simplify_expression("\\floor{\\frac{7}{2}}").unwrap(),
+            Node::Num(ExactNum::integer(3))
+        );
+    }
+
+    #[test]
+    fn test_ceil_simplify_fold() {
+        assert_eq!(
+            simplify_expression("\\ceil{\\frac{7}{2}}").unwrap(),
+            Node::Num(ExactNum::integer(4))
+        );
+    }
+
+    #[test]
+    fn test_trunc_simplify_fold() {
+        assert_eq!(
+            simplify_expression("\\trunc{\\frac{7}{2}}").unwrap(),
+            Node::Num(ExactNum::integer(3))
+        );
+    }
+
     #[test]
     fn test_function_arg_validation() {
         // Test sin function with incorrect number of arguments

@@ -107,6 +107,39 @@ fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
     if name == "binom" {
         return try_fold_binom(args);
     }
+
+    if args.len() == 1 {
+        let arg = &args[0];
+        match name {
+            "abs" => {
+                if let Node::Num(n) = arg {
+                    return Some(Node::Num(n.abs()));
+                }
+            }
+            "floor" => {
+                if let Node::Num(n) = arg {
+                    return Some(Node::Num(n.floor()));
+                }
+            }
+            "ceil" => {
+                if let Node::Num(n) = arg {
+                    return Some(Node::Num(n.ceil()));
+                }
+            }
+            "round" => {
+                if let Node::Num(n) = arg {
+                    return Some(Node::Num(n.round()));
+                }
+            }
+            "trunc" => {
+                if let Node::Num(n) = arg {
+                    return Some(Node::Num(n.trunc()));
+                }
+            }
+            _ => {}
+        }
+    }
+
     crate::simplify_literal::try_exact_function_value(name, args)
 }
 
@@ -1180,6 +1213,34 @@ impl Simplifiable for Node {
                 }
                 Ok(Node::Abs(Box::new(simplified)))
             }
+            Node::Floor(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.floor()));
+                }
+                Ok(Node::Floor(Box::new(simplified)))
+            }
+            Node::Ceil(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.ceil()));
+                }
+                Ok(Node::Ceil(Box::new(simplified)))
+            }
+            Node::Round(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.round()));
+                }
+                Ok(Node::Round(Box::new(simplified)))
+            }
+            Node::Trunc(operand) => {
+                let simplified = operand.simplify(env)?;
+                if let Node::Num(ref n) = simplified {
+                    return Ok(Node::Num(n.trunc()));
+                }
+                Ok(Node::Trunc(Box::new(simplified)))
+            }
             Node::Sqrt(operand) => {
                 let simplified = operand.simplify(env)?;
                 if let Node::Num(ref n) = simplified {
@@ -1274,6 +1335,22 @@ impl Simplifiable for Node {
                 if simplified_args.len() == 1 {
                     if let Some(exact) = try_exact_function_value(name, &simplified_args) {
                         return Ok(exact);
+                    }
+
+                    if name == "abs" {
+                        return Ok(Node::Abs(Box::new(simplified_args[0].clone())));
+                    }
+                    if name == "floor" {
+                        return Ok(Node::Floor(Box::new(simplified_args[0].clone())));
+                    }
+                    if name == "ceil" {
+                        return Ok(Node::Ceil(Box::new(simplified_args[0].clone())));
+                    }
+                    if name == "round" {
+                        return Ok(Node::Round(Box::new(simplified_args[0].clone())));
+                    }
+                    if name == "trunc" {
+                        return Ok(Node::Trunc(Box::new(simplified_args[0].clone())));
                     }
 
                     let arg = &simplified_args[0];

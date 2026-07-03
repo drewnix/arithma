@@ -1,4 +1,5 @@
 use num_bigint::BigInt;
+use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use serde::{Deserialize, Serialize};
@@ -103,6 +104,67 @@ impl ExactNum {
         match self {
             ExactNum::Rational(r) => ExactNum::Rational(r.abs()),
             ExactNum::Float(f) => ExactNum::Float(f.abs()),
+        }
+    }
+
+    /// Greatest integer less than or equal to `self`.
+    pub fn floor(&self) -> Self {
+        match self {
+            ExactNum::Rational(r) => {
+                let q = r.numer().div_floor(r.denom());
+                Self::bigint_to_exact(q)
+            }
+            ExactNum::Float(f) => ExactNum::from_f64(f.floor()),
+        }
+    }
+
+    /// Least integer greater than or equal to `self`.
+    pub fn ceil(&self) -> Self {
+        match self {
+            ExactNum::Rational(r) => {
+                let q = r.numer().div_ceil(r.denom());
+                Self::bigint_to_exact(q)
+            }
+            ExactNum::Float(f) => ExactNum::from_f64(f.ceil()),
+        }
+    }
+
+    /// Round to nearest integer, half away from zero.
+    pub fn round(&self) -> Self {
+        match self {
+            ExactNum::Rational(r) => {
+                let numer = r.numer();
+                let denom = r.denom();
+                let abs_n = numer.abs();
+                let abs_d = denom.abs();
+                let rounded: BigInt = (&abs_n * 2 + &abs_d) / (&abs_d * 2);
+                let q = if numer.is_negative() {
+                    -rounded
+                } else {
+                    rounded
+                };
+                Self::bigint_to_exact(q)
+            }
+            ExactNum::Float(f) => ExactNum::from_f64(f.round()),
+        }
+    }
+
+    /// Truncate toward zero.
+    pub fn trunc(&self) -> Self {
+        match self {
+            ExactNum::Rational(r) => {
+                let q = r.numer() / r.denom();
+                Self::bigint_to_exact(q)
+            }
+            ExactNum::Float(f) => ExactNum::from_f64(f.trunc()),
+        }
+    }
+
+    fn bigint_to_exact(q: BigInt) -> Self {
+        if let Some(i) = q.to_i64() {
+            ExactNum::integer(i)
+        } else {
+            ExactNum::from_f64(q.to_f64().unwrap_or(f64::NAN))
         }
     }
 
@@ -583,6 +645,31 @@ mod tests {
             result
         );
         assert!(matches!(result, ExactNum::Rational(_)));
+    }
+
+    #[test]
+    fn test_floor_rational() {
+        assert_eq!(ExactNum::rational(7, 2).floor(), ExactNum::integer(3));
+        assert_eq!(ExactNum::rational(-7, 2).floor(), ExactNum::integer(-4));
+    }
+
+    #[test]
+    fn test_ceil_rational() {
+        assert_eq!(ExactNum::rational(7, 2).ceil(), ExactNum::integer(4));
+        assert_eq!(ExactNum::rational(-7, 2).ceil(), ExactNum::integer(-3));
+    }
+
+    #[test]
+    fn test_round_rational() {
+        assert_eq!(ExactNum::rational(7, 2).round(), ExactNum::integer(4));
+        assert_eq!(ExactNum::rational(-7, 2).round(), ExactNum::integer(-4));
+        assert_eq!(ExactNum::rational(3, 2).round(), ExactNum::integer(2));
+    }
+
+    #[test]
+    fn test_trunc_rational() {
+        assert_eq!(ExactNum::rational(7, 2).trunc(), ExactNum::integer(3));
+        assert_eq!(ExactNum::rational(-7, 2).trunc(), ExactNum::integer(-3));
     }
 
     #[test]

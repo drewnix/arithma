@@ -103,6 +103,36 @@ mod round_trip_tests {
     }
 
     #[test]
+    fn test_round_trip_floor() {
+        let env = Environment::new();
+        assert_round_trip_value("\\floor{3.7}", 3.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_floor_delimiter() {
+        let env = Environment::new();
+        assert_round_trip_value("\\lfloor 3.7 \\rfloor", 3.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_ceil() {
+        let env = Environment::new();
+        assert_round_trip_value("\\ceil{3.7}", 4.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_ceil_delimiter() {
+        let env = Environment::new();
+        assert_round_trip_value("\\lceil 3.7 \\rceil", 4.0, &env);
+    }
+
+    #[test]
+    fn test_round_trip_round() {
+        let env = Environment::new();
+        assert_round_trip_value("\\round{\\frac{7}{2}}", 4.0, &env);
+    }
+
+    #[test]
     fn test_round_trip_factorial() {
         let env = Environment::new();
         assert_round_trip_value("\\factorial{5}", 120.0, &env);
