@@ -1,7 +1,6 @@
 use crate::environment::Environment;
 use crate::exact::ExactNum;
 use crate::functions::call_function;
-use crate::integer::factorial_u64;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
 
@@ -32,12 +31,11 @@ impl Evaluator {
             }
             Node::Factorial(expr) => {
                 let value = Self::evaluate_exact(expr, env)?;
-                let n = value.to_f64();
-                if n < 0.0 || n.fract() != 0.0 {
-                    return Err("factorial requires a non-negative integer.".to_string());
-                }
-                let result = factorial_u64(n as u64)?;
-                Ok(ExactNum::integer(result as i64))
+                let n = value
+                    .to_i64()
+                    .filter(|&v| v >= 0)
+                    .ok_or_else(|| "factorial requires a non-negative integer.".to_string())?;
+                Ok(crate::integer::factorial_exact(n as usize))
             }
             Node::Add(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;

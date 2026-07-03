@@ -70,16 +70,32 @@ fn as_pi_multiple(node: &Node) -> Option<BigRational> {
 }
 
 fn try_fold_factorial_num(n: &ExactNum) -> Option<Node> {
-    let value = n.to_f64();
-    if value >= 0.0 && value.fract() == 0.0 {
-        let result = crate::integer::factorial_u64(value as u64).ok()?;
-        Some(Node::Num(ExactNum::integer(result as i64)))
-    } else {
-        None
+    let v = n.to_i64()?;
+    Some(Node::Num(crate::integer::factorial_exact(
+        (v >= 0).then_some(v as usize)?,
+    )))
+}
+
+fn try_fold_binom(args: &[Node]) -> Option<Node> {
+    if args.len() != 2 {
+        return None;
     }
+    let (Node::Num(n), Node::Num(k)) = (&args[0], &args[1]) else {
+        return None;
+    };
+    let n = n.to_i64()?;
+    let k = k.to_i64()?;
+    Some(Node::Num(crate::integer::binom_exact(
+        (n >= 0).then_some(n as usize)?,
+        (k >= 0).then_some(k as usize)?,
+    )))
 }
 
 fn try_exact_function_value(name: &str, args: &[Node]) -> Option<Node> {
+    if name == "binom" {
+        return try_fold_binom(args);
+    }
+
     if args.len() != 1 {
         return None;
     }

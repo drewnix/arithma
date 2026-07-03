@@ -1377,7 +1377,7 @@ fn integrate_mixed_even(
     let mut terms: Vec<Node> = Vec::new();
 
     for j in 0..=p {
-        let binom = binomial_coeff(p, j) as i64;
+        let binom = crate::integer::binom_u64(p, j)? as i64;
         let coeff = if j % 2 == 0 { binom } else { -binom };
         let power = 2 * j as u32 + 2 * q;
 
@@ -1405,18 +1405,6 @@ fn integrate_mixed_even(
     }
 
     Ok(crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result))
-}
-
-fn binomial_coeff(n: u64, k: u64) -> u64 {
-    if k > n {
-        return 0;
-    }
-    let k = k.min(n - k);
-    let mut result: u64 = 1;
-    for i in 0..k {
-        result = result * (n - i) / (i + 1);
-    }
-    result
 }
 
 /// Recognize inverse trig patterns in the denominator of 1/(...).

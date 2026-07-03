@@ -26,23 +26,10 @@ pub fn lcm_u64(a: u64, b: u64) -> u64 {
     a / gcd_u64(a, b) * b
 }
 
+// Factorial
+
 /// Largest `n` with `n!` fitting in `u64` (20! = 2_432_902_008_176_640_000).
 pub const MAX_FACTORIAL_U64: u64 = 20;
-
-/// Factorial of a non-negative integer, returning an error if `n > MAX_FACTORIAL_U64`.
-pub fn factorial_u64(n: u64) -> Result<u64, String> {
-    if n > MAX_FACTORIAL_U64 {
-        return Err(format!(
-            "factorial overflow: {}! exceeds u64 range (max {}!)",
-            n, MAX_FACTORIAL_U64
-        ));
-    }
-    let mut result = 1u64;
-    for i in 2..=n {
-        result *= i;
-    }
-    Ok(result)
-}
 
 /// Exact factorial as `ExactNum` (uses rationals; supports Taylor series orders beyond 20).
 pub fn factorial_exact(n: usize) -> ExactNum {
@@ -52,6 +39,60 @@ pub fn factorial_exact(n: usize) -> ExactNum {
     }
     ExactNum::Rational(result)
 }
+
+/// Factorial of a non-negative integer, returning an error if `n > MAX_FACTORIAL_U64`.
+///
+/// Eval/simplify paths use [`factorial_exact`] instead; this helper is for callers
+/// that require a bounded `u64` result (e.g. integration with small exponents).
+pub fn factorial_u64(n: u64) -> Result<u64, String> {
+    if n > MAX_FACTORIAL_U64 {
+        return Err(format!(
+            "factorial overflow: {}! exceeds u64 range (max {}!)",
+            n, MAX_FACTORIAL_U64
+        ));
+    }
+    factorial_exact(n as usize)
+        .to_i64()
+        .and_then(|v| if v >= 0 { Some(v as u64) } else { None })
+        .ok_or_else(|| format!("factorial overflow: {}! exceeds u64 range", n))
+}
+
+// Binomial coefficient
+
+/// Exact binomial coefficient C(n, k) as `ExactNum`.
+///
+/// Returns `0` when `k > n`. Uses exact rational arithmetic (no u64 overflow).
+pub fn binom_exact(n: usize, k: usize) -> ExactNum {
+    if k > n {
+        return ExactNum::integer(0);
+    }
+    let k = k.min(n - k);
+    let mut result = BigRational::one();
+    for i in 0..k {
+        result *= BigRational::from_integer(BigInt::from(n - i));
+        result /= BigRational::from_integer(BigInt::from(i + 1));
+    }
+    ExactNum::Rational(result)
+}
+
+/// Binomial coefficient C(n, k) = n! / (k! · (n−k)!).
+///
+/// Returns `Ok(0)` when `k > n`. Returns an error if the result exceeds `u64`.
+/// Eval/simplify paths use [`binom_exact`] instead.
+pub fn binom_u64(n: u64, k: u64) -> Result<u64, String> {
+    use num_traits::ToPrimitive;
+
+    let exact = binom_exact(n as usize, k as usize);
+    match exact {
+        ExactNum::Rational(r) if r.is_integer() => r
+            .numer()
+            .to_u64()
+            .ok_or_else(|| format!("binom overflow: C({},{}) exceeds u64 range", n, k)),
+        _ => Err(format!("binom overflow: C({},{}) exceeds u64 range", n, k)),
+    }
+}
+
+// Prime factorization
 
 /// Prime-factorize `n` into `(prime, exponent)` pairs with `n = ∏ p^e`.
 ///
@@ -134,8 +175,8 @@ pub fn prime_factorize_latex(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_square_factors, factorial_exact, factorial_u64, gcd_u64, lcm_u64, prime_factorize,
-        prime_factorize_latex, MAX_FACTORIAL_U64,
+        binom_exact, binom_u64, extract_square_factors, factorial_exact, factorial_u64, gcd_u64,
+        lcm_u64, prime_factorize, prime_factorize_latex, MAX_FACTORIAL_U64,
     };
     use crate::ExactNum;
 
@@ -156,6 +197,13 @@ mod tests {
     }
 
     #[test]
+    fn test_factorial_exact() {
+        assert_eq!(factorial_exact(0), ExactNum::integer(1));
+        assert_eq!(factorial_exact(1), ExactNum::integer(1));
+        assert_eq!(factorial_exact(5), ExactNum::integer(120));
+    }
+
+    #[test]
     fn test_factorial_u64() {
         assert_eq!(factorial_u64(0).unwrap(), 1);
         assert_eq!(factorial_u64(1).unwrap(), 1);
@@ -168,10 +216,31 @@ mod tests {
     }
 
     #[test]
-    fn test_factorial_exact() {
-        assert_eq!(factorial_exact(0), ExactNum::integer(1));
-        assert_eq!(factorial_exact(1), ExactNum::integer(1));
-        assert_eq!(factorial_exact(5), ExactNum::integer(120));
+    fn test_binom_exact() {
+        assert_eq!(binom_exact(0, 0), ExactNum::integer(1));
+        assert_eq!(binom_exact(5, 2), ExactNum::integer(10));
+        assert_eq!(binom_exact(5, 0), ExactNum::integer(1));
+        assert_eq!(binom_exact(3, 5), ExactNum::integer(0));
+        assert_eq!(binom_exact(10, 5), ExactNum::integer(252));
+        // Beyond u64::MAX — exact path still works
+        let large = binom_exact(68, 34);
+        assert!(large.is_integer());
+        assert_eq!(
+            large.to_rational().unwrap().numer().to_string(),
+            "28453041475240576740"
+        );
+    }
+
+    #[test]
+    fn test_binom_u64() {
+        assert_eq!(binom_u64(0, 0).unwrap(), 1);
+        assert_eq!(binom_u64(5, 2).unwrap(), 10);
+        assert_eq!(binom_u64(5, 0).unwrap(), 1);
+        assert_eq!(binom_u64(5, 5).unwrap(), 1);
+        assert_eq!(binom_u64(3, 5).unwrap(), 0);
+        assert_eq!(binom_u64(7, 3).unwrap(), 35);
+        assert_eq!(binom_u64(10, 5).unwrap(), 252);
+        assert!(binom_u64(68, 34).unwrap_err().contains("overflow"));
     }
 
     #[test]

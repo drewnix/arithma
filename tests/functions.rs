@@ -56,9 +56,7 @@ mod function_tests {
         assert!(evaluate_expression("\\factorial{-1}")
             .unwrap_err()
             .contains("non-negative"));
-        assert!(evaluate_expression("\\factorial{21}")
-            .unwrap_err()
-            .contains("overflow"));
+        assert!(evaluate_expression("\\factorial{21}").unwrap().is_finite());
     }
 
     #[test]
@@ -66,7 +64,45 @@ mod function_tests {
         assert_eq!(evaluate_expression("5!").unwrap(), 120.0);
         assert_eq!(evaluate_expression("(3+2)!").unwrap(), 120.0);
         assert_eq!(evaluate_expression("5! + 1").unwrap(), 121.0);
-        assert!(evaluate_expression("21!").unwrap_err().contains("overflow"));
+        assert!(evaluate_expression("21!").unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_binom_function() {
+        assert_eq!(evaluate_expression("\\binom{5}{2}").unwrap(), 10.0);
+        assert_eq!(evaluate_expression("\\binom{5}{0}").unwrap(), 1.0);
+        assert_eq!(evaluate_expression("\\binom{0}{0}").unwrap(), 1.0);
+        assert_eq!(evaluate_expression("\\binom{5}{5}").unwrap(), 1.0);
+        assert_eq!(evaluate_expression("\\binom{3}{5}").unwrap(), 0.0);
+        assert_eq!(evaluate_expression("\\binom{7}{3}").unwrap(), 35.0);
+        assert_eq!(evaluate_expression("\\binom{10}{5}").unwrap(), 252.0);
+        assert_eq!(evaluate_expression("\\binom{2+3}{2}").unwrap(), 10.0);
+        assert!(evaluate_expression("\\binom{-1}{2}")
+            .unwrap_err()
+            .contains("non-negative"));
+        assert!(evaluate_expression("\\binom{68}{34}").unwrap().is_finite());
+    }
+
+    #[test]
+    fn test_binom_simplify() {
+        let simplified = simplify_expression("\\binom{2+3}{2}").unwrap();
+        assert_eq!(simplified, Node::Num(ExactNum::integer(10)));
+
+        assert_eq!(
+            simplify_expression("\\binom{0}{0}").unwrap(),
+            Node::Num(ExactNum::integer(1))
+        );
+
+        let large = simplify_expression("\\binom{68}{34}").unwrap();
+        if let Node::Num(n) = large {
+            assert!(n.is_integer());
+            assert_eq!(
+                n.to_rational().unwrap().numer().to_string(),
+                "28453041475240576740"
+            );
+        } else {
+            panic!("expected numeric binom simplify result");
+        }
     }
 
     #[test]
