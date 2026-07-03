@@ -1833,6 +1833,198 @@ mod test_simplify {
     }
 
     #[test]
+    fn test_radical_sandwich_mixed_radicands() {
+        let env = Environment::new();
+
+        // --- Addition: numbers sandwiched between like radicals (multiple radicands) ---
+        let add_cases = [
+            ("\\sqrt{2} + 3 + \\sqrt{2}", "3 + 2\\sqrt{2}"),
+            (
+                "\\sqrt{2} + 3 + \\sqrt{3} + 5 + \\sqrt{2} + \\sqrt{3}",
+                "8 + 2\\sqrt{2} + 2\\sqrt{3}",
+            ),
+            ("2\\sqrt{5} + 1 + 3\\sqrt{5} + 4", "1 + 5\\sqrt{5} + 4"),
+            (
+                "\\sqrt{7} + 2 + \\sqrt{3} + \\sqrt{7} + \\sqrt{3}",
+                "2 + 2\\sqrt{7} + 2\\sqrt{3}",
+            ),
+        ];
+        for (input, expected) in add_cases {
+            let expr = arithma::parse_latex(input, &env).unwrap();
+            let result = Evaluator::simplify(&expr, &env).unwrap();
+            assert_eq!(format!("{}", result), expected, "add: {}", input);
+        }
+
+        // --- Multiplication: numbers sandwiched between radicals (same & different radicands) ---
+        let mul_cases: &[(&str, i64)] = &[
+            ("\\sqrt{2} \\cdot 3 \\cdot \\sqrt{2}", 6),
+            ("2\\sqrt{3} \\cdot 5 \\cdot 3\\sqrt{3}", 90),
+            ("2\\sqrt{2} \\cdot 3 \\cdot \\sqrt{2}", 12),
+            ("\\sqrt{2} \\cdot 0.5 \\cdot \\sqrt{2}", 1),
+            (
+                "\\sqrt{2} \\cdot 3 \\cdot \\sqrt{3} \\cdot \\sqrt{2} \\cdot \\sqrt{3}",
+                18,
+            ),
+            (
+                "\\sqrt{5} \\cdot 2 \\cdot \\sqrt{5} \\cdot \\sqrt{2} \\cdot \\sqrt{2}",
+                20,
+            ),
+            ("\\sqrt{7} \\cdot 4 \\cdot \\sqrt{7}", 28),
+        ];
+        for (input, expected) in mul_cases {
+            let expr = arithma::parse_latex(input, &env).unwrap();
+            let result = Evaluator::simplify(&expr, &env).unwrap();
+            assert_eq!(
+                result,
+                arithma::Node::Num(arithma::ExactNum::integer(*expected)),
+                "mul: {}",
+                input
+            );
+        }
+
+        // --- Same expression: multiply collapses + add combines like radicals ---
+        let mixed_cases = [
+            (
+                "\\sqrt{2} \\cdot 3 \\cdot \\sqrt{2} + 2\\sqrt{3} + \\sqrt{3}",
+                "6 + 3\\sqrt{3}",
+            ),
+            (
+                "2\\sqrt{2} \\cdot \\sqrt{2} + \\sqrt{3} + 5 + \\sqrt{3}",
+                "9 + 2\\sqrt{3}",
+            ),
+            (
+                "3\\sqrt{2} \\cdot 2 \\cdot \\sqrt{5} \\cdot \\sqrt{2} + \\sqrt{5} + 4\\sqrt{5}",
+                "17\\sqrt{5}",
+            ),
+            (
+                "\\sqrt{7} \\cdot \\sqrt{7} + 2\\sqrt{2} + 3 + \\sqrt{2}",
+                "10 + 3\\sqrt{2}",
+            ),
+            (
+                "\\sqrt{3} \\cdot 2 \\cdot \\sqrt{3} + \\sqrt{5} + 2\\sqrt{5}",
+                "6 + 3\\sqrt{5}",
+            ),
+        ];
+        for (input, expected) in mixed_cases {
+            let expr = arithma::parse_latex(input, &env).unwrap();
+            let result = Evaluator::simplify(&expr, &env).unwrap();
+            assert_eq!(format!("{}", result), expected, "mixed: {}", input);
+        }
+    }
+
+    #[test]
+    fn test_radical_sandwich_edge_cases() {
+        let env = Environment::new();
+
+        // Negative coeff sandwich
+        let expr = arithma::parse_latex("-\\sqrt{2} \\cdot 3 \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(result, arithma::Node::Num(arithma::ExactNum::integer(-6)));
+
+        // Negative radicands are outside the real-domain sqrt simplification path.
+        // They must not collapse to real numbers.
+        let expr = arithma::parse_latex("\\sqrt{-2} \\cdot \\sqrt{-2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_ne!(result, arithma::Node::Num(arithma::ExactNum::integer(-2)));
+        let expr = arithma::parse_latex("\\sqrt{-2} \\cdot 3 \\cdot \\sqrt{-2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_ne!(result, arithma::Node::Num(arithma::ExactNum::integer(-6)));
+
+        // Triple sqrt: √2·√2·√2 → 2√2
+        let expr =
+            arithma::parse_latex("\\sqrt{2} \\cdot \\sqrt{2} \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "2\\sqrt{2}");
+
+        // Symbolic sandwich without assumptions → 3|x|
+        let expr = arithma::parse_latex("\\sqrt{x} \\cdot 3 \\cdot \\sqrt{x}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            arithma::Node::Multiply(
+                Box::new(arithma::Node::Num(arithma::ExactNum::integer(3))),
+                Box::new(arithma::Node::Abs(Box::new(arithma::Node::Variable(
+                    "x".to_string()
+                )))),
+            )
+        );
+
+        // Symbolic sandwich with x ≥ 0 → 3x
+        {
+            use arithma::assumptions::{Assumption, Assumptions};
+            let mut assumptions = Assumptions::new();
+            assumptions.assume("x", Assumption::NonNegative);
+            let env = Environment::with_assumptions(assumptions);
+            let expr = arithma::parse_latex("\\sqrt{x} \\cdot 3 \\cdot \\sqrt{x}", &env).unwrap();
+            let result = Evaluator::simplify(&expr, &env).unwrap();
+            assert_eq!(
+                result,
+                arithma::Node::Multiply(
+                    Box::new(arithma::Node::Num(arithma::ExactNum::integer(3))),
+                    Box::new(arithma::Node::Variable("x".to_string())),
+                )
+            );
+        }
+
+        // Variable sandwiched between like radicals: √2·x·√2 → 2x
+        let expr = arithma::parse_latex("\\sqrt{2} \\cdot x \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "2x");
+
+        // Partial collapse when another radicand is present: √2·√x·√2 → 2√x
+        let expr =
+            arithma::parse_latex("\\sqrt{2} \\cdot \\sqrt{x} \\cdot \\sqrt{2}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(
+            result,
+            arithma::Node::Multiply(
+                Box::new(arithma::Node::Num(arithma::ExactNum::integer(2))),
+                Box::new(arithma::Node::Function(
+                    "sqrt".to_string(),
+                    vec![arithma::Node::Variable("x".to_string())],
+                )),
+            )
+        );
+
+        // Compound radicand should still flow through multiply normalization.
+        let expr = arithma::parse_latex("\\sqrt{x+1} \\cdot 3 \\cdot \\sqrt{x+1}", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "3x + 3");
+        let mut tokenizer = arithma::Tokenizer::new("\\sqrt{x+1} \\cdot 3 \\cdot \\sqrt{x+1}");
+        let expr = arithma::build_expression_tree(tokenizer.tokenize()).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "3x + 3");
+
+        // Pure numeric flatten side effect: 2·3·x → 6x
+        let expr = arithma::parse_latex("2 \\cdot 3 \\cdot x", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "6x");
+
+        // Variable sandwich (polynomial path): x·2·x → 2x²
+        let expr = arithma::parse_latex("x \\cdot 2 \\cdot x", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "2x^{2}");
+
+        // Distribution guard must still hold
+        let expr = arithma::parse_latex("3 \\cdot (x + 2)", &env).unwrap();
+        let result = Evaluator::simplify(&expr, &env).unwrap();
+        assert_eq!(format!("{}", result), "3x + 6");
+
+        // Idempotency on representative sandwich cases
+        let cases = [
+            "\\sqrt{2} \\cdot 3 \\cdot \\sqrt{2}",
+            "\\sqrt{2} \\cdot \\sqrt{2} \\cdot \\sqrt{2}",
+            "x \\cdot 2 \\cdot x",
+        ];
+        for input in cases {
+            let expr = arithma::parse_latex(input, &env).unwrap();
+            let once = Evaluator::simplify(&expr, &env).unwrap();
+            let twice = Evaluator::simplify(&once, &env).unwrap();
+            assert_eq!(once, twice, "idempotent: {}", input);
+        }
+    }
+
+    #[test]
     fn test_negate_in_product_display() {
         use arithma::parse_latex;
         let env = Environment::new();

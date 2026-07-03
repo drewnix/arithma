@@ -528,22 +528,26 @@ impl Simplifiable for Node {
                     }
                 }
 
-                // √a · √a → a
-                if let Some(combined) =
-                    try_simplify_matching_sqrt_product(&left_simplified, &right_simplified, env)
-                {
+                let result = Node::Multiply(Box::new(left_simplified), Box::new(right_simplified));
+                // Flatten n-ary products first (e.g. √2·3·√2 → 6) before binary √ matching.
+                if let Some(combined) = try_combine_flat_multiply(&result, env) {
                     return Ok(combined);
                 }
 
-                // x * x → x^2
-                if left_simplified == right_simplified && !matches!(left_simplified, Node::Num(_)) {
-                    return Ok(Node::Power(
-                        Box::new(left_simplified),
-                        Box::new(Node::Num(ExactNum::two())),
-                    ));
-                }
+                // √a · √a → a (binary fallback when flat combine does not apply)
+                if let Node::Multiply(ref left, ref right) = result {
+                    if let Some(combined) = try_simplify_matching_sqrt_product(left, right, env) {
+                        return Ok(combined);
+                    }
 
-                let result = Node::Multiply(Box::new(left_simplified), Box::new(right_simplified));
+                    // x * x → x^2
+                    if left == right && !matches!(**left, Node::Num(_)) {
+                        return Ok(Node::Power(
+                            left.clone(),
+                            Box::new(Node::Num(ExactNum::two())),
+                        ));
+                    }
+                }
                 if let Some(normalized) = try_polynomial_normalize(&result) {
                     Ok(normalized)
                 } else if let Some(normalized) = try_rational_normalize(&result, env) {
@@ -2034,6 +2038,11 @@ fn radicals_match(left: &Node, right: &Node) -> bool {
 }
 
 fn simplify_sqrt_squared(radicand: Node, env: &Environment) -> Option<Node> {
+    if let Node::Num(ref n) = radicand {
+        if n.is_negative() {
+            return None;
+        }
+    }
     if let Node::Variable(ref v) = radicand {
         if env.assumptions().is_nonneg(v) {
             return Some(radicand);
@@ -2041,6 +2050,56 @@ fn simplify_sqrt_squared(radicand: Node, env: &Environment) -> Option<Node> {
         return Some(Node::Abs(Box::new(radicand)));
     }
     radicand.simplify(env).ok()
+}
+
+/// Attach a scalar coefficient to a simplified term (folds into `Num` when possible).
+fn attach_scalar_to_term(scalar: ExactNum, term: Node) -> Node {
+    if scalar.is_zero() {
+        return Node::Num(ExactNum::zero());
+    }
+    if scalar.is_one() {
+        return term;
+    }
+    if let Node::Num(ref n) = term {
+        return Node::Num(scalar * n.clone());
+    }
+    Node::Multiply(Box::new(Node::Num(scalar)), Box::new(term))
+}
+
+/// Collapse `pairs` pairs of √X with combined coefficient `coeff`.
+/// Each pair contributes one factor of the radicand (√X·√X → X).
+fn collapse_sqrt_pair_product(
+    radicand: Node,
+    pairs: u32,
+    coeff: ExactNum,
+    env: &Environment,
+) -> Option<Node> {
+    if pairs == 0 {
+        return None;
+    }
+
+    if let Node::Num(ref n) = radicand {
+        if n.is_negative() {
+            return None;
+        }
+        let mut radicand_power = ExactNum::one();
+        for _ in 0..pairs {
+            radicand_power = radicand_power * n.clone();
+        }
+        return Some(Node::Num(coeff * radicand_power));
+    }
+
+    let squared = simplify_sqrt_squared(radicand, env)?;
+    let radicand_factor = if pairs == 1 {
+        squared
+    } else {
+        Node::Power(
+            Box::new(squared),
+            Box::new(Node::Num(ExactNum::integer(pairs as i64))),
+        )
+    };
+    let result = attach_scalar_to_term(coeff, radicand_factor);
+    Some(result.simplify(env).unwrap_or(result))
 }
 
 /// √a · √a → a (and (a√X)(b√X) → ab·X when X matches).
@@ -2057,19 +2116,7 @@ fn try_simplify_matching_sqrt_product(
     }
 
     let radicand = extract_sqrt_radicand(&l_radical)?;
-    let squared = simplify_sqrt_squared(radicand, env)?;
-    let product_coeff = l_coeff * r_coeff;
-
-    if product_coeff.is_one() {
-        return Some(squared);
-    }
-    if product_coeff.is_zero() {
-        return Some(Node::Num(ExactNum::zero()));
-    }
-    Some(Node::Multiply(
-        Box::new(Node::Num(product_coeff)),
-        Box::new(squared),
-    ))
+    collapse_sqrt_pair_product(radicand, 1, l_coeff * r_coeff, env)
 }
 
 /// Extract (coefficient, radical) from a term that's either a bare √X or coeff·√X.
@@ -2128,6 +2175,153 @@ fn flatten_add_sub_terms(node: &Node, terms: &mut Vec<(Node, bool)>, negative: b
         }
         other => terms.push((other.clone(), negative)),
     }
+}
+
+/// Flatten a nested Multiply tree into factors (owned clones).
+fn flatten_multiply_factors_owned(node: &Node, factors: &mut Vec<Node>) {
+    match node {
+        Node::Multiply(left, right) => {
+            flatten_multiply_factors_owned(left, factors);
+            flatten_multiply_factors_owned(right, factors);
+        }
+        other => factors.push(other.clone()),
+    }
+}
+
+/// Combine factors in a flat n-ary product: numeric · … · √X · … with scalars between radicals.
+///
+/// Also folds pure numeric products (e.g. `2·3·x → 6x`) when factor count shrinks.
+fn try_combine_flat_multiply(node: &Node, env: &Environment) -> Option<Node> {
+    if !matches!(node, Node::Multiply(_, _)) {
+        return None;
+    }
+
+    let mut flat = Vec::new();
+    flatten_multiply_factors_owned(node, &mut flat);
+    if flat.len() < 2 {
+        return None;
+    }
+    let flat_len = flat.len();
+
+    let mut numeric = ExactNum::one();
+    let mut radical_entries: Vec<(ExactNum, Node)> = Vec::new();
+    let mut other_factors: Vec<Node> = Vec::new();
+
+    for factor in flat {
+        if let Node::Num(n) = factor {
+            numeric = numeric * n;
+            continue;
+        }
+        if let Some((coeff, radical)) = extract_radical_parts(&factor) {
+            radical_entries.push((coeff, radical));
+            continue;
+        }
+        other_factors.push(factor);
+    }
+
+    // Group by matching radical; keep per-entry coeffs for failure recovery.
+    let mut groups: Vec<(Node, Vec<(ExactNum, Node)>)> = Vec::new();
+    for (coeff, radical) in radical_entries {
+        if let Some((_, entries)) = groups
+            .iter_mut()
+            .find(|(existing, _)| radicals_match(existing, &radical))
+        {
+            entries.push((coeff, radical));
+        } else {
+            groups.push((radical.clone(), vec![(coeff, radical)]));
+        }
+    }
+
+    let mut rebuilt: Vec<Node> = other_factors;
+    let mut any_pairs = false;
+
+    for (template, entries) in groups {
+        let count = entries.len() as u32;
+        let pairs = count / 2;
+        let remainder = count % 2;
+
+        if pairs > 0 {
+            let coeff_product = entries
+                .iter()
+                .fold(ExactNum::one(), |acc, (c, _)| acc * c.clone());
+
+            match extract_sqrt_radicand(&template) {
+                Some(radicand) => {
+                    match collapse_sqrt_pair_product(radicand, pairs, coeff_product, env) {
+                        Some(collapsed) => {
+                            any_pairs = true;
+                            rebuilt.push(collapsed);
+                        }
+                        None => {
+                            for (c, r) in entries {
+                                if let Some(term) = build_coeff_radical_term(c, r) {
+                                    rebuilt.push(term);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
+                None => {
+                    for (c, r) in entries {
+                        if let Some(term) = build_coeff_radical_term(c, r) {
+                            rebuilt.push(term);
+                        }
+                    }
+                    continue;
+                }
+            }
+        } else {
+            for (c, r) in entries {
+                if let Some(term) = build_coeff_radical_term(c, r) {
+                    rebuilt.push(term);
+                }
+            }
+            continue;
+        }
+
+        if remainder > 0 {
+            if let Some(term) = build_coeff_radical_term(ExactNum::one(), template) {
+                rebuilt.push(term);
+            }
+        }
+    }
+
+    if !numeric.is_one() {
+        rebuilt.insert(0, Node::Num(numeric));
+    }
+
+    let mut num_prod = ExactNum::one();
+    let mut non_numeric = Vec::new();
+    for factor in rebuilt {
+        if let Node::Num(n) = factor {
+            num_prod = num_prod * n;
+        } else {
+            non_numeric.push(factor);
+        }
+    }
+
+    let mut factors = non_numeric;
+    if !num_prod.is_one() {
+        factors.insert(0, Node::Num(num_prod));
+    }
+
+    if !any_pairs && factors.len() >= flat_len {
+        return None;
+    }
+
+    if factors.is_empty() {
+        return Some(Node::Num(ExactNum::one()));
+    }
+    if factors.len() == 1 {
+        return factors.pop();
+    }
+
+    let mut result = factors.remove(0);
+    for factor in factors {
+        result = Node::Multiply(Box::new(result), Box::new(factor));
+    }
+    Some(result.simplify(env).unwrap_or(result))
 }
 
 /// Combine like radicals in an Add/Subtract sum: a√X + b√X + … → (a+b+…)√X
