@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1356 tests. 0 failures. 15 MCP tools. ~36K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
+**~1500 tests. 0 failures. 16 MCP tools. ~36K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
 
 ---
 
@@ -182,11 +182,11 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ### MCP Server
 
-15 tools with LaTeX I/O: `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution).
+16 tools with LaTeX I/O: `format`, `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution). `format` parses and normalizes LaTeX without simplifying — useful for canonicalizing messy input.
 
 ### CLI
 
-Subcommand interface: `arithma simplify|diff|integrate|solve|factor|pf|eval|limit|taylor|sub|ode`. REPL fallback for interactive use. Definite integrals: `arithma integrate <expr> [var] [lo hi]`.
+Subcommand interface: `arithma format|simplify|diff|integrate|solve|factor|pf|eval|limit|taylor|sub|ode`. REPL fallback for interactive use. Definite integrals: `arithma integrate <expr> [var] [lo hi]`. `format` parses and re-emits canonical LaTeX without simplification.
 
 ---
 
@@ -258,13 +258,24 @@ The root crate is the public API — downstream Rust projects depend on `arithma
 
 ---
 
+## Direction
+
+Arithma's computation surface is mature. The next phase is **verification infrastructure** — making Arithma the mathematical reasoning verification layer for AI agents. See [Discussion #63](https://github.com/drewnix/arithma/discussions/63) for the full design.
+
+**In progress:**
+- **Structured result status** on all tool outputs (`exact`, `numerically_consistent`, `heuristic`, `unable_to_compute`, `provably_impossible`) — so agents know the strength of evidence behind every result
+- **Reasoning-chain verification** with typed step relations (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`) — check each step of a derivation using the appropriate primitive
+- **Impossibility proofs as first-class output** — structured proof certificates for Risch non-elementarity, special function recognition (erf, Ei, Li)
+
+**The thesis:** the biggest gap in AI-assisted mathematics isn't missing features — it's missing verification. An agent that can check each step of its own reasoning, catch errors at the exact point they occur, and prove when something is mathematically impossible changes the class of problems agents can reliably solve.
+
 ## What Done Looks Like
 
-Arithma reaches a natural resting point when an AI agent with access to it can:
+Arithma reaches completion when an AI agent with access to it can:
 
-1. **Verify** any undergraduate-level mathematical claim
-2. **Compute** derivatives, integrals, solutions, factorizations, series, limits, and matrix operations with exact arithmetic
-3. **Know the boundary** — distinguish "I can't compute this yet" from "this has no elementary closed form"
-4. **Reason under constraints** — simplify with assumptions about variable domains
-5. **Solve basic ODEs** — the three classes that cover 80% of applied mathematics
+1. **Verify each step** of a multi-step derivation, catching errors at the specific point they occur
+2. **Trust the evidence level** — know whether a result is algebraically exact, numerically consistent, or heuristic
+3. **Know the boundary** — get a structured proof when no closed form exists, with the special function name when recognized
+4. **Compute** derivatives, integrals, solutions, factorizations, series, limits, and matrix operations with exact arithmetic
+5. **Reason under constraints** — simplify with assumptions about variable domains
 6. **Do all of this** from a single binary under 5 MB with zero dependencies, deterministic output, and sub-second response times
