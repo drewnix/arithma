@@ -49,7 +49,7 @@ The simplifier has a verified idempotency contract:
 | Exact trig values | $\sin\!\left(\frac{\pi}{6}\right) \to \frac{1}{2}$, $\sin\!\left(\frac{\pi}{12}\right) \to \frac{\sqrt{6}-\sqrt{2}}{4}$ |
 | Symbolic trig | $\sin(2)$ stays symbolic — no closed form exists |
 | Inverse trig values | $\arcsin\!\left(\frac{\sqrt{2}}{2}\right) \to \frac{\pi}{4}$ |
-| Hyperbolic values | $\sinh(\ln 2) \to \frac{3}{4}$, $\operatorname{arccosh}(3) \to \ln(2+\sqrt{3})$ |
+| Hyperbolic values | $\sinh(\ln 2) \to \frac{3}{4}$, $\text{arccosh}(3) \to \ln(2+\sqrt{3})$ |
 | Log rules | $\ln(ab) \to \ln a + \ln b$, $\ln(12) \to 2\ln 2 + \ln 3$ |
 | Exp/log folding | $\exp(2\ln 3) \to 9$, $\exp(\ln x) \to x$ |
 | Partial fractions | Full decomposition via factoring |
