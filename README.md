@@ -23,153 +23,126 @@ never guesses, approximates heuristically, or returns an unverified result.
 An agent that gets "I can't do this" can try a different approach. An agent
 that gets a wrong answer propagates it through its entire reasoning chain.
 
-**Knows what's impossible.** The Risch algorithm doesn't just integrate — it
+**Proves what's impossible.** The Risch algorithm doesn't just integrate — it
 can *prove* when no elementary antiderivative exists. Ask for ∫e^{-x²}dx and
 you get a mathematically rigorous explanation of why no closed form exists,
-not silence or a wrong answer. An agent that knows the boundary of what's
-computable can reason about that boundary.
+not silence or a wrong answer.
 
 **1356 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
-## What it does
+---
 
-**Algebra.** Polynomial factoring over Q via the Berlekamp-Zassenhaus algorithm
-(modular factoring, Hensel lifting, factor recombination). Multivariate
-polynomial GCD. Simplification with trigonometric identities, logarithmic
-properties, power rules, rational content GCD cancellation, and sign
-normalization. Factored display for expressions with repeated polynomial
-factors. Partial fraction decomposition. Expression equivalence checking.
-Greek letter LaTeX parsing (`\alpha` through `\omega`). Implicit
-multiplication (`u(3-2u)`, `α(x+1)`). **Radical simplification** with
-square-factor extraction (`√12 → 2√3`, `√(4a²) → 2|a|`), like-radical
-combination across multi-term sums (`1 + √2 + √2 → 1 + 2√2`), √a·√a → a,
-(√x)² → |x|, and common-denominator combination
-(`1/x + 1/(x+1) → (2x+1)/(x(x+1))`). **Shared factor cancellation** in
-fractions (`3x/x → 3`). **Symbolic trig preservation** — `sin(2)`, `cos(3)`
-stay symbolic instead of evaluating to float; only special values like
-`sin(0)`, `sin(π)`, `cos(π/2)` evaluate. **Logarithmic integer factorization**
-— `ln(12) → 2·ln(2) + ln(3)`. **Repeating decimal input** via
-`\overline` — `0.\overline{3} → 1/3` exactly. **Factorial** — `n!` postfix
-and `\factorial{n}`, with exact evaluation. **GCD and LCM** — `\gcd` and
-`\lcm` as multi-argument functions. **Full trig/hyperbolic function
-registry** — all 24 functions (sin, cos, tan, csc, sec, cot + arc + hyperbolic
-+ inverse hyperbolic variants). Assumption system for domain-aware
-simplification: declare `x > 0` and `sqrt(x^2)` simplifies to `x` instead
-of `|x|`.
+## Capabilities
 
-**Calculus.** Differentiation with full chain rule. Integration via heuristic
-methods (polynomial rules, transcendental table, integration by parts, u-sub,
-trig powers, inverse trig, partial fractions, trig substitution) plus the
-**Risch algorithm** for transcendental integration — the decision procedure
-that can prove an integral has no elementary closed form. Handles both
-exponential extensions (∫r(x)·e^{g(x)}dx, including rational-coefficient
-integrands like ∫((1-x)/x²)·e^x dx), logarithmic extensions
-(∫r(x)·f(ln(x))dx, including ∫ln(x)/x² dx with ln(x) absorption),
-**multi-extension towers** (integrands with both exp and ln, like
-∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)) via two-level Risch
-towers with inner DE solving over Q(x)[ln(x)], **biquadratic
-integration** (∫1/(ax⁴+bx²+c)dx via quadratic-in-x² factoring with
-exact radical coefficients), **general quartic integration** via
-Ferrari's method and algebraic number fields (∫1/(x⁴+x+1)dx works),
-**higher-power irreducible quadratic** integration via the Ostrogradsky
-reduction formula (∫1/(x²+1)²dx, ∫1/(x²+1)³dx, etc.), and
-**hyperbolic substitution** (∫1/√(x²±a²)dx = ln|x+√(x²±a²)|).
-All via Hermite reduction and the Rothstein-Trager resultant method.
-Parametric integration for linear and **quadratic** denominators
-(`∫1/(x+a)dx = ln|x+a|`, `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)`,
-`∫(px+q)/(ax²+bx+c)dx` with the full completing-the-square formula).
-**Exact definite integration** via FTC with symbolic special-value
-evaluation: `∫₀¹ 1/(x²+1)dx = π/4`.
-Taylor/Maclaurin series with exact rational coefficients, including
-symbolic-center expansion (`f(x)` around `x=a` with symbolic `a`).
-Symbolic limits via direct substitution, GCD cancellation, and L'Hopital's
-rule.
+### Algebra & Simplification
 
-**Equation solving.** Linear through quartic, exactly (Cardano, Ferrari).
-Degree 5+ via Berlekamp-Zassenhaus factoring into solvable pieces.
-**Exact radical roots** — `x²-2=0` returns `±√2`, not `±1.414...`.
-Rational equations with the variable in a denominator (`1/x = 2` → `x = 1/2`)
-via automatic denominator clearing. **Complex root reporting** — when a
-polynomial has complex roots that can't be expressed in reals, the solver
-reports how many were omitted (e.g., `x³-2=0` → `x = ∛2 (2 complex roots
-omitted)`). **Parametric solving** — `solve(ax²+bx+c=0, x)` returns the
-quadratic formula with symbolic coefficients. **Systems of equations** —
-linear systems via exact Gaussian elimination over Q (handles unique,
-parametric, and inconsistent systems), polynomial systems via
-substitution when at least one equation is linear. **Inequality solving** —
-polynomial and rational inequalities via root-finding + sign chart analysis,
-returning solutions in standard interval notation
-(`x²-4 > 0` → `(-∞, -2) ∪ (2, ∞)`).
+| Feature | Example |
+|---------|---------|
+| Polynomial factoring (Berlekamp-Zassenhaus) | `x⁴-1 → (x+1)(x-1)(x²+1)` |
+| Radical simplification | `√12 → 2√3`, `√(4a²) → 2\|a\|` |
+| Like-radical collection | `1 + √2 + √2 → 1 + 2√2` |
+| Radical products | `√2·√2 → 2`, `√2·3·√2 → 6` |
+| Fraction cancellation | `3x/x → 3` |
+| Trig identities | `sin²+cos² → 1`, `sin/cos → tan` |
+| Log rules | `ln(a·b) → ln(a)+ln(b)`, `ln(12) → 2·ln(2)+ln(3)` |
+| Partial fractions | Full decomposition via factoring |
+| Common denominator | `1/x + 1/(x+1) → (2x+1)/(x(x+1))` |
+| Assumption-aware | `√(x²) → x` when `x > 0` |
+| Symbolic trig | `sin(2)` stays symbolic; `sin(π/6) → 1/2` |
+| Repeating decimals | `0.\overline{3} → 1/3` |
+| Factorial & binomial | `n!`, `\binom{n}{k}` |
+| GCD / LCM | `\gcd(24, 36) → 12` |
 
-**Symbolic summation.** Closed-form evaluation of Σ expressions:
-polynomial sums via Faulhaber's formulas (Σk, Σk², Σk³, Σk⁴),
-geometric series (Σr^k), telescoping sums (Σ(1/k - 1/(k+1))),
-and general polynomial bodies via linearity (Σ(2k-1) = n²).
-Works with symbolic bounds (`Σ_{k=1}^{n} k = n(n+1)/2`)
-and evaluates to exact numbers when bounds are constant
-(`Σ_{k=1}^{100} k = 5050`).
+### Calculus
 
-**Symbolic product notation.** Closed-form evaluation of ∏ expressions:
-constant bodies (`∏_{k=1}^{n} c = c^n`), factorial-style index products
-(`∏_{k=1}^{n} k = n!` when n is numeric), odd-number products
-(`∏_{k=1}^{n}(2k-1) = (2n)!/(2^n·n!)`, numeric bounds evaluate exactly),
-and geometric products (`∏_{k=0}^{n} r^k = r^{n(n+1)/2}`).
-Works with symbolic bounds and evaluates exactly for constant bounds
-(`∏_{k=1}^{5} k = 120`). For `∏(2k-1)` with symbolic `n`, the closed form
-is correct but displayed as nested `\prod` terms (e.g.
-`(∏_{i=1}^{2n} i) / (2^n · ∏_{j=1}^{n} j)`) rather than a single compact
-polynomial like summation's `Σ(2k-1) = n²`.
+| Feature | Example |
+|---------|---------|
+| Differentiation (chain rule) | `d/dx sin(x²) → 2x·cos(x²)` |
+| 8 integration methods | polynomial, parts, u-sub, trig, partial fractions, ... |
+| Risch algorithm | proves non-elementarity with explanation |
+| Multi-extension towers | `∫(exp(x)·ln(x) + exp(x)/x) dx = exp(x)·ln(x)` |
+| Parametric integration | `∫1/(x²+a)dx = (1/√a)·arctan(x/√a)` |
+| Exact definite integrals | `∫₀¹ 1/(x²+1)dx = π/4` |
+| Taylor series | exact rational coefficients, symbolic center |
+| Limits | L'Hôpital, series expansion, one-sided, at infinity |
 
-**ODEs.** Four classes: separable (`dy/dx = g(x)*h(y)`), first-order linear
-(`dy/dx + P(x)*y = Q(x)` via integrating factor), second-order
-constant-coefficient (`ay'' + by' + cy = 0` — distinct real, repeated, and
-complex roots), and **power series solutions** for general linear ODEs with
-polynomial coefficients at ordinary points (Hermite, Legendre, arbitrary
-order). Series solver returns k independent `FormalPowerSeries` solutions
-for order-k ODEs, with initial condition matching. Returns general solutions
-with arbitrary constants.
+### Equation Solving
 
-**Formal power series.** Lazy coefficient evaluation with automatic caching.
-Arithmetic (add, subtract, multiply, divide), composition `f(g(x))`,
-multiplicative inverse `1/f(x)`, quotient `f/g` via coefficient recurrence,
-compositional inverse (reversion) via Lagrange inversion, formal
-derivative and integral. Built-in series: exp, sin, cos, geometric,
-ln(1+x). Truncation to polynomial. Used by the series ODE solver.
+| Feature | Example |
+|---------|---------|
+| Degree 1–4 exact | Cardano, Ferrari |
+| Exact radical roots | `x²-2=0 → ±√2` |
+| Parametric | `solve(ax²+bx+c=0, x)` → quadratic formula |
+| Systems | exact Gaussian elimination, polynomial substitution |
+| Inequalities | `x²-4 > 0 → (-∞,-2) ∪ (2,∞)` |
+| Rational equations | `1/x = 2 → x = 1/2` |
 
-**Linear algebra.** Determinant, inverse, eigenvalues (numerical up to
-4×4 via characteristic polynomial + Cardano/Ferrari, including matrices
-with decimal entries; symbolic for 2×2 and 3×3 matrices with variable
-entries), rank, transpose, multiplication, Ax = b, and RREF.
-**Algebraic number fields** — exact arithmetic in Q(α) for algebraic α,
-used for quartic integration and Risch algorithm extensions.
+### Summation & Products
 
-## MCP server
+| Feature | Example |
+|---------|---------|
+| Faulhaber's formulas | `Σk² = n(n+1)(2n+1)/6` |
+| Geometric series | `Σr^k = (r^{n+1}-1)/(r-1)` |
+| Telescoping | `Σ(1/k - 1/(k+1)) = n/(n+1)` |
+| Product notation | `∏_{k=1}^{5} k = 120` |
+| Symbolic products | `∏_{k=1}^{n} c = c^n` |
+
+### ODEs & Series
+
+| Feature | Example |
+|---------|---------|
+| Separable | `dy/dx = g(x)·h(y)` |
+| First-order linear | integrating factor |
+| Second-order constant-coefficient | `ay'' + by' + cy = 0` |
+| Power series solutions | Hermite, Legendre, arbitrary order |
+| Formal power series | lazy eval, composition, Lagrange inversion |
+
+### Linear Algebra
+
+| Feature | Example |
+|---------|---------|
+| Determinant, inverse | exact over Q |
+| Eigenvalues | symbolic (2×2, 3×3), numerical (up to 4×4) |
+| Systems | Ax = b, RREF |
+| Algebraic number fields | exact arithmetic in Q(α) |
+
+### Verification
+
+| Feature | Example |
+|---------|---------|
+| Numeric cross-check | 12 test points, assumption-aware |
+| Expression equivalence | simplify-and-compare |
+| Non-elementarity proofs | Risch algorithm certificates |
+
+---
+
+## MCP Server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. It gives Claude or any MCP-compatible AI agent access to 15 tools:
+stdio. 16 tools with LaTeX I/O:
 
 | Tool | Purpose |
 |------|---------|
+| `format` | Parse and normalize LaTeX without simplifying |
 | `simplify` | Reduce an expression to canonical form |
-| `differentiate` | Symbolic derivative with respect to any variable |
-| `integrate` | Indefinite/definite integrals; proves non-elementary when applicable |
+| `differentiate` | Symbolic derivative |
+| `integrate` | Indefinite/definite; proves non-elementary when applicable |
 | `substitute` | Replace a variable with an expression |
-| `solve` | Solve equations or inequalities (any degree, interval notation for inequalities) |
-| `solve_system` | Solve systems of linear/polynomial equations |
-| `factor` | Irreducible factoring over Q (Berlekamp-Zassenhaus) |
-| `partial_fractions` | Decompose P(x)/Q(x) into partial fractions |
+| `solve` | Equations or inequalities |
+| `solve_system` | Systems of linear/polynomial equations |
+| `factor` | Irreducible factoring over Q |
+| `partial_fractions` | Decompose P(x)/Q(x) |
 | `limit` | Symbolic limits |
 | `taylor_series` | Series expansion with exact coefficients |
-| `evaluate` | Numerical evaluation with variable assignments |
+| `evaluate` | Numerical evaluation |
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, Ax=b |
-| `equivalent` | Check if two expressions are mathematically equal |
-| `verify` | Numerically cross-check two expressions at multiple test points |
-| `solve_ode` | Solve ODEs: first-order, constant-coeff, and power series (poly coefficients) |
+| `equivalent` | Check if two expressions are equal |
+| `verify` | Numerically cross-check at multiple test points |
+| `solve_ode` | First-order, constant-coeff, and power series |
 
-Every tool accepts LaTeX and returns LaTeX. Nine tools accept an optional
-`assumptions` parameter for domain-aware simplification:
+All tools accept an optional `assumptions` parameter:
 
 ```json
 {
@@ -183,8 +156,7 @@ Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
 
 ### Setup
 
-**Claude Code** -- add to `.claude/settings.json` (project) or
-`~/.claude/settings.json` (global):
+**Claude Code** — add to `.claude/settings.json`:
 
 ```json
 {
@@ -196,7 +168,7 @@ Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
 }
 ```
 
-**Claude Desktop** -- add to your config file
+**Claude Desktop** — add to your config file
 (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
@@ -209,40 +181,27 @@ Valid assumptions: `positive`, `nonnegative`, `negative`, `nonzero`, `real`,
 }
 ```
 
-## Web calculator
+---
 
-The `frontend/` directory contains a browser-based calculator UI built with
-React and [MathLive](https://cortexjs.io/mathlive/). MathLive provides a
-visual equation editor — type math naturally and it produces LaTeX behind
-the scenes. Much easier than writing raw LaTeX on the command line.
+## Web Calculator
 
-Arithma is compiled to WebAssembly and runs entirely in the browser. No
-server, no network calls. The same exact-arithmetic engine that powers the
-CLI and MCP server runs client-side.
-
-**Tools available in the UI:** Evaluate, Simplify, Solve, Factor, Partial
-Fractions, Substitute, Differentiate, Integrate, Taylor Series, Limit, ODE,
-Determinant, Inverse, Eigenvalues, Equivalent, and Verify — organized by
-category (Evaluate, Algebra, Calculus, Matrix).
-
-### Running the frontend
+The `frontend/` directory contains a browser-based calculator built with
+React and [MathLive](https://cortexjs.io/mathlive/). Arithma compiles to
+WebAssembly and runs entirely client-side — same exact-arithmetic engine,
+no server, no network calls.
 
 ```bash
-# Build the WASM module (requires wasm-pack)
 wasm-pack build --target web --out-dir frontend/public/pkg
-
-# Install dependencies and start the dev server
-cd frontend
-npm install
-npm run dev
+cd frontend && npm install && npm run dev
 ```
 
-Then open `http://localhost:5173` in your browser.
+Then open `http://localhost:5173`.
 
-## Command line
+---
 
-Arithma also works as a standalone CLI tool. Run with no arguments for an
-interactive REPL, or pass a subcommand for one-shot computation:
+## Command Line
+
+Interactive REPL or one-shot subcommands:
 
 ```
 $ arithma simplify "x^2 + 2x + 1"
@@ -254,135 +213,34 @@ $ arithma diff "x^3 + \sin(x)" x
 $ arithma integrate "3x^2" x
 x^{3} + C
 
-$ arithma solve "x^2 - 4 = 0"
-x = 2
-x = -2
-
 $ arithma solve "x^2 - 2 = 0"
 x = \sqrt{2}
 x = -\sqrt{2}
 
-$ arithma solve "x + y = 3, x - y = 1" "x, y"
-x = 2
-y = 1
-
-$ arithma solve "x + y = 5, x * y = 6" "x, y"
-Solution 1:
-  x = 3
-  y = 2
-Solution 2:
-  x = 2
-  y = 3
-
-$ arithma simplify "\sqrt{12}"
-2\sqrt{3}
-
-$ arithma simplify "\sqrt{8} + \sqrt{2}"
-3\sqrt{2}
-
-$ arithma integrate "\frac{1}{x^2 + a}" x
-\frac{1}{\sqrt(a)} \cdot \arctan(\frac{2x}{2\sqrt(a)}) + C
-
-$ arithma factor "x^4 - 1"
-(x + 1) * (x - 1) * (x^2 + 1)
-
-$ arithma eval "x^2 + 1" x=3
-10
-
-$ arithma taylor "\sin(x)" x 0 5
-\frac{1}{120} \cdot x^{5} - \frac{1}{6} \cdot x^{3} + x
-
-$ arithma ode "x^2" x y
-y = C_{1} + \frac{1}{3} \cdot x^{3}
-
-$ arithma ode --cc 1 0 1
-y = C_{1} \cdot \cos(x) + C_{2} \cdot \sin(x)
-
 $ arithma simplify "\sum_{k=1}^{n} k^2"
 \frac{n \cdot (n + 1) \cdot (2n + 1)}{6}
 
-$ arithma simplify "\sum_{k=0}^{n} 2^k"
-2^{n + 1} - 1
-
-$ arithma simplify "\prod_{k=1}^{n} 2"
-2^{n}
-
-$ arithma simplify "\prod_{k=1}^{5} k"
-120
-
-$ arithma simplify "\prod_{k=1}^{5} {2k - 1}"
-945
-
-$ arithma simplify "\prod_{k=0}^{n} 2^k"
-2^{\frac{n \cdot (n + 1)}{2}}
-
 $ arithma solve "x^2 - 4 > 0"
 (-∞, -2) ∪ (2, ∞)
-
-$ arithma solve "\frac{x-1}{x+2} > 0"
-(-∞, -2) ∪ (1, ∞)
 
 $ arithma integrate "\exp(-x^2)" x
 No elementary antiderivative exists. The Risch algorithm proves that
 the differential equation q' + (-2x)·q = 1 has no polynomial solution,
 so ∫1·exp(-x^2) dx cannot be expressed in terms of elementary functions.
 
-$ arithma integrate "\ln(x)^2" x
-2x + -2x \cdot \ln(x) + x \cdot \ln(x)^{2} + C
-
-$ arithma integrate "\frac{1}{x \cdot \ln(x)}" x
-\ln(\ln(x)) + C
-
-$ arithma integrate "\frac{1}{\ln(x)}" x
-No elementary antiderivative exists. The Rothstein-Trager resultant
-has no rational roots, so the integral cannot be expressed as a sum
-of logarithms.
-
-$ arithma integrate "\frac{\exp(x)}{1 + \exp(x)}" x
-\ln(1 + \exp(x)) + C
-
-$ arithma integrate "\frac{1}{1 + \exp(x)}" x
--1 \cdot \ln(1 + \exp(x)) + x + C
-
-$ arithma integrate "\frac{1-x}{x^2} \cdot \exp(x)" x
-\frac{-1}{x} \cdot \exp(x) + C
-
-$ arithma integrate "\frac{\exp(x)}{x}" x
-No elementary antiderivative exists. The Risch algorithm proves that
-the differential equation q' + (1)·q = (1)/(x) has no rational
-solution, so ∫(1/x)·exp(x) dx cannot be expressed in terms of
-elementary functions.
-
-$ arithma integrate "\frac{\ln(x)}{x^2}" x
-\frac{-1}{x} + \frac{-1}{x} \cdot \ln(x) + C
-
-$ arithma integrate "\frac{\ln(x)}{x + 1}" x
-No elementary antiderivative exists. The integral requires ln(x + 1),
-which is outside the single ln(x) extension tower.
-
-$ arithma integrate "\exp(x) \cdot \ln(x)" x
-No elementary antiderivative exists. The Risch DE q' + (1)·q = θ
-has no solution in Q(x, ln(x)), so the integral cannot be expressed
-in terms of elementary functions.
-
-$ arithma integrate "\frac{\ln(x)}{1 + \exp(x)}" x
-No elementary antiderivative exists. The two-level Rothstein-Trager
-resultant has no constant roots, so the integral cannot be expressed
-in terms of elementary functions.
-
 $ arithma integrate "\frac{1}{x^4 + 1}" x
-\frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} + \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x + \sqrt{2}}{\sqrt{2}}) + -\frac{1}{8} \cdot \sqrt{2} \cdot \ln(|x^{2} - \sqrt{2} \cdot x + 1|) + \frac{\frac{1}{2}}{\sqrt{2}} \cdot \arctan(\frac{2x - \sqrt{2}}{\sqrt{2}}) + C
+\frac{1}{8}·√2·ln(|x²+√2·x+1|) + ... + C
 ```
 
-All 12 subcommands: `simplify`, `differentiate` (`diff`), `integrate`,
+All 13 subcommands: `format`, `simplify`, `differentiate` (`diff`), `integrate`,
 `solve`, `factor`, `prime-factorize` (`factorint`), `partial-fractions` (`pf`),
 `evaluate` (`eval`), `limit`, `taylor`, `substitute` (`sub`), `ode`.
-Run `arithma --help` for full usage.
+
+---
 
 ## Building
 
-Arithma is a Cargo workspace with three crates: the math engine library
-(root), the CLI (`crates/cli/`), and the MCP server (`crates/mcp/`).
+Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (`crates/mcp/`).
 
 ```
 cargo build --release --workspace         # all crates
@@ -391,65 +249,23 @@ cargo build --release -p arithma-mcp-server # MCP server only
 cargo test --workspace                    # run all 1356 tests
 ```
 
-## Design principles
+---
 
-**Correct first.** Exact arithmetic everywhere. Verified idempotency contract
-on the simplifier.
+## Design Principles
 
-**Well-chosen algorithms.** Berlekamp-Zassenhaus for polynomial factoring.
-Subresultant remainder sequence for GCD. Cardano and Ferrari for cubics and
-quartics. The choice of algorithm matters more than the speed of implementation.
+1. **Correct first.** Exact arithmetic everywhere. Verified idempotency.
+2. **Well-chosen algorithms.** Berlekamp-Zassenhaus, Cardano, Ferrari, Risch. The algorithm matters more than the implementation speed.
+3. **No hardcoded answers.** The system computes results; it does not look them up.
+4. **LaTeX is the interface.** Agents speak LaTeX. We parse it and produce it.
+5. **Deterministic.** Same input, same output. No randomness.
+6. **Small footprint.** Under 5 MB, zero dependencies, compiles to WASM.
 
-**No hardcoded answers.** The system computes its results; it does not look
-them up from a table of special cases.
+---
 
-## Architecture
+## Contributing
 
-Cargo workspace with three crates:
-
-```
-src/                     -- arithma library (math engine)
-  node.rs                -- expression AST (Num, Variable, Add, ..., Factorial, Product)
-  exact.rs               -- exact rational arithmetic (BigRational), repeating decimals
-  integer.rs             -- number theory: factorial, GCD/LCM, prime factorization
-  assumptions.rs         -- variable assumptions (positive, integer, etc.)
-  tokenizer.rs           -- LaTeX tokenizer with implicit multiplication
-  parser.rs              -- expression tree builder, summation/product notation
-  simplify.rs            -- rule-based simplification with idempotency contract
-  polynomial.rs          -- dense univariate polynomials over Q
-  multipoly.rs           -- multivariate polynomials (recursive representation)
-  mod_poly.rs            -- polynomial arithmetic over Z_p, Berlekamp-Zassenhaus
-  partial_fractions.rs   -- partial fraction decomposition via extended GCD
-  functions.rs           -- function registry (24 trig/hyperbolic, log, exp, gcd, lcm, factorial)
-  derivative.rs          -- symbolic differentiation
-  integration.rs         -- symbolic integration (heuristics + Risch fallback)
-  rational_function.rs   -- p(x)/q(x) arithmetic for Risch algorithm
-  ext_poly.rs            -- polynomials in tower variable θ over Q(x)
-  risch.rs               -- Risch algorithm: Hermite reduction, DE solver,
-                            Rothstein-Trager, non-elementary proofs
-  summation.rs           -- symbolic summation (Faulhaber, geometric, telescoping)
-  ode.rs                 -- ODE solver (separable, linear, constant-coefficient,
-                            power series at ordinary points)
-  fps.rs                 -- formal power series with lazy coefficient evaluation
-  series.rs              -- Taylor/Maclaurin series
-  limits.rs              -- symbolic limits
-  matrix.rs              -- matrix operations
-  expression.rs          -- equation solving (degree 1-4 + factoring)
-  systems.rs             -- systems of equations (Gaussian elimination)
-  inequality.rs          -- polynomial/rational inequality solving
-  algebraic.rs           -- algebraic number fields Q(α), AlgPoly, Hermite reduction
-  evaluator.rs           -- numerical evaluation
-  verify.rs              -- numeric identity verification (assumption-aware)
-  wasm_bindings.rs       -- WebAssembly bindings via wasm-bindgen
-crates/cli/src/main.rs   -- CLI binary
-crates/mcp/src/main.rs   -- MCP server (JSON-RPC 2.0 over stdio)
-frontend/                -- React + MathLive web calculator (WASM)
-```
-
-~36K lines of Rust. Expressions are trees of `Node` variants. `ExactNum`
-wraps `BigRational` for exact arithmetic, falling back to `f64` only for
-transcendental constants and function results. The parser reads LaTeX; the
-display implementation writes LaTeX. Round-trip stability is tested.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions,
+CI discipline, and PR workflow.
 
 ## License
 
