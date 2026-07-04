@@ -1,4 +1,5 @@
 use arithma::simplify::Simplifiable;
+use arithma::status::StatusReport;
 use arithma::tokenizer::normalize_var;
 use arithma::{
     build_expression_tree, parse_latex, parse_latex_raw, Environment, Evaluator, Node, Tokenizer,
@@ -152,6 +153,15 @@ fn cmd_differentiate(cmd: &str, args: &[String]) {
     }
 }
 
+/// Render a NON_ELEMENTARY error as the status marker, so the CLI and the
+/// MCP server present impossibility identically (docs/result-status.md).
+fn non_elementary_marker(e: &str) -> String {
+    let reason = e.replacen("NON_ELEMENTARY: ", "", 1);
+    StatusReport::provably_impossible(&reason)
+        .marker()
+        .expect("provably_impossible always has a marker")
+}
+
 fn cmd_integrate(cmd: &str, args: &[String]) {
     if args.is_empty() {
         usage(cmd, "<expr> [var] [lower upper]", NONE, NONE);
@@ -168,7 +178,7 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
         match arithma::integration::definite_integral_exact_latex(expr, &var, lower, upper) {
             Ok(result) => println!("{}", result),
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                println!("{}", e.replacen("NON_ELEMENTARY: ", "", 1));
+                println!("{}", non_elementary_marker(&e));
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -181,7 +191,7 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
     match arithma::integration::integrate_latex(expr, &var) {
         Ok(result) => println!("{}", result),
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-            println!("{}", e.replacen("NON_ELEMENTARY: ", "", 1));
+            println!("{}", non_elementary_marker(&e));
         }
         Err(e) => {
             eprintln!("Error: {}", e);

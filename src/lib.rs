@@ -118,6 +118,7 @@ pub use crate::systems::{solve_linear_system, solve_system, SystemSolution};
 pub mod inequality;
 pub use crate::inequality::solve_inequality;
 
+pub mod status;
 pub mod verify;
 pub use crate::verify::verify_identity;
 

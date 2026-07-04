@@ -1,0 +1,560 @@
+//! Result-status taxonomy: machine-readable evidence classification for
+//! every tool response.
+//!
+//! The design and the per-tool classification rules live in
+//! `docs/result-status.md`. The one-sentence version: a status states what
+//! *kind of evidence* backs a result — an algebraic decision procedure
+//! (`exact`), numeric agreement at n points (`verified`), an unchecked but
+//! believed-sound transformation (`heuristic`), an honest failure
+//! (`unable_to_compute`), or a proof that no answer exists in the requested
+//! class (`provably_impossible`).
+//!
+//! Two invariants, inherited from the verify_chain design:
+//! 1. Numeric evidence never masquerades as proof — statuses may be
+//!    downgraded along a pipeline, never upgraded.
+//! 2. The counterexample is the diagnosis — failing checks carry the point
+//!    and both values, nothing generative.
+
+use std::collections::BTreeSet;
+
+use serde_json::{json, Value};
+
+use crate::derivative::differentiate;
+use crate::environment::Environment;
+use crate::exact::ExactNum;
+use crate::node::Node;
+use crate::simplify::Simplifiable;
+use crate::verify::verify_identity;
+use num_traits::One;
+
+/// The five evidence classes. See `docs/result-status.md` for the earning
+/// rules — a status must be earned by the mechanism that justifies it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResultStatus {
+    /// Result of a decision procedure or complete, sound algebraic algorithm.
+    Exact,
+    /// Independently checked numerically at `points_tested` points. Evidence,
+    /// not proof.
+    Verified { points_tested: usize },
+    /// Transformation believed sound but not independently verified.
+    Heuristic,
+    /// The request was understood but no answer could be produced.
+    UnableToCompute { reason: String },
+    /// A proof that no answer exists in the requested class (e.g. Risch
+    /// non-elementarity). A theorem, not a failure.
+    ProvablyImpossible { certificate: String },
+}
+
+/// A status plus caveats. Caveats are orthogonal to the evidence class:
+/// domain restrictions, truncation orders, precision notes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StatusReport {
+    pub status: ResultStatus,
+    pub caveats: Vec<String>,
+    /// Present when a `verified` status carries a *negative* verdict: the
+    /// specific point where the expressions disagree, as JSON
+    /// `{point: {var: value, …}, lhs: …, rhs: …}`. The counterexample is
+    /// the diagnosis — nothing generative.
+    counterexample: Option<Value>,
+}
+
+impl StatusReport {
+    pub fn exact() -> Self {
+        Self::new(ResultStatus::Exact)
+    }
+
+    pub fn verified(points_tested: usize) -> Self {
+        Self::new(ResultStatus::Verified { points_tested })
+    }
+
+    pub fn heuristic() -> Self {
+        Self::new(ResultStatus::Heuristic)
+    }
+
+    pub fn unable_to_compute(reason: &str) -> Self {
+        Self::new(ResultStatus::UnableToCompute {
+            reason: reason.to_string(),
+        })
+    }
+
+    pub fn provably_impossible(certificate: &str) -> Self {
+        Self::new(ResultStatus::ProvablyImpossible {
+            certificate: certificate.to_string(),
+        })
+    }
+
+    fn new(status: ResultStatus) -> Self {
+        StatusReport {
+            status,
+            caveats: Vec::new(),
+            counterexample: None,
+        }
+    }
+
+    pub fn with_caveat(mut self, caveat: &str) -> Self {
+        self.caveats.push(caveat.to_string());
+        self
+    }
+
+    pub fn with_counterexample(mut self, cx: &crate::verify::Counterexample) -> Self {
+        let point: serde_json::Map<String, Value> = cx
+            .point
+            .iter()
+            .map(|(var, val)| (var.clone(), json!(val)))
+            .collect();
+        self.counterexample = Some(json!({
+            "point": point,
+            "lhs": cx.lhs_value,
+            "rhs": cx.rhs_value,
+        }));
+        self
+    }
+
+    pub fn counterexample_json(&self) -> Option<&Value> {
+        self.counterexample.as_ref()
+    }
+
+    /// The JSON shape consumed by MCP clients. Contract: consumers switch on
+    /// the `status` string and ignore unknown fields; evidence fields appear
+    /// only for the status that earns them.
+    pub fn to_json(&self) -> Value {
+        let mut obj = json!({});
+        match &self.status {
+            ResultStatus::Exact => {
+                obj["status"] = json!("exact");
+            }
+            ResultStatus::Verified { points_tested } => {
+                obj["status"] = json!("verified");
+                obj["points_tested"] = json!(points_tested);
+            }
+            ResultStatus::Heuristic => {
+                obj["status"] = json!("heuristic");
+            }
+            ResultStatus::UnableToCompute { reason } => {
+                obj["status"] = json!("unable_to_compute");
+                obj["reason"] = json!(reason);
+            }
+            ResultStatus::ProvablyImpossible { certificate } => {
+                obj["status"] = json!("provably_impossible");
+                obj["certificate"] = json!(certificate);
+            }
+        }
+        if !self.caveats.is_empty() {
+            obj["caveats"] = json!(self.caveats);
+        }
+        if let Some(cx) = &self.counterexample {
+            obj["counterexample"] = cx.clone();
+        }
+        obj
+    }
+
+    /// Text marker for loud statuses. Quiet statuses (`exact`, `verified`)
+    /// return `None` so happy-path output stays byte-identical for existing
+    /// consumers.
+    pub fn marker(&self) -> Option<String> {
+        match &self.status {
+            ResultStatus::Exact | ResultStatus::Verified { .. } => None,
+            ResultStatus::Heuristic => {
+                let detail = if self.caveats.is_empty() {
+                    "result not independently verified".to_string()
+                } else {
+                    self.caveats.join("; ")
+                };
+                Some(format!("[heuristic] {}", detail))
+            }
+            ResultStatus::UnableToCompute { reason } => {
+                Some(format!("[unable to compute] {}", reason))
+            }
+            ResultStatus::ProvablyImpossible { certificate } => {
+                Some(format!("[provably impossible] {}", certificate))
+            }
+        }
+    }
+}
+
+/// Does this expression lie in the fragment where canonicalization is a
+/// decision procedure: rational constants, variables, field operations, and
+/// integer powers? Within that fragment, equal canonical forms *prove*
+/// equivalence over ℚ(x₁,…,xₙ). Anything outside it (transcendental
+/// functions, radicals, float literals, variable exponents) disqualifies —
+/// conservatively: the classifier may under-claim, never over-claim.
+pub fn is_algebraic_exact(node: &Node) -> bool {
+    match node {
+        Node::Num(ExactNum::Rational(_)) => true,
+        Node::Num(ExactNum::Float(_)) => false,
+        Node::Variable(_) => true,
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
+            is_algebraic_exact(l) && is_algebraic_exact(r)
+        }
+        Node::Negate(inner) => is_algebraic_exact(inner),
+        Node::Power(base, exp) => is_algebraic_exact(base) && is_integer_exponent(exp),
+        _ => false,
+    }
+}
+
+/// Integer exponents keep us inside the rational-function field. The parser
+/// produces `x^{-2}` as `Power(x, Negate(2))`, so unwrap negation.
+fn is_integer_exponent(node: &Node) -> bool {
+    match node {
+        Node::Num(ExactNum::Rational(r)) => r.denom().is_one(),
+        Node::Negate(inner) => is_integer_exponent(inner),
+        _ => false,
+    }
+}
+
+fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
+    match node {
+        Node::Variable(v) => {
+            vars.insert(v.clone());
+        }
+        Node::Num(_) => {}
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r)
+        | Node::Greater(l, r)
+        | Node::Less(l, r)
+        | Node::GreaterEqual(l, r)
+        | Node::LessEqual(l, r)
+        | Node::Equal(l, r)
+        | Node::Equation(l, r) => {
+            collect_variables(l, vars);
+            collect_variables(r, vars);
+        }
+        Node::Sqrt(inner)
+        | Node::Abs(inner)
+        | Node::Floor(inner)
+        | Node::Ceil(inner)
+        | Node::Round(inner)
+        | Node::Trunc(inner)
+        | Node::Negate(inner)
+        | Node::Factorial(inner) => collect_variables(inner, vars),
+        Node::Piecewise(arms) => {
+            for (expr, cond) in arms {
+                collect_variables(expr, vars);
+                collect_variables(cond, vars);
+            }
+        }
+        Node::Summation(idx, start, end, body) | Node::Product(idx, start, end, body) => {
+            collect_variables(start, vars);
+            collect_variables(end, vars);
+            collect_variables(body, vars);
+            vars.remove(idx); // bound, not free
+        }
+        Node::Function(_, args) => {
+            for a in args {
+                collect_variables(a, vars);
+            }
+        }
+    }
+}
+
+/// Free variables across a set of expressions, sorted. Summation and
+/// product index variables are bound, not free.
+pub fn free_variables(nodes: &[&Node]) -> Vec<String> {
+    let mut vars = BTreeSet::new();
+    for n in nodes {
+        collect_variables(n, &mut vars);
+    }
+    vars.into_iter().collect()
+}
+
+/// Certify the numeric equivalence of two expressions and phrase the result
+/// as a status. `context` names the check in caveats ("self-check",
+/// "round-trip") so a failure identifies its own mechanism.
+fn numeric_equivalence_status(
+    lhs: &Node,
+    rhs: &Node,
+    env: &Environment,
+    context: &str,
+) -> StatusReport {
+    let vars = free_variables(&[lhs, rhs]);
+    if vars.is_empty() {
+        // Constant expressions: a single evaluation decides.
+        let result = verify_identity(lhs, rhs, &["x".to_string()], env.assumptions());
+        // verify_identity treats absent variables as trivially consistent;
+        // fall through to the same handling below.
+        return status_from_verify(result, context);
+    }
+    let result = verify_identity(lhs, rhs, &vars, env.assumptions());
+    status_from_verify(result, context)
+}
+
+fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> StatusReport {
+    if let Some(cx) = result.counterexample {
+        let point: Vec<String> = cx
+            .point
+            .iter()
+            .map(|(v, val)| format!("{}={}", v, val))
+            .collect();
+        return StatusReport::heuristic().with_caveat(&format!(
+            "numeric {} FAILED at {}: lhs={}, rhs={} — treat result with suspicion",
+            context,
+            point.join(", "),
+            cx.lhs_value,
+            cx.rhs_value
+        ));
+    }
+    if result.insufficient_points {
+        return StatusReport::heuristic().with_caveat(&format!(
+            "numeric {} inconclusive (only {} valid test points)",
+            context, result.points_tested
+        ));
+    }
+    StatusReport::verified(result.points_tested)
+}
+
+/// Classify the verify tool's own verdict. Unlike the classifiers above,
+/// a FAIL here is not a degraded result: "not equal, witness attached" is a
+/// well-evidenced verdict, so both PASS and FAIL map to `verified`. Only
+/// insufficient sampling is an honest `unable_to_compute`. Never `exact` —
+/// this tool is numeric by definition.
+pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
+    if result.insufficient_points {
+        return StatusReport::unable_to_compute(&format!(
+            "only {} valid test point{} in the assumed domain (need at least 3)",
+            result.points_tested,
+            if result.points_tested == 1 { "" } else { "s" }
+        ));
+    }
+    let report = StatusReport::verified(result.points_tested);
+    match &result.counterexample {
+        Some(cx) => report.with_counterexample(cx),
+        None => report,
+    }
+}
+
+/// Classify a simplification `input → output`.
+///
+/// Poly/rational fragment → `exact` (canonicalization is a decision
+/// procedure). Identity transformation → `exact` (trivial claim). Otherwise
+/// the rewrite involves transcendental structure we cannot certify
+/// algebraically without rule-level provenance, so it is checked numerically:
+/// `verified` on agreement, loud `heuristic` on failure — which doubles as an
+/// in-production bug detector for the simplifier itself.
+pub fn classify_simplify(input: &Node, output: &Node, env: &Environment) -> StatusReport {
+    if is_algebraic_exact(input) && is_algebraic_exact(output) {
+        return StatusReport::exact();
+    }
+    if format!("{}", input) == format!("{}", output) {
+        return StatusReport::exact();
+    }
+    numeric_equivalence_status(input, output, env, "self-check")
+}
+
+/// Classify a limit result by numeric corroboration along the approach
+/// path. The symbolic limit engine mixes exact series arithmetic with
+/// dominant-term analysis, and without rule-level provenance we cannot
+/// certify which path produced the answer — so a numerically checkable
+/// claim is corroborated by sampling toward the point: `verified` when the
+/// samples converge to the claim, loud `heuristic` when they contradict it,
+/// quiet `heuristic` when corroboration is unavailable (symbolic claims).
+pub fn classify_limit(
+    expr: &Node,
+    var: &str,
+    point_str: &str,
+    claimed_latex: &str,
+    env: &Environment,
+) -> StatusReport {
+    use crate::limits::{parse_limit_point, LimitDirection, LimitPoint};
+
+    let not_corroborated = || {
+        StatusReport::heuristic()
+            .with_caveat("symbolic limit; not numerically corroborated along the approach path")
+    };
+
+    let (point, direction) = match parse_limit_point(point_str) {
+        Ok(p) => p,
+        Err(_) => return not_corroborated(),
+    };
+
+    // Parse the claimed value: ±∞ by string form, otherwise a constant.
+    let trimmed = claimed_latex.trim().trim_start_matches('+');
+    let claimed = if trimmed == "\\infty" || trimmed == "inf" {
+        LimitPoint::PosInfinity
+    } else if trimmed == "-\\infty" || trimmed == "-inf" {
+        LimitPoint::NegInfinity
+    } else {
+        let node = match crate::parser::parse_latex(claimed_latex, env) {
+            Ok(n) => n,
+            Err(_) => return not_corroborated(),
+        };
+        if !free_variables(&[&node]).is_empty() {
+            return not_corroborated();
+        }
+        match crate::evaluator::Evaluator::evaluate(&node, &Environment::new()) {
+            Ok(v) if v.is_finite() => LimitPoint::Finite(ExactNum::from_f64(v)),
+            _ => return not_corroborated(),
+        }
+    };
+
+    // Sample points approaching the limit point, tagged with their approach
+    // level (higher level = closer). Levels let the trend check compare
+    // "coarse" against "fine" without confusing the two sides of a
+    // two-sided approach.
+    let approach: Vec<(usize, f64)> = match &point {
+        LimitPoint::PosInfinity => [1e2, 1e3, 1e4, 1e5]
+            .iter()
+            .enumerate()
+            .map(|(k, t)| (k, *t))
+            .collect(),
+        LimitPoint::NegInfinity => [-1e2, -1e3, -1e4, -1e5]
+            .iter()
+            .enumerate()
+            .map(|(k, t)| (k, *t))
+            .collect(),
+        LimitPoint::Finite(a) => {
+            let a = a.to_f64();
+            let offsets = [1e-2, 1e-3, 1e-4, 1e-5];
+            match direction {
+                LimitDirection::Right => offsets
+                    .iter()
+                    .enumerate()
+                    .map(|(k, h)| (k, a + h))
+                    .collect(),
+                LimitDirection::Left => offsets
+                    .iter()
+                    .enumerate()
+                    .map(|(k, h)| (k, a - h))
+                    .collect(),
+                LimitDirection::Both => offsets
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(k, h)| [(k, a + h), (k, a - h)])
+                    .collect(),
+            }
+        }
+    };
+
+    let mut samples: Vec<(usize, f64)> = Vec::new(); // (level, f(t))
+    for (level, t) in approach {
+        let mut sample_env = Environment::new();
+        sample_env.set(var, t);
+        if let Ok(v) = crate::evaluator::Evaluator::evaluate(expr, &sample_env) {
+            if !v.is_nan() {
+                samples.push((level, v));
+            }
+        }
+    }
+    if samples.len() < 2 {
+        return not_corroborated();
+    }
+    let n = samples.len();
+    let coarsest = samples.iter().map(|(k, _)| *k).min().unwrap();
+    let finest = samples.iter().map(|(k, _)| *k).max().unwrap();
+
+    // Three-way outcome. "Slow" matters: a correct limit like 1/ln(x) → 0
+    // is nowhere near tolerance at x = 10^5, and reporting a correct answer
+    // as FAILED is a false alarm agents will learn to ignore. The
+    // discriminator between "wrong" and "right but slow" is whether the
+    // error CONTRACTS along the approach (at least halves from the coarsest
+    // to the finest level).
+    enum Corroboration {
+        Confirmed,
+        SlowButConsistent,
+        Contradicted,
+    }
+
+    let outcome = match &claimed {
+        LimitPoint::Finite(l) => {
+            let l = l.to_f64();
+            let min_err = samples
+                .iter()
+                .map(|(_, v)| (v - l).abs())
+                .fold(f64::INFINITY, f64::min);
+            if min_err <= 0.01 * l.abs().max(1.0) {
+                Corroboration::Confirmed
+            } else if coarsest < finest {
+                // Worst error per level, compared coarse vs fine.
+                let level_err = |k: usize| {
+                    samples
+                        .iter()
+                        .filter(|(kk, _)| *kk == k)
+                        .map(|(_, v)| (v - l).abs())
+                        .fold(0.0, f64::max)
+                };
+                if level_err(finest) <= 0.5 * level_err(coarsest) {
+                    Corroboration::SlowButConsistent
+                } else {
+                    Corroboration::Contradicted
+                }
+            } else {
+                Corroboration::Contradicted
+            }
+        }
+        LimitPoint::PosInfinity | LimitPoint::NegInfinity => {
+            let sign_ok = match &claimed {
+                LimitPoint::PosInfinity => samples.iter().all(|(_, v)| *v > 0.0),
+                _ => samples.iter().all(|(_, v)| *v < 0.0),
+            };
+            let max_mag = samples.iter().map(|(_, v)| v.abs()).fold(0.0, f64::max);
+            let level_min_mag = |k: usize| {
+                samples
+                    .iter()
+                    .filter(|(kk, _)| *kk == k)
+                    .map(|(_, v)| v.abs())
+                    .fold(f64::INFINITY, f64::min)
+            };
+            if !sign_ok {
+                Corroboration::Contradicted
+            } else if max_mag > 1e4 {
+                Corroboration::Confirmed
+            } else if coarsest < finest && level_min_mag(finest) >= 2.0 * level_min_mag(coarsest) {
+                Corroboration::SlowButConsistent
+            } else {
+                Corroboration::Contradicted
+            }
+        }
+    };
+
+    match outcome {
+        Corroboration::Confirmed => StatusReport::verified(n)
+            .with_caveat("corroborated numerically along the approach path"),
+        Corroboration::SlowButConsistent => StatusReport::heuristic().with_caveat(
+            "samples move toward the claimed limit but too slowly to corroborate within tolerance",
+        ),
+        Corroboration::Contradicted => StatusReport::heuristic().with_caveat(
+            "numeric corroboration FAILED: samples along the approach path do not converge to the claimed limit — treat result with suspicion",
+        ),
+    }
+}
+
+/// Classify an indefinite integration result by the differentiation
+/// round-trip: differentiate the antiderivative and compare to the
+/// integrand. A structural match after simplification is an algebraic
+/// certificate (`exact`) — this is why `integral_of` can reach `exact` where
+/// `implies` never can. Numeric-only agreement is `verified`; disagreement
+/// is a loud `heuristic`.
+pub fn classify_integral(
+    integrand: &Node,
+    antiderivative: &Node,
+    var: &str,
+    env: &Environment,
+) -> StatusReport {
+    let derivative = match differentiate(antiderivative, var) {
+        Ok(d) => d,
+        Err(e) => {
+            return StatusReport::heuristic()
+                .with_caveat(&format!("round-trip check unavailable: {}", e))
+        }
+    };
+    let derivative = derivative.simplify(env).unwrap_or(derivative);
+    let integrand_s = integrand
+        .simplify(env)
+        .unwrap_or_else(|_| integrand.clone());
+
+    if format!("{}", derivative) == format!("{}", integrand_s) {
+        return StatusReport::exact();
+    }
+
+    // Structural forms differ — try the difference.
+    let diff = Node::Subtract(Box::new(derivative.clone()), Box::new(integrand_s.clone()));
+    if let Ok(d) = diff.simplify(env) {
+        if format!("{}", d) == "0" {
+            return StatusReport::exact();
+        }
+    }
+
+    numeric_equivalence_status(&derivative, &integrand_s, env, "round-trip")
+}

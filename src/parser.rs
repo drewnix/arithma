@@ -17,6 +17,9 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
         {
             log::debug!("Token is a number: {}", token);
             output_queue.push(token);
+        } else if token.starts_with(INDEXED_ATOM_PREFIX) {
+            // Pre-parsed \sum/\prod atom: a plain operand.
+            output_queue.push(token);
         } else if token == "NEG" {
             log::debug!("Unary minus detected, pushing to operator stack");
             operator_stack.push(token);
@@ -118,15 +121,40 @@ pub fn get_precedence(op: &str) -> i32 {
     }
 }
 
+/// Marks a pre-parsed `\sum`/`\prod` atom in the token stream. A private-use
+/// character the tokenizer can never emit, so placeholders cannot collide
+/// with user input.
+const INDEXED_ATOM_PREFIX: char = '\u{E000}';
+
 pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
+    let mut indexed_atoms: Vec<Node> = Vec::new();
+    build_expression_tree_inner(tokens, &mut indexed_atoms)
+}
+
+fn build_expression_tree_inner(
+    tokens: Vec<String>,
+    indexed_atoms: &mut Vec<Node>,
+) -> Result<Node, String> {
     log::debug!("Building expression tree from tokens: {:?}", tokens);
 
-    // Special handling for indexed notation: \sum_{i=1}^{n} i, \prod_{k=1}^{n} k
-    if tokens.contains(&"sum".to_string()) {
-        return parse_indexed_notation(&tokens, IndexedNotation::Sum);
-    }
-    if tokens.contains(&"prod".to_string()) {
-        return parse_indexed_notation(&tokens, IndexedNotation::Prod);
+    // \sum and \prod parse as expression ATOMS: each construct is parsed
+    // into a Node here and its token span replaced by a placeholder
+    // operand, so indexed notation composes with the surrounding grammar
+    // (2·Σk, 1 + Σk², Σ − Σ, nested sums). Rightmost-first, so inner
+    // constructs resolve before the outer ones whose bodies contain them.
+    // (Previously a whole-expression special case silently discarded
+    // everything around the Σ/Π — the worst failure class for a CAS.)
+    let mut tokens = tokens;
+    while let Some(pos) = tokens.iter().rposition(|t| t == "sum" || t == "prod") {
+        let kind = if tokens[pos] == "sum" {
+            IndexedNotation::Sum
+        } else {
+            IndexedNotation::Prod
+        };
+        let (node, end) = parse_indexed_at(&tokens, pos, kind, indexed_atoms)?;
+        let placeholder = format!("{}{}", INDEXED_ATOM_PREFIX, indexed_atoms.len());
+        indexed_atoms.push(node);
+        tokens.splice(pos..end, [placeholder]);
     }
 
     let rpn = shunting_yard(tokens)?;
@@ -136,7 +164,14 @@ pub fn build_expression_tree(tokens: Vec<String>) -> Result<Node, String> {
     for token in rpn {
         log::debug!("Processing token: {}", token);
 
-        if token.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
+        if let Some(idx_str) = token.strip_prefix(INDEXED_ATOM_PREFIX) {
+            let atom = idx_str
+                .parse::<usize>()
+                .ok()
+                .and_then(|idx| indexed_atoms.get(idx).cloned())
+                .ok_or_else(|| "Invalid indexed-notation placeholder".to_string())?;
+            stack.push(atom);
+        } else if token.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
             if let Ok(num) = token.parse::<f64>() {
                 log::debug!("Pushing number: {}", num);
                 stack.push(Node::Num(ExactNum::from_f64(num)));
@@ -281,17 +316,23 @@ enum IndexedNotation {
 }
 
 /// Parse indexed notation like \sum_{i=1}^{n} i or \prod_{k=1}^{n} k.
-fn parse_indexed_notation(tokens: &[String], kind: IndexedNotation) -> Result<Node, String> {
+/// Parse one `\sum`/`\prod` construct beginning at `op_pos`. Returns the
+/// node and the index one past the last token the construct consumed, so
+/// the caller can splice the span out and let the surrounding expression
+/// grammar see the construct as a single operand. Bounds and body parse
+/// through `build_expression_tree_inner` with the shared atom table, so
+/// nested constructs (already replaced by placeholders) resolve correctly.
+fn parse_indexed_at(
+    tokens: &[String],
+    op_pos: usize,
+    kind: IndexedNotation,
+    indexed_atoms: &mut Vec<Node>,
+) -> Result<(Node, usize), String> {
     let (op_token, op_label) = match kind {
         IndexedNotation::Sum => ("sum", "summation"),
         IndexedNotation::Prod => ("prod", "product"),
     };
-
-    // Find the position of the operator token
-    let op_pos = tokens
-        .iter()
-        .position(|t| t == op_token)
-        .ok_or_else(|| format!("Expected '{op_token}' token"))?;
+    debug_assert_eq!(tokens[op_pos], op_token);
 
     // Check for underscore after operator
     if op_pos + 1 >= tokens.len() || tokens[op_pos + 1] != "_" {
@@ -423,20 +464,17 @@ fn parse_indexed_notation(tokens: &[String], kind: IndexedNotation) -> Result<No
     }
 
     // Parse the start, end, and body expressions with better error handling
-    let start_expr = build_expression_tree(lower_bound_tokens)
+    let start_expr = build_expression_tree_inner(lower_bound_tokens, indexed_atoms)
         .map_err(|e| format!("Error in {op_label} lower bound: {e}"))?;
 
-    let end_expr = build_expression_tree(upper_bound_tokens)
+    let end_expr = build_expression_tree_inner(upper_bound_tokens, indexed_atoms)
         .map_err(|e| format!("Error in {op_label} upper bound: {e}"))?;
 
     // Debug logging for body tokens
     log::debug!("Body tokens for {op_label}: {:?}", body_tokens);
 
-    let body_expr =
-        build_expression_tree(body_tokens).map_err(|e| format!("Error in {op_label} body: {e}"))?;
-
-    // The rest of the tokens after the indexed notation need to be parsed
-    let remaining_tokens: Vec<String> = tokens.iter().skip(i).cloned().collect();
+    let body_expr = build_expression_tree_inner(body_tokens, indexed_atoms)
+        .map_err(|e| format!("Error in {op_label} body: {e}"))?;
 
     let indexed_node = match kind {
         IndexedNotation::Sum => Node::Summation(
@@ -453,21 +491,11 @@ fn parse_indexed_notation(tokens: &[String], kind: IndexedNotation) -> Result<No
         ),
     };
 
-    // If there are no additional tokens, return the indexed node
-    if remaining_tokens.is_empty() {
-        return Ok(indexed_node);
-    }
-
-    // If there's an equation, we need to parse the right side
-    if remaining_tokens.contains(&"=".to_string()) {
-        let eq_pos = remaining_tokens.iter().position(|t| t == "=").unwrap();
-
-        let right_expr = build_expression_tree(remaining_tokens[eq_pos + 1..].to_vec())?;
-        return Ok(Node::Equation(Box::new(indexed_node), Box::new(right_expr)));
-    }
-
-    // If there are remaining tokens, something might be wrong, but we'll try to handle it gracefully
-    Ok(indexed_node)
+    // Tokens beyond `i` are NOT this construct's concern: the caller
+    // splices the consumed span out and the expression grammar handles
+    // the rest. (The old code returned the bare node here, silently
+    // discarding surrounding context — 2·Σk evaluated to Σk.)
+    Ok((indexed_node, i))
 }
 
 /// Parse an unbraced indexed-notation body, handling cases like i^2, i*j, etc.
