@@ -505,11 +505,13 @@ fn parse_unbraced_indexed_body(tokens: &[String], body_tokens: &mut Vec<String>,
 
     while i < tokens.len() {
         match tokens[i].as_str() {
-            "(" | "{" => {
+            // Paired delimiters all contribute to depth, so the top-level
+            // +/- break below cannot split inside |k−3| or ⌊k/2⌋.
+            "(" | "{" | "ABS_START" | "FLOOR_START" | "CEIL_START" => {
                 paren_depth += 1;
                 body_tokens.push(tokens[i].clone());
             }
-            ")" | "}" => {
+            ")" | "}" | "ABS_END" | "FLOOR_END" | "CEIL_END" => {
                 if paren_depth > 0 {
                     paren_depth -= 1;
                     body_tokens.push(tokens[i].clone());
