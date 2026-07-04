@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1517 tests. 0 failures. 16 MCP tools. ~40K lines of Rust. MCP binary 2.5 MB. Zero clippy warnings.**
+**1623 tests. 0 failures. 16 MCP tools. ~40K lines of Rust. MCP binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -182,7 +182,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ### MCP Server
 
-16 tools with LaTeX I/O: `format`, `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution). `format` parses and normalizes LaTeX without simplifying — useful for canonicalizing messy input.
+16 tools with LaTeX I/O: `format`, `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter.
+
+**Result status (evidence taxonomy).** Every tool response carries a `result_status` object stating what kind of evidence backs the result: `exact` (decision procedure or complete sound algorithm), `verified` (independent numeric check, with point count and counterexample on negative verdicts), `heuristic` (believed sound, unverified — with loud caveats), `unable_to_compute` (honest refusal, with reason), `provably_impossible` (a theorem, e.g. Risch non-elementarity, with certificate). Statuses are *earned by the mechanism that ran*, conditioned on the code path rather than the tool name: polynomial/rational canonicalization is a decision procedure, transcendental rewrites are numerically self-checked, integrals certify by differentiation round-trip, numeric eigenvalue/root paths carry f64 caveats and never claim `exact`. Full contract and per-tool earning rules: `docs/result-status.md`. Planned next: certificate-emitting `exact` ("no certificate, no exact") — the tool boundary replays a cheap exact check (multiply factors back, substitute roots, differentiate antiderivatives) before granting the status, making over-claims structurally impossible and producing artifacts a proof assistant can consume. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution). `format` parses and normalizes LaTeX without simplifying — useful for canonicalizing messy input.
 
 ### CLI
 

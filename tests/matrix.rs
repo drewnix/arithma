@@ -532,3 +532,89 @@ fn test_eigenvalues_no_regression_numeric() {
     assert!((numeric[0] - 3.0).abs() < 1e-10);
     assert!((numeric[1] - 1.0).abs() < 1e-10);
 }
+
+// ── Complex eigenvalues must not be fabricated (Carl, Session 43) ──
+// The companion matrix of x³−x−1 has one real eigenvalue (the plastic
+// number ≈ 1.3247) and a complex conjugate pair ≈ −0.6624 ± 0.5623i.
+// The old "fill in missing repeated roots" loop printed the real part
+// of the pair twice — false values, silently.
+
+#[test]
+fn eigenvalues_complex_pair_not_fabricated() {
+    use arithma::matrix::parse_latex_matrix;
+    let env = arithma::Environment::new();
+    let m = parse_latex_matrix(
+        "\\begin{pmatrix} 0 & 0 & 1 \\\\ 1 & 0 & 1 \\\\ 0 & 1 & 0 \\end{pmatrix}",
+        &env,
+    )
+    .unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    assert_eq!(vals.len(), 3);
+    let rendered: Vec<String> = vals.iter().map(|v| format!("{}", v)).collect();
+    let all = rendered.join(", ");
+    // The real root (plastic number) is present…
+    assert!(
+        rendered.iter().any(|s| s.starts_with("1.3247")),
+        "missing real root: {}",
+        all
+    );
+    // …and the complex pair is EXPLICIT (symbol i), not silently realified.
+    assert_eq!(
+        rendered.iter().filter(|s| s.contains('i')).count(),
+        2,
+        "complex pair must appear with imaginary parts: {}",
+        all
+    );
+    assert!(
+        rendered.iter().any(|s| s.contains("0.5622")),
+        "imaginary magnitude ≈ 0.5623 missing: {}",
+        all
+    );
+}
+
+#[test]
+fn eigenvalues_2x2_complex_rotation() {
+    use arithma::matrix::parse_latex_matrix;
+    let env = arithma::Environment::new();
+    // Rotation-like matrix [[0,-1],[1,0]]: eigenvalues ±i.
+    let m = parse_latex_matrix("\\begin{pmatrix} 0 & -1 \\\\ 1 & 0 \\end{pmatrix}", &env).unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    assert_eq!(vals.len(), 2);
+    let all: String = vals.iter().map(|v| format!("{}, ", v)).collect();
+    assert_eq!(
+        vals.iter()
+            .filter(|v| format!("{}", v).contains('i'))
+            .count(),
+        2,
+        "±i expected: {}",
+        all
+    );
+}
+
+#[test]
+fn eigenvalues_repeated_real_still_work() {
+    use arithma::matrix::parse_latex_matrix;
+    let env = arithma::Environment::new();
+    // [[2,1,0],[0,2,0],[0,0,3]]: eigenvalues 2, 2, 3 (defective, repeated).
+    let m = parse_latex_matrix(
+        "\\begin{pmatrix} 2 & 1 & 0 \\\\ 0 & 2 & 0 \\\\ 0 & 0 & 3 \\end{pmatrix}",
+        &env,
+    )
+    .unwrap();
+    let vals = m.eigenvalues(&env).unwrap();
+    let mut nums: Vec<f64> = vals
+        .iter()
+        .map(|v| arithma::Evaluator::evaluate(v, &env).unwrap_or(f64::NAN))
+        .collect();
+    nums.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let expected = [2.0, 2.0, 3.0];
+    assert_eq!(nums.len(), 3, "spectrum incomplete: {:?}", nums);
+    for (got, want) in nums.iter().zip(expected.iter()) {
+        assert!(
+            (got - want).abs() < 1e-9,
+            "expected {:?}, got {:?}",
+            expected,
+            nums
+        );
+    }
+}

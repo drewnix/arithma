@@ -28,7 +28,14 @@ can *prove* when no elementary antiderivative exists. Ask for
 $\int e^{-x^2}\,dx$ and you get a mathematically rigorous explanation of why
 no closed form exists, not silence or a wrong answer.
 
-**1517 tests, zero failures.** Every algorithm is verified against known results.
+**Every answer declares its evidence.** Each MCP response carries a
+`result_status`: `exact` (decision procedure), `verified` (numeric agreement
+at n points — evidence, never proof), `heuristic`, `unable_to_compute`, or
+`provably_impossible` (with certificate). An agent can tell an algebraic
+identity from "agreed at 12 test points" — because those are different
+things. See [docs/result-status.md](docs/result-status.md).
+
+**1623 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -117,9 +124,11 @@ The simplifier has a verified idempotency contract:
 
 | Feature | Description |
 |---------|-------------|
-| Numeric cross-check | 12 test points, assumption-aware |
-| Expression equivalence | simplify-and-compare |
+| Numeric cross-check | 12 test points, assumption-aware, counterexample on FAIL |
+| Expression equivalence | simplify-and-compare, then assumption-aware sampling |
 | Non-elementarity proofs | Risch algorithm certificates |
+| Result status | evidence taxonomy on every response — `exact` / `verified` / `heuristic` / `unable_to_compute` / `provably_impossible` |
+| Self-checking | transcendental simplifications and integration round-trips are independently verified before being blessed |
 
 ---
 
@@ -248,7 +257,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1517 tests
+cargo test --workspace                    # run all 1623 tests
 ```
 
 ---

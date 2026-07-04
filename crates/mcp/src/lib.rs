@@ -689,12 +689,22 @@ fn tool_solve(args: &Value) -> ToolResult {
             if result.complex_omitted == 1 { "" } else { "s" }
         ));
     }
-    // Root formulas (rational-root, quadratic, Cardano, Ferrari) over exact
-    // arithmetic. A back-substitution self-audit is a planned follow-up.
+    // Quadratics come from genuinely symbolic formulas (exact); cubic and
+    // quartic paths can degrade to f64 root-finding. Exact arithmetic never
+    // prints a decimal point — condition the status on the code path taken,
+    // not on the tool name (Carl, Session 43). A back-substitution
+    // self-audit is a planned follow-up.
     if parts.is_empty() {
         Ok(("No solutions found".to_string(), StatusReport::exact()))
     } else {
-        Ok((parts.join(", "), StatusReport::exact()))
+        let text = parts.join(", ");
+        let status = if text.contains('.') {
+            StatusReport::verified(1)
+                .with_caveat("floating-point root-finding (f64 precision), not symbolic radicals")
+        } else {
+            StatusReport::exact()
+        };
+        Ok((text, status))
     }
 }
 
@@ -965,7 +975,6 @@ fn tool_matrix(args: &Value) -> ToolResult {
 
     let a = parse_latex_matrix(matrix_str, &env)?;
 
-    // All operations run in exact arithmetic over Q / symbolic entries.
     let text = match op {
         "determinant" => {
             let det = a.determinant(&env)?;
@@ -999,7 +1008,21 @@ fn tool_matrix(args: &Value) -> ToolResult {
             ))
         }
     };
-    Ok((text, StatusReport::exact()))
+    // The exact claim must be conditioned on the code path actually taken,
+    // not on the tool name (Carl, Session 43). Exact arithmetic never
+    // prints a decimal point; a '.' in the output means a floating-point
+    // routine ran (numeric eigenvalue root-finding, float entries).
+    let status = if text.contains('.') {
+        let mut s =
+            StatusReport::verified(1).with_caveat("floating-point computation (f64 precision)");
+        if op == "eigenvalues" && text.contains('i') {
+            s = s.with_caveat("complex eigenvalues expressed with i as a symbol");
+        }
+        s
+    } else {
+        StatusReport::exact()
+    };
+    Ok((text, status))
 }
 
 fn tool_equivalent(args: &Value) -> ToolResult {

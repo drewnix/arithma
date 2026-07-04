@@ -283,6 +283,56 @@ fn limit_at_infinity(
         if name == "exp" && args.len() == 1 {
             return limit_exp_at_infinity(&args[0], var, positive, depth);
         }
+        // Bounded oscillation: sin(u)/cos(u) with u → ±∞ has no limit.
+        // Without this rule the technique cascade either hung or — worse —
+        // fell through to a heuristic that answered +∞ for lim sin(x).
+        // Note: divergence of the argument arrives EITHER as Ok(±inf) or as
+        // an Err whose message carries the ∞ marker (the cascade's
+        // infinity-as-error convention).
+        if (name == "sin" || name == "cos") && args.len() == 1 {
+            match limit_at_infinity(&args[0], var, positive, depth + 1) {
+                // Continuity: lim f(u) = f(lim u) for finite arguments —
+                // sin(1/x) → sin(0) = 0, not the +∞ the fallback cascade
+                // used to invent for it.
+                Ok(v) if !v.is_nan_or_inf() => {
+                    let composed = Node::Function(name.clone(), vec![Node::Num(v)]);
+                    let env = Environment::new();
+                    let composed = composed.simplify(&env).unwrap_or(composed);
+                    if let Ok(val) = Evaluator::evaluate_exact(&composed, &env) {
+                        return Ok(val);
+                    }
+                    return Ok(ExactNum::Float(Evaluator::evaluate(&composed, &env)?));
+                }
+                Ok(_) => {
+                    return Err(format!(
+                        "Limit does not exist: {}(u) oscillates (bounded, non-convergent) as its argument grows without bound",
+                        name
+                    ));
+                }
+                // Divergence arrives as an Err carrying the ∞ marker (the
+                // cascade's infinity-as-error convention).
+                Err(msg) if msg.contains('∞') => {
+                    return Err(format!(
+                        "Limit does not exist: {}(u) oscillates (bounded, non-convergent) as its argument grows without bound",
+                        name
+                    ));
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
+    // Squeeze at infinity: (→0)·bounded → 0.
+    if let Node::Multiply(a, b) = &simplified {
+        for (factor, bounded) in [(a, b), (b, a)] {
+            if is_bounded_oscillator(bounded) {
+                if let Ok(v) = limit_at_infinity(factor, var, positive, depth + 1) {
+                    if v.is_zero() {
+                        return Ok(ExactNum::zero());
+                    }
+                }
+            }
+        }
     }
 
     // e^f(x) via Power node with base e
@@ -683,6 +733,16 @@ fn limit_via_series(expr: &Node, var: &str, point: &ExactNum) -> Result<ExactNum
     Err("Series expansion did not resolve limit".to_string())
 }
 
+/// sin/cos of any real argument lie in [−1, 1] — bounded by construction.
+/// (tan is NOT bounded; do not add it.) Negation preserves boundedness.
+fn is_bounded_oscillator(node: &Node) -> bool {
+    match node {
+        Node::Function(name, args) => (name == "sin" || name == "cos") && args.len() == 1,
+        Node::Negate(inner) | Node::Abs(inner) => is_bounded_oscillator(inner),
+        _ => false,
+    }
+}
+
 fn limit_internal(
     expr: &Node,
     var: &str,
@@ -705,6 +765,23 @@ fn limit_internal(
     // Step 2: if it's a quotient, analyze the form
     if let Node::Divide(numer, denom) = expr {
         return limit_quotient(numer, denom, var, point, depth);
+    }
+
+    // Step 2.5: squeeze theorem for (→0)·bounded. sin and cos are bounded
+    // by construction, so a factor tending to 0 forces the product to 0
+    // regardless of oscillation — e.g. x·sin(1/x) at 0, which the
+    // quotient-rewrite path below cannot handle (expanding sin(1/x) in
+    // series grows derivatives exponentially; it used to hang).
+    if let Node::Multiply(a, b) = expr {
+        for (factor, bounded) in [(a, b), (b, a)] {
+            if is_bounded_oscillator(bounded) {
+                if let Ok(v) = limit_internal(factor, var, point, depth + 1) {
+                    if v.is_zero() {
+                        return Ok(ExactNum::zero());
+                    }
+                }
+            }
+        }
     }
 
     // Step 3: rewrite 0·∞ products as quotients

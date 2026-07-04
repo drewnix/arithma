@@ -1175,3 +1175,45 @@ mod algebra_tests {
         assert_eq!(result, 2.0);
     }
 }
+
+// ── Berlekamp null-space regression (Carl A6, Session 43) ─────
+// x⁴+4 and x⁴+64 were declared "irreducible over Q" — false theorems
+// (Sophie Germain: x⁴+4a⁴ = (x²+2ax+2a²)(x²−2ax+2a²)). Root cause: the
+// null-space extraction in Berlekamp used column swaps during
+// elimination and returned basis vectors in the permuted coordinate
+// order, so splitting gcds failed whenever a swap occurred.
+
+#[test]
+fn factor_sophie_germain_x4_plus_4() {
+    use arithma::{factor_over_q, Polynomial};
+    let node = arithma::parse_latex_raw("x^4 + 4").unwrap();
+    let poly = Polynomial::from_node(&node, "x").unwrap();
+    let (_, factors) = factor_over_q(&poly);
+    let mut strs: Vec<String> = factors.iter().map(|f| format!("{}", f)).collect();
+    strs.sort();
+    assert_eq!(
+        strs,
+        vec!["x^2 + 2x + 2", "x^2 - 2x + 2"],
+        "x^4+4 must split"
+    );
+}
+
+#[test]
+fn factor_sophie_germain_x4_plus_64() {
+    use arithma::{factor_over_q, Polynomial};
+    let node = arithma::parse_latex_raw("x^4 + 64").unwrap();
+    let poly = Polynomial::from_node(&node, "x").unwrap();
+    let (_, factors) = factor_over_q(&poly);
+    assert_eq!(factors.len(), 2, "x^4+64 must split into two quadratics");
+}
+
+#[test]
+fn x4_plus_1_stays_irreducible_over_q() {
+    // Control: x⁴+1 IS irreducible over Q (though reducible mod every
+    // prime) — the fix must not overshoot.
+    use arithma::{factor_over_q, Polynomial};
+    let node = arithma::parse_latex_raw("x^4 + 1").unwrap();
+    let poly = Polynomial::from_node(&node, "x").unwrap();
+    let (_, factors) = factor_over_q(&poly);
+    assert_eq!(factors.len(), 1);
+}

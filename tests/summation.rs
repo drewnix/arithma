@@ -444,3 +444,36 @@ mod indexed_composition_tests {
         assert_eq!(eval("\\sum_{k=1}^{5} k + 1"), 16.0);
     }
 }
+
+#[cfg(test)]
+mod indexed_abs_interaction_tests {
+    // Cross-feature: bare-abs delimiters (PR #65) inside unbraced Σ/Π
+    // bodies (PR #66). The body scanner must treat ABS_START/ABS_END as
+    // depth, or it splits |k−3| at the interior minus.
+    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+
+    fn eval(input: &str) -> f64 {
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        Evaluator::evaluate(&expr, &env).unwrap()
+    }
+
+    #[test]
+    fn sum_of_abs_body() {
+        // Σ_{k=1..5} |k−3| = 2+1+0+1+2 = 6
+        assert_eq!(eval("\\sum_{k=1}^{5} |k - 3|"), 6.0);
+    }
+
+    #[test]
+    fn sum_of_abs_composes() {
+        assert_eq!(eval("1 + \\sum_{k=1}^{5} |k - 3|"), 7.0);
+    }
+
+    #[test]
+    fn sum_of_floor_body() {
+        // Σ_{k=1..5} ⌊k/2⌋ = 0+1+1+2+2 = 6
+        assert_eq!(eval("\\sum_{k=1}^{5} \\lfloor \\frac{k}{2} \\rfloor"), 6.0);
+    }
+}
