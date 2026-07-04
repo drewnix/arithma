@@ -689,12 +689,22 @@ fn tool_solve(args: &Value) -> ToolResult {
             if result.complex_omitted == 1 { "" } else { "s" }
         ));
     }
-    // Root formulas (rational-root, quadratic, Cardano, Ferrari) over exact
-    // arithmetic. A back-substitution self-audit is a planned follow-up.
+    // Quadratics come from genuinely symbolic formulas (exact); cubic and
+    // quartic paths can degrade to f64 root-finding. Exact arithmetic never
+    // prints a decimal point — condition the status on the code path taken,
+    // not on the tool name (Carl, Session 43). A back-substitution
+    // self-audit is a planned follow-up.
     if parts.is_empty() {
         Ok(("No solutions found".to_string(), StatusReport::exact()))
     } else {
-        Ok((parts.join(", "), StatusReport::exact()))
+        let text = parts.join(", ");
+        let status = if text.contains('.') {
+            StatusReport::verified(1)
+                .with_caveat("floating-point root-finding (f64 precision), not symbolic radicals")
+        } else {
+            StatusReport::exact()
+        };
+        Ok((text, status))
     }
 }
 

@@ -1035,6 +1035,62 @@ fn try_parametric_quadratic_integral(
         crate::simplify::Simplifiable::simplify(&p, &env).unwrap_or_else(|_| p.clone());
     let p_is_zero = matches!(&p_simplified, Node::Num(n) if n.is_zero());
 
+    // The arctan formula divides by √(4ac−b²) twice; with numeric
+    // coefficients we can see the discriminant and must branch on it.
+    // disc = 0 used to fall through and emit literal NaN·arctan(2x/0).
+    if !contains_var(&a, var) && !contains_var(&b, var) && !contains_var(&c, var) {
+        let eval = |n: &Node| crate::evaluator::Evaluator::evaluate(n, &env).ok();
+        if let (Some(av), Some(bv), Some(cv)) = (eval(&a), eval(&b), eval(&c)) {
+            let disc = 4.0 * av * cv - bv * bv;
+            if disc.abs() < 1e-12 {
+                // Repeated root r = −b/(2a): denominator is a(x+r)², and
+                // ∫(px+q)/(a(x+r)²) dx = (p/a)·ln|x+r| − (q−pr)/(a(x+r)).
+                let two_a =
+                    Node::Multiply(Box::new(Node::Num(ExactNum::two())), Box::new(a.clone()));
+                let r = Node::Divide(Box::new(b.clone()), Box::new(two_a));
+                let r = crate::simplify::Simplifiable::simplify(&r, &env).unwrap_or(r);
+                let u = Node::Add(
+                    Box::new(Node::Variable(var.to_string())),
+                    Box::new(r.clone()),
+                );
+                let u = crate::simplify::Simplifiable::simplify(&u, &env).unwrap_or(u);
+
+                // s = q − p·r
+                let s = Node::Subtract(
+                    Box::new(q.clone()),
+                    Box::new(Node::Multiply(Box::new(p_simplified.clone()), Box::new(r))),
+                );
+                let s = crate::simplify::Simplifiable::simplify(&s, &env).unwrap_or(s);
+
+                let mut terms: Vec<Node> = Vec::new();
+                if !p_is_zero {
+                    let coeff = Node::Divide(Box::new(p_simplified.clone()), Box::new(a.clone()));
+                    let ln_abs_u =
+                        Node::Function("ln".to_string(), vec![Node::Abs(Box::new(u.clone()))]);
+                    terms.push(Node::Multiply(Box::new(coeff), Box::new(ln_abs_u)));
+                }
+                let au = Node::Multiply(Box::new(a.clone()), Box::new(u));
+                terms.push(Node::Negate(Box::new(Node::Divide(
+                    Box::new(s),
+                    Box::new(au),
+                ))));
+
+                let mut result = terms.remove(0);
+                for t in terms {
+                    result = Node::Add(Box::new(result), Box::new(t));
+                }
+                let result =
+                    crate::simplify::Simplifiable::simplify(&result, &env).unwrap_or(result);
+                return Some(Ok(result));
+            }
+            if disc < 0.0 {
+                // Two real roots: the arctan form is invalid here (it would
+                // take √ of a negative). Decline; partial fractions handles it.
+                return None;
+            }
+        }
+    }
+
     // Build ln term: (p / (2a)) · ln|ax² + bx + c|
     let ln_term = if p_is_zero {
         None
@@ -3274,12 +3330,137 @@ pub fn definite_integral_latex(
     Ok(format!("{}", result))
 }
 
+/// Collect denominators (and bases of negative powers) that involve the
+/// integration variable — the candidate singularity sources.
+fn collect_denominators(node: &Node, var: &str, out: &mut Vec<Node>) {
+    match node {
+        Node::Divide(num, den) => {
+            if contains_var(den, var) {
+                out.push((**den).clone());
+            }
+            collect_denominators(num, var, out);
+            collect_denominators(den, var, out);
+        }
+        Node::Power(base, exp) => {
+            let negative_exp = match &**exp {
+                Node::Num(n) => n.to_f64() < 0.0,
+                Node::Negate(_) => true,
+                _ => false,
+            };
+            if negative_exp && contains_var(base, var) {
+                out.push((**base).clone());
+            }
+            collect_denominators(base, var, out);
+            collect_denominators(exp, var, out);
+        }
+        Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) => {
+            collect_denominators(l, var, out);
+            collect_denominators(r, var, out);
+        }
+        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+            collect_denominators(inner, var, out)
+        }
+        Node::Function(_, args) => {
+            for a in args {
+                collect_denominators(a, var, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The fundamental theorem of calculus requires the integrand continuous on
+/// [a, b]. Evaluating an antiderivative across a non-integrable pole
+/// produces a finite number for a divergent integral (∫₋₁² dx/x "=" ln 2 —
+/// the Cauchy principal value nobody asked for). Refuse when a denominator
+/// vanishes inside the interval: exactly (polynomial roots) where possible,
+/// by sign-change/magnitude scan otherwise. Symbolic bounds skip the check.
+fn check_no_poles_in_interval(
+    expr: &Node,
+    var: &str,
+    lower: &Node,
+    upper: &Node,
+) -> Result<(), String> {
+    let env = Environment::new();
+    let (lo, hi) = match (
+        crate::evaluator::Evaluator::evaluate(lower, &env),
+        crate::evaluator::Evaluator::evaluate(upper, &env),
+    ) {
+        (Ok(a), Ok(b)) if a.is_finite() && b.is_finite() => {
+            if a <= b {
+                (a, b)
+            } else {
+                (b, a)
+            }
+        }
+        _ => return Ok(()), // symbolic or infinite bounds: not locatable here
+    };
+
+    let mut denominators = Vec::new();
+    collect_denominators(expr, var, &mut denominators);
+
+    for den in &denominators {
+        if crate::polynomial::Polynomial::from_node(den, var).is_ok() {
+            let eq = Node::Equation(Box::new(den.clone()), Box::new(Node::Num(ExactNum::zero())));
+            if let Ok(result) = crate::expression::solve_full(&eq, var) {
+                for root in &result.solutions {
+                    if let Ok(r) = crate::evaluator::Evaluator::evaluate(root, &env) {
+                        if r >= lo - 1e-12 && r <= hi + 1e-12 {
+                            return Err(format!(
+                                "Definite integral is improper: the integrand has a singularity at {} = {} inside [{}, {}]. FTC does not apply; the integral may diverge.",
+                                var, root, lo, hi
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+        // Non-polynomial (or unsolvable) denominator: scan for sign changes
+        // or near-vanishing magnitude across the interval.
+        let n = 128;
+        let mut prev: Option<f64> = None;
+        for i in 0..=n {
+            let t = lo + (hi - lo) * (i as f64) / (n as f64);
+            let mut sample_env = Environment::new();
+            sample_env.set(var, t);
+            if let Ok(v) = crate::evaluator::Evaluator::evaluate(den, &sample_env) {
+                if !v.is_finite() || v.abs() < 1e-9 {
+                    return Err(format!(
+                        "Definite integral is improper: a denominator vanishes near {} ≈ {} inside [{}, {}].",
+                        var, t, lo, hi
+                    ));
+                }
+                if let Some(p) = prev {
+                    if p.signum() != v.signum() {
+                        return Err(format!(
+                            "Definite integral is improper: a denominator changes sign between {} ≈ {} and {} ≈ {} inside [{}, {}].",
+                            var,
+                            lo + (hi - lo) * ((i - 1) as f64) / (n as f64),
+                            var,
+                            t,
+                            lo,
+                            hi
+                        ));
+                    }
+                }
+                prev = Some(v);
+            } else {
+                prev = None;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn definite_integral_exact(
     expr: &Node,
     var_name: &str,
     lower: &Node,
     upper: &Node,
 ) -> Result<Node, String> {
+    check_no_poles_in_interval(expr, var_name, lower, upper)?;
     let antideriv = integrate(expr, var_name)?;
     let env = Environment::new();
     let f_upper = substitute_variable(&antideriv, var_name, upper)?;

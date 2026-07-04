@@ -1095,3 +1095,65 @@ mod integration_tests {
         );
     }
 }
+
+// ── disc = 0 quadratic denominators (Carl B2, Session 43) ─────
+// ∫dx/x², ∫dx/(x²+2x+1) returned literal NaN·arctan(2x/0): the
+// parametric quadratic route divides by √(4ac−b²) with no guard.
+// With a repeated root r = −b/2a the antiderivative is rational:
+// ∫(px+q)/(a(x+r)²) dx = (p/a)ln|x+r| − (q−pr)/(a(x+r)) + C.
+
+#[cfg(test)]
+mod disc_zero_quadratic_tests {
+    use arithma::assumptions::Assumptions;
+    use arithma::integration::{definite_integral_exact_latex, integrate_latex};
+    use arithma::{parse_latex, verify_identity, Environment};
+
+    fn roundtrip_ok(integrand: &str) {
+        let anti = integrate_latex(integrand, "x").unwrap();
+        assert!(!anti.contains("NaN"), "NaN in antiderivative: {}", anti);
+        // Drop the integration constant so verify_identity has no unset
+        // variable at its test points.
+        let anti = anti.replace(" + C", "").replace("C + ", "");
+        let env = Environment::new();
+        let anti_node = parse_latex(&anti, &env).unwrap();
+        let deriv = arithma::derivative::differentiate(&anti_node, "x").unwrap();
+        let integrand_node = parse_latex(integrand, &env).unwrap();
+        let result = verify_identity(
+            &deriv,
+            &integrand_node,
+            &["x".to_string()],
+            &Assumptions::new(),
+        );
+        assert!(
+            result.passed,
+            "d/dx({}) != {}: {:?} pts={}",
+            anti,
+            integrand,
+            result.counterexample.map(|c| c.point),
+            result.points_tested
+        );
+    }
+
+    #[test]
+    fn inverse_square_integrates() {
+        roundtrip_ok("\\frac{1}{x^2}");
+    }
+
+    #[test]
+    fn perfect_square_denominator_integrates() {
+        roundtrip_ok("\\frac{1}{x^2 + 2x + 1}");
+    }
+
+    #[test]
+    fn linear_numerator_over_perfect_square_integrates() {
+        roundtrip_ok("\\frac{x + 3}{x^2 - 4x + 4}");
+    }
+
+    #[test]
+    fn definite_inverse_square_is_exact() {
+        let v = definite_integral_exact_latex("\\frac{1}{x^2}", "x", "1", "2").unwrap();
+        let env = Environment::new();
+        let node = parse_latex(&v, &env).unwrap();
+        assert_eq!(format!("{}", node), "\\frac{1}{2}", "got: {}", v);
+    }
+}

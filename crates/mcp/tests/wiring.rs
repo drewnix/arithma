@@ -209,3 +209,41 @@ fn matrix_exact_operations_stay_exact() {
     );
     assert_eq!(resp["result"]["result_status"]["status"], "exact");
 }
+
+#[test]
+fn solve_numeric_cubic_roots_are_not_exact() {
+    // Carl's A5: x³−x−1 solves via numeric root-finding (f64), and the
+    // float must not wear the exact badge. x²=2 stays symbolic → exact.
+    let resp = call("solve", json!({"equation": "x^3 - x - 1 = 0"}));
+    assert_ne!(
+        resp["result"]["result_status"]["status"], "exact",
+        "f64 roots wearing exact: {}",
+        resp
+    );
+    let resp2 = call("solve", json!({"equation": "x^2 = 2"}));
+    assert_eq!(resp2["result"]["result_status"]["status"], "exact");
+}
+
+#[test]
+fn definite_integral_over_pole_is_refused() {
+    // Carl's A4: ∫₋₁² dx/x diverges (non-integrable pole at 0); the FTC
+    // path must not hand out ln(2) as exact.
+    let resp = call(
+        "integrate",
+        json!({"expr": "\\frac{1}{x}", "lower": "-1", "upper": "2"}),
+    );
+    let ok_refusal = resp["result"]["isError"] == json!(true)
+        || resp["result"]["result_status"]["status"] == "unable_to_compute";
+    assert!(ok_refusal, "divergent integral not refused: {}", resp);
+}
+
+#[test]
+fn definite_integral_with_pole_outside_interval_still_works() {
+    let resp = call(
+        "integrate",
+        json!({"expr": "\\frac{1}{x^2}", "lower": "1", "upper": "2"}),
+    );
+    assert!(resp["result"]["isError"].is_null(), "errored: {}", resp);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert_eq!(text, "\\frac{1}{2}", "∫₁² dx/x² = 1/2, got {}", text);
+}

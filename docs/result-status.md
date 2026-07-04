@@ -98,16 +98,16 @@ justifies it, never asserted by optimism.
 | `simplify` | If input and output are both polynomial/rational over ℚ (field ops + integer powers only), canonicalization is a decision procedure → `exact`. If transcendental subexpressions are present, run the numeric self-check (`verify_identity(input, output)`): pass → `verified` with point count; insufficient valid points → `heuristic` with caveat. A self-check *failure* is a simplifier bug surfaced in production: `heuristic` with a loud caveat carrying the counterexample. |
 | `differentiate` | Derivative rules are complete and sound → `exact`; final simplification inherits the simplify classification (minimum of the two). |
 | `integrate` (indefinite) | Differentiation round-trip: d/dx of the antiderivative, compare to integrand. Structural match after simplification → `exact` (the round-trip is algebraic — this is why `integral_of` can reach `exact` where `implies` cannot). Numeric-only agreement → `verified`. Risch non-elementarity → `provably_impossible` with certificate. |
-| `integrate` (definite) | FTC path inherits the antiderivative's status; special-value evaluations are `exact`. |
+| `integrate` (definite) | The FTC path first checks the integrand for singularities inside [a, b] (exact roots for polynomial denominators, sign-change/magnitude scan otherwise) and refuses improper integrals. It then inherits the antiderivative's round-trip status; special-value evaluations are `exact`. |
 | `substitute` | Capture-avoiding substitution is algebraic → `exact`. |
-| `solve` | Root formulas (rational-root, quadratic, Cardano, Ferrari) over exact arithmetic → `exact`. (Back-substitution self-audit is a planned follow-up.) Inequalities via sign analysis → `exact`. |
+| `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat — the status conditions on the code path taken, not the tool name. Inequalities via sign analysis → `exact`. (Back-substitution self-audit is a planned follow-up.) |
 | `solve_system` | Exact Gaussian elimination / substitution over ℚ → `exact`. |
 | `factor` | Berlekamp–Zassenhaus is exact → `exact`. |
 | `partial_fractions` | Exact rational arithmetic → `exact`. |
-| `limit` | Symbolic result corroborated numerically by sampling the approach (when point and result are numeric): agreement → `verified`; corroboration unavailable (symbolic parameters) → `heuristic` with caveat. |
+| `limit` | Symbolic result corroborated numerically by sampling the approach (when point and result are numeric): agreement → `verified`; error contracting but not yet within tolerance → quiet `heuristic` ("slow convergence", never a false alarm); contradiction → loud `heuristic`; corroboration unavailable (symbolic parameters) → quiet `heuristic` with caveat. |
 | `taylor_series` | Exact rational coefficient recurrences → `exact`, with truncation-order caveat. |
 | `evaluate` | Exact-rational path → `exact`. Floating-point path → `verified` with `points_tested: 1` and caveat `"floating-point evaluation (f64)"`. |
-| `matrix` | Exact arithmetic over ℚ / symbolic entries → `exact`. |
+| `matrix` | Exact arithmetic over ℚ / symbolic entries → `exact`. Numeric eigenvalue root-finding (detected by floating-point output) → `verified` with an f64 caveat; complex pairs are explicit as re ± im·i, recovered by deflation or refused — never fabricated. |
 | `equivalent` | Structural or difference-zero match → `exact`. Numeric-only agreement → `verified` with point count. Disagreement → the *"not equivalent"* verdict is `verified` with the counterexample as evidence. |
 | `verify` | PASS → `verified` with point count (never `exact` — this tool is numeric by definition). FAIL → `verified` carrying the counterexample. INCONCLUSIVE → `unable_to_compute` with reason. |
 | `solve_ode` | Closed-form paths → `exact`. Series solutions → `exact` coefficients with truncation caveat. |

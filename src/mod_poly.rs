@@ -451,77 +451,64 @@ fn null_space(q_matrix: &[Vec<i64>], p: i64) -> Vec<Vec<i64>> {
         mat[i][i] = mod_reduce(mat[i][i] - 1, p);
     }
 
-    // Transpose: we want to find vectors v such that v·(Q-I) = 0,
-    // equivalently (Q-I)^T · v^T = 0.
-    let mut trans = vec![vec![0i64; n]; n];
+    // We want vectors v with v·(Q−I) = 0, i.e. the null space of (Q−I)ᵀ.
+    let mut a = vec![vec![0i64; n]; n];
     for i in 0..n {
         for j in 0..n {
-            trans[i][j] = mat[j][i];
+            a[i][j] = mat[j][i];
         }
     }
 
-    // Gaussian elimination on (Q-I)^T with column tracking
-    let mut pivot_col = vec![None; n]; // pivot_col[row] = which column has the pivot
-    let mut is_free = vec![true; n]; // columns not used as pivots
-
-    let mut col = 0;
-    for row in 0..n {
-        // Find pivot in this row
-        let mut found = None;
-        for c in col..n {
-            if trans[row][c] != 0 {
-                found = Some(c);
-                break;
-            }
-        }
-        let pivot_c = match found {
-            Some(c) => c,
-            None => continue,
+    // Reduced row echelon form with ROW operations only. The previous
+    // implementation swapped COLUMNS to position pivots and then read the
+    // basis vectors off in the permuted coordinate order — whenever a swap
+    // occurred, the returned vectors were scrambled, Berlekamp's gcd
+    // splits all failed, and reducible polynomials (x⁴+4, x⁴+64) were
+    // declared irreducible over Q: false theorems at the exact tier.
+    let mut pivot_col_of_row: Vec<Option<usize>> = vec![None; n];
+    let mut pivot_row_of_col: Vec<Option<usize>> = vec![None; n];
+    let mut row = 0;
+    for col in 0..n {
+        // Find a pivot for this column at or below `row`.
+        let pivot = (row..n).find(|&r| a[r][col] != 0);
+        let pr = match pivot {
+            Some(r) => r,
+            None => continue, // free column
         };
+        a.swap(row, pr);
 
-        // Swap columns
-        if pivot_c != col {
-            for r in 0..n {
-                trans[r].swap(col, pivot_c);
-            }
-            // Swap free tracking
-            is_free.swap(col, pivot_c);
-        }
-
-        pivot_col[row] = Some(col);
-        is_free[col] = false;
-
-        // Scale pivot row
-        let inv = mod_inverse(trans[row][col], p);
+        let inv = mod_inverse(a[row][col], p);
         for c in 0..n {
-            trans[row][c] = mod_reduce(trans[row][c] * inv, p);
+            a[row][c] = mod_reduce(a[row][c] * inv, p);
         }
-
-        // Eliminate other rows
         for r in 0..n {
-            if r == row || trans[r][col] == 0 {
-                continue;
-            }
-            let factor = trans[r][col];
-            for c in 0..n {
-                trans[r][c] = mod_reduce(trans[r][c] - factor * trans[row][c], p);
+            if r != row && a[r][col] != 0 {
+                let factor = a[r][col];
+                for c in 0..n {
+                    a[r][c] = mod_reduce(a[r][c] - factor * a[row][c], p);
+                }
             }
         }
-
-        col += 1;
+        pivot_col_of_row[row] = Some(col);
+        pivot_row_of_col[col] = Some(row);
+        row += 1;
+        if row == n {
+            break;
+        }
     }
 
-    // Extract null-space basis vectors from free columns
+    // Each free column contributes one basis vector: set that coordinate
+    // to 1 and read the pivot coordinates from the RREF.
     let mut basis = Vec::new();
-    for fc in 0..n {
-        if !is_free[fc] {
+    for free_col in 0..n {
+        if pivot_row_of_col[free_col].is_some() {
             continue;
         }
         let mut v = vec![0i64; n];
-        v[fc] = 1;
-        for row in 0..n {
-            if let Some(pc) = pivot_col[row] {
-                v[pc] = mod_reduce(-trans[row][fc], p);
+        v[free_col] = 1;
+        for r in 0..n {
+            if let Some(pc) = pivot_col_of_row[r] {
+                v[pc] = mod_reduce(-a[r][free_col], p);
             }
         }
         basis.push(v);
