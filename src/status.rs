@@ -389,63 +389,134 @@ pub fn classify_limit(
         }
     };
 
-    // Sample points approaching the limit point.
-    let approach: Vec<f64> = match &point {
-        LimitPoint::PosInfinity => vec![1e2, 1e3, 1e4, 1e5],
-        LimitPoint::NegInfinity => vec![-1e2, -1e3, -1e4, -1e5],
+    // Sample points approaching the limit point, tagged with their approach
+    // level (higher level = closer). Levels let the trend check compare
+    // "coarse" against "fine" without confusing the two sides of a
+    // two-sided approach.
+    let approach: Vec<(usize, f64)> = match &point {
+        LimitPoint::PosInfinity => [1e2, 1e3, 1e4, 1e5]
+            .iter()
+            .enumerate()
+            .map(|(k, t)| (k, *t))
+            .collect(),
+        LimitPoint::NegInfinity => [-1e2, -1e3, -1e4, -1e5]
+            .iter()
+            .enumerate()
+            .map(|(k, t)| (k, *t))
+            .collect(),
         LimitPoint::Finite(a) => {
             let a = a.to_f64();
             let offsets = [1e-2, 1e-3, 1e-4, 1e-5];
             match direction {
-                LimitDirection::Right => offsets.iter().map(|h| a + h).collect(),
-                LimitDirection::Left => offsets.iter().map(|h| a - h).collect(),
-                LimitDirection::Both => offsets.iter().flat_map(|h| [a + h, a - h]).collect(),
+                LimitDirection::Right => offsets
+                    .iter()
+                    .enumerate()
+                    .map(|(k, h)| (k, a + h))
+                    .collect(),
+                LimitDirection::Left => offsets
+                    .iter()
+                    .enumerate()
+                    .map(|(k, h)| (k, a - h))
+                    .collect(),
+                LimitDirection::Both => offsets
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(k, h)| [(k, a + h), (k, a - h)])
+                    .collect(),
             }
         }
     };
 
-    let mut samples: Vec<(f64, f64)> = Vec::new(); // (t, f(t))
-    for t in approach {
+    let mut samples: Vec<(usize, f64)> = Vec::new(); // (level, f(t))
+    for (level, t) in approach {
         let mut sample_env = Environment::new();
         sample_env.set(var, t);
         if let Ok(v) = crate::evaluator::Evaluator::evaluate(expr, &sample_env) {
             if !v.is_nan() {
-                samples.push((t, v));
+                samples.push((level, v));
             }
         }
     }
     if samples.len() < 2 {
         return not_corroborated();
     }
-
     let n = samples.len();
-    let consistent = match &claimed {
+    let coarsest = samples.iter().map(|(k, _)| *k).min().unwrap();
+    let finest = samples.iter().map(|(k, _)| *k).max().unwrap();
+
+    // Three-way outcome. "Slow" matters: a correct limit like 1/ln(x) → 0
+    // is nowhere near tolerance at x = 10^5, and reporting a correct answer
+    // as FAILED is a false alarm agents will learn to ignore. The
+    // discriminator between "wrong" and "right but slow" is whether the
+    // error CONTRACTS along the approach (at least halves from the coarsest
+    // to the finest level).
+    enum Corroboration {
+        Confirmed,
+        SlowButConsistent,
+        Contradicted,
+    }
+
+    let outcome = match &claimed {
         LimitPoint::Finite(l) => {
             let l = l.to_f64();
-            // Errors must end small; require the closest sample within 1%
-            // relative tolerance of the claim.
-            let final_err = samples
+            let min_err = samples
                 .iter()
                 .map(|(_, v)| (v - l).abs())
                 .fold(f64::INFINITY, f64::min);
-            final_err <= 0.01 * l.abs().max(1.0)
+            if min_err <= 0.01 * l.abs().max(1.0) {
+                Corroboration::Confirmed
+            } else if coarsest < finest {
+                // Worst error per level, compared coarse vs fine.
+                let level_err = |k: usize| {
+                    samples
+                        .iter()
+                        .filter(|(kk, _)| *kk == k)
+                        .map(|(_, v)| (v - l).abs())
+                        .fold(0.0, f64::max)
+                };
+                if level_err(finest) <= 0.5 * level_err(coarsest) {
+                    Corroboration::SlowButConsistent
+                } else {
+                    Corroboration::Contradicted
+                }
+            } else {
+                Corroboration::Contradicted
+            }
         }
-        LimitPoint::PosInfinity => {
-            samples.iter().all(|(_, v)| *v > 0.0)
-                && samples.iter().map(|(_, v)| *v).fold(0.0, f64::max) > 1e4
-        }
-        LimitPoint::NegInfinity => {
-            samples.iter().all(|(_, v)| *v < 0.0)
-                && samples.iter().map(|(_, v)| *v).fold(0.0, f64::min) < -1e4
+        LimitPoint::PosInfinity | LimitPoint::NegInfinity => {
+            let sign_ok = match &claimed {
+                LimitPoint::PosInfinity => samples.iter().all(|(_, v)| *v > 0.0),
+                _ => samples.iter().all(|(_, v)| *v < 0.0),
+            };
+            let max_mag = samples.iter().map(|(_, v)| v.abs()).fold(0.0, f64::max);
+            let level_min_mag = |k: usize| {
+                samples
+                    .iter()
+                    .filter(|(kk, _)| *kk == k)
+                    .map(|(_, v)| v.abs())
+                    .fold(f64::INFINITY, f64::min)
+            };
+            if !sign_ok {
+                Corroboration::Contradicted
+            } else if max_mag > 1e4 {
+                Corroboration::Confirmed
+            } else if coarsest < finest && level_min_mag(finest) >= 2.0 * level_min_mag(coarsest) {
+                Corroboration::SlowButConsistent
+            } else {
+                Corroboration::Contradicted
+            }
         }
     };
 
-    if consistent {
-        StatusReport::verified(n).with_caveat("corroborated numerically along the approach path")
-    } else {
-        StatusReport::heuristic().with_caveat(
+    match outcome {
+        Corroboration::Confirmed => StatusReport::verified(n)
+            .with_caveat("corroborated numerically along the approach path"),
+        Corroboration::SlowButConsistent => StatusReport::heuristic().with_caveat(
+            "samples move toward the claimed limit but too slowly to corroborate within tolerance",
+        ),
+        Corroboration::Contradicted => StatusReport::heuristic().with_caveat(
             "numeric corroboration FAILED: samples along the approach path do not converge to the claimed limit — treat result with suspicion",
-        )
+        ),
     }
 }
 

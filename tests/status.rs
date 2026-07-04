@@ -374,3 +374,41 @@ fn limit_symbolic_claim_is_heuristic_with_caveat() {
         report.caveats
     );
 }
+
+#[test]
+fn limit_slow_convergence_is_not_a_false_alarm() {
+    // 1/ln(x) → 0 as x → ∞ is correct but converges too slowly to land
+    // within tolerance at the sample points. That is "consistent but
+    // uncorroborated", never "FAILED".
+    use arithma::status::classify_limit;
+    let env = Environment::new();
+    let expr = parse_latex("\\frac{1}{\\ln(x)}", &env).unwrap();
+    let report = classify_limit(&expr, "x", "inf", "0", &env);
+    assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
+    assert!(
+        report.caveats.iter().all(|c| !c.contains("FAILED")),
+        "slow convergence must not be reported as failure: {:?}",
+        report.caveats
+    );
+    assert!(
+        report.caveats.iter().any(|c| c.contains("slow")),
+        "caveat should name slow convergence: {:?}",
+        report.caveats
+    );
+}
+
+#[test]
+fn limit_slow_divergence_is_not_a_false_alarm() {
+    // ln(x) → ∞ but only reaches ~11.5 at x = 10^5 — growing, correct,
+    // below the corroboration threshold.
+    use arithma::status::classify_limit;
+    let env = Environment::new();
+    let expr = parse_latex("\\ln(x)", &env).unwrap();
+    let report = classify_limit(&expr, "x", "inf", "\\infty", &env);
+    assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
+    assert!(
+        report.caveats.iter().all(|c| !c.contains("FAILED")),
+        "slow divergence must not be reported as failure: {:?}",
+        report.caveats
+    );
+}
