@@ -417,3 +417,95 @@ mod parser_hardening_tests {
         assert_eq!(sols.len(), 1, "Rational linear should give 1 solution");
     }
 }
+
+// ── Bare |...| absolute value (Session 43, ar-fix-bare-abs) ─────
+// Bare pipes were silently DROPPED by the tokenizer: |x| parsed as x.
+// Worse, the printer emits bare pipes (d/dx|x| prints as x/|x|), so any
+// print→reparse round-trip silently stripped every absolute value —
+// the mechanism behind Carl's A2 (d/dx|x| → 1 "exact") and A3
+// (∫1/x → ln(x) without |·|). Bare | now toggles ABS_START/ABS_END.
+
+#[cfg(test)]
+mod bare_abs_tests {
+    use arithma::{parse_latex_raw, Environment, Evaluator, Node};
+
+    fn parse(s: &str) -> Node {
+        parse_latex_raw(s).unwrap()
+    }
+
+    fn eval_at(s: &str, var: &str, val: f64) -> f64 {
+        let mut env = Environment::new();
+        env.set(var, val);
+        Evaluator::evaluate(&parse(s), &env).unwrap()
+    }
+
+    #[test]
+    fn bare_abs_parses_as_abs() {
+        assert!(matches!(parse("|x|"), Node::Abs(_)));
+    }
+
+    #[test]
+    fn bare_abs_of_expression() {
+        assert_eq!(eval_at("|x - 3|", "x", 1.0), 2.0);
+    }
+
+    #[test]
+    fn printer_output_round_trips() {
+        // The exact string the printer emits for d/dx |x|.
+        assert_eq!(eval_at("\\frac{x}{|x|}", "x", -5.0), -1.0);
+    }
+
+    #[test]
+    fn ln_abs_round_trips() {
+        // The exact shape integrate emits for ∫1/x.
+        let v = eval_at("\\ln(|x|)", "x", -2.0);
+        assert!((v - (2.0_f64).ln()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn coefficient_times_bare_abs() {
+        assert_eq!(eval_at("2|x|", "x", -3.0), 6.0);
+    }
+
+    #[test]
+    fn product_of_bare_abs() {
+        assert_eq!(eval_at("|x||x - 1|", "x", -2.0), 6.0);
+    }
+
+    #[test]
+    fn left_right_form_still_works() {
+        assert_eq!(eval_at("\\left|x\\right|", "x", -4.0), 4.0);
+    }
+}
+
+#[cfg(test)]
+mod bare_abs_nesting_tests {
+    use arithma::{parse_latex_raw, Environment, Evaluator, Node};
+
+    fn eval_at(s: &str, var: &str, val: f64) -> f64 {
+        let mut env = Environment::new();
+        env.set(var, val);
+        Evaluator::evaluate(&parse_latex_raw(s).unwrap(), &env).unwrap()
+    }
+
+    #[test]
+    fn nested_bare_abs() {
+        let node = parse_latex_raw("||x||").unwrap();
+        assert!(matches!(node, Node::Abs(ref inner) if matches!(**inner, Node::Abs(_))));
+    }
+
+    #[test]
+    fn abs_containing_abs_of_subterm() {
+        // |x + |y|| at x=-5, y=-2 → |−5+2| = 3
+        let node = parse_latex_raw("|x + |y||").unwrap();
+        let mut env = Environment::new();
+        env.set("x", -5.0);
+        env.set("y", -2.0);
+        assert_eq!(Evaluator::evaluate(&node, &env).unwrap(), 3.0);
+    }
+
+    #[test]
+    fn abs_after_negation() {
+        assert_eq!(eval_at("-|x|", "x", -3.0), -3.0);
+    }
+}

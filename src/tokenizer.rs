@@ -276,6 +276,13 @@ impl<'a> Tokenizer<'a> {
         let mut tokens = Vec::new();
         let mut current_token = String::new();
         let mut last_token: Option<String> = None;
+        // Bare '|' is ambiguous (opener and closer look identical). Depth
+        // plus token position disambiguates: at depth 0, or wherever an
+        // operand is expected (after an operator or an opener), a bare '|'
+        // opens; otherwise it closes. This reads |x|, 2|x|, ||x||, |x+|y||,
+        // and |a|b|c| all according to convention. Pathological cases can
+        // always use the explicit \left| ... \right| form.
+        let mut bare_abs_depth: u32 = 0;
 
         while let Some(c) = self.chars.next() {
             if c.is_whitespace() {
@@ -354,6 +361,52 @@ impl<'a> Tokenizer<'a> {
                     current_token.clear();
                 }
                 tokens.push("FACT".to_string());
+            }
+            // Bare absolute value bars: |x|. Previously these characters
+            // were silently DROPPED (|x| tokenized as x) — and since the
+            // printer emits bare bars, every print→reparse round-trip
+            // stripped absolute values (wrong derivatives, ln without |·|).
+            else if c == '|' {
+                if !current_token.is_empty() {
+                    tokens.push(current_token.clone());
+                    current_token.clear();
+                }
+                let expects_operand = match last_token.as_deref() {
+                    None => true,
+                    Some(last) => matches!(
+                        last,
+                        "+" | "-"
+                            | "*"
+                            | "/"
+                            | "^"
+                            | "="
+                            | "=="
+                            | "<"
+                            | ">"
+                            | "<="
+                            | ">="
+                            | "("
+                            | "{"
+                            | ","
+                            | "NEG"
+                            | "ABS_START"
+                            | "FLOOR_START"
+                            | "CEIL_START"
+                    ),
+                };
+                if bare_abs_depth > 0 && !expects_operand {
+                    tokens.push("ABS_END".to_string());
+                    bare_abs_depth -= 1;
+                } else {
+                    // Implicit multiplication: 2|x|, x|y|, (a+b)|x|, |x||y|
+                    if let Some(last) = last_token.as_ref() {
+                        if last == "ABS_END" || needs_implicit_mul_after_token(last, &tokens) {
+                            tokens.push("*".to_string());
+                        }
+                    }
+                    tokens.push("ABS_START".to_string());
+                    bare_abs_depth += 1;
+                }
             }
 
             last_token = tokens.last().cloned();

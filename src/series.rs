@@ -60,6 +60,19 @@ fn taylor_series_numeric(
 
         if k < order {
             current = differentiate(&current, var)?;
+            // Derivatives of compositions like sin(1/x) grow exponentially
+            // in term count; without a budget this loop effectively hangs
+            // (observed: limit of x·sin(1/x) at 0 never returned). The
+            // check runs BEFORE simplify — simplifying an oversized tree is
+            // itself the unbounded step. A fast, honest refusal beats an
+            // unbounded computation.
+            if node_count(&current) > MAX_DERIVATIVE_NODES {
+                return Err(format!(
+                    "Taylor expansion aborted: the order-{} derivative grew past {} nodes (likely an essential singularity or non-analytic point)",
+                    k + 1,
+                    MAX_DERIVATIVE_NODES
+                ));
+            }
             current = current
                 .simplify(&empty_env)
                 .unwrap_or_else(|_| current.clone());
@@ -67,6 +80,44 @@ fn taylor_series_numeric(
     }
 
     build_taylor_node(&coeffs, var, center)
+}
+
+/// Ceiling on intermediate derivative size in `taylor_series_numeric`.
+/// Well-behaved expansions stay in the hundreds of nodes; exponential
+/// blowups (essential singularities) cross this within a few derivatives.
+const MAX_DERIVATIVE_NODES: usize = 10_000;
+
+fn node_count(node: &Node) -> usize {
+    1 + match node {
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r)
+        | Node::Greater(l, r)
+        | Node::Less(l, r)
+        | Node::GreaterEqual(l, r)
+        | Node::LessEqual(l, r)
+        | Node::Equal(l, r)
+        | Node::Equation(l, r) => node_count(l) + node_count(r),
+        Node::Sqrt(inner)
+        | Node::Abs(inner)
+        | Node::Floor(inner)
+        | Node::Ceil(inner)
+        | Node::Round(inner)
+        | Node::Trunc(inner)
+        | Node::Negate(inner)
+        | Node::Factorial(inner) => node_count(inner),
+        Node::Piecewise(arms) => arms
+            .iter()
+            .map(|(e, c)| node_count(e) + node_count(c))
+            .sum(),
+        Node::Summation(_, a, b, c) | Node::Product(_, a, b, c) => {
+            node_count(a) + node_count(b) + node_count(c)
+        }
+        Node::Function(_, args) => args.iter().map(node_count).sum(),
+        Node::Num(_) | Node::Variable(_) => 0,
+    }
 }
 
 /// Taylor series from LaTeX input.
@@ -239,6 +290,16 @@ pub fn taylor_series_symbolic(
 
         if k < order {
             current = differentiate(&current, var)?;
+            // Same derivative-growth budget as taylor_series_numeric, for
+            // the same reason — and checked before the simplify, which is
+            // itself the unbounded step on an oversized tree.
+            if node_count(&current) > MAX_DERIVATIVE_NODES {
+                return Err(format!(
+                    "Taylor expansion aborted: the order-{} derivative grew past {} nodes (likely an essential singularity or non-analytic point)",
+                    k + 1,
+                    MAX_DERIVATIVE_NODES
+                ));
+            }
             current = current.simplify(&env).unwrap_or_else(|_| current.clone());
         }
     }

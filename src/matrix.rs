@@ -522,6 +522,94 @@ impl Matrix {
         self.eigenvalues_symbolic(env)
     }
 
+    /// Build a numeric complex eigenvalue `re ± im·i` with `i` as a symbol.
+    /// Cosmetic minimality: drops a zero real part and a unit coefficient.
+    fn complex_eigenvalue_node(re: f64, im: f64) -> Node {
+        let i_sym = || Node::Variable("i".to_string());
+        let mag = im.abs();
+        let im_part = if (mag - 1.0).abs() < 1e-15 {
+            i_sym()
+        } else {
+            Node::Multiply(
+                Box::new(Node::Num(ExactNum::from_f64(mag))),
+                Box::new(i_sym()),
+            )
+        };
+        match (re == 0.0, im >= 0.0) {
+            (true, true) => im_part,
+            (true, false) => Node::Negate(Box::new(im_part)),
+            (false, true) => Node::Add(
+                Box::new(Node::Num(ExactNum::from_f64(re))),
+                Box::new(im_part),
+            ),
+            (false, false) => Node::Subtract(
+                Box::new(Node::Num(ExactNum::from_f64(re))),
+                Box::new(im_part),
+            ),
+        }
+    }
+
+    /// Synthetic division of a real polynomial (descending coefficients)
+    /// by (λ − root). Returns the quotient's descending coefficients.
+    fn deflate(coeffs: &[f64], root: f64) -> Vec<f64> {
+        let mut quotient = Vec::with_capacity(coeffs.len().saturating_sub(1));
+        let mut acc = 0.0;
+        for &c in &coeffs[..coeffs.len() - 1] {
+            acc = acc * root + c;
+            quotient.push(acc);
+        }
+        quotient
+    }
+
+    /// Complete a list of real roots to the FULL spectrum of a real
+    /// polynomial. Real-coefficient polynomials have complex roots in
+    /// conjugate pairs, so up to one missing pair can be recovered by
+    /// deflating the found roots and solving the remaining quadratic.
+    /// Returns None when more is missing — refusal, never fabrication.
+    /// (The old code "filled in" missing roots with (trace−Σr)/k, which
+    /// printed the real part of a complex pair as two false eigenvalues.)
+    fn complete_spectrum(coeffs_desc: &[f64], real_roots: &[f64]) -> Option<Vec<Node>> {
+        let deg = coeffs_desc.len() - 1;
+        let mut out: Vec<Node> = real_roots
+            .iter()
+            .map(|&r| Node::Num(ExactNum::from_f64(r)))
+            .collect();
+        match deg.checked_sub(real_roots.len())? {
+            0 => Some(out),
+            1 => {
+                // One real root missing (complex roots come in pairs):
+                // Vieta's sum identity recovers it soundly.
+                let sum = -coeffs_desc[1] / coeffs_desc[0];
+                let last = sum - real_roots.iter().sum::<f64>();
+                out.push(Node::Num(ExactNum::from_f64(last)));
+                Some(out)
+            }
+            2 => {
+                let mut q = coeffs_desc.to_vec();
+                for &r in real_roots {
+                    q = Self::deflate(&q, r);
+                }
+                let (a, b, c) = (q[0], q[1], q[2]);
+                if a.abs() < 1e-300 {
+                    return None;
+                }
+                let disc = b * b - 4.0 * a * c;
+                if disc >= 0.0 {
+                    let s = disc.sqrt();
+                    out.push(Node::Num(ExactNum::from_f64((-b + s) / (2.0 * a))));
+                    out.push(Node::Num(ExactNum::from_f64((-b - s) / (2.0 * a))));
+                } else {
+                    let re = -b / (2.0 * a);
+                    let im = (-disc).sqrt() / (2.0 * a).abs();
+                    out.push(Self::complex_eigenvalue_node(re, im));
+                    out.push(Self::complex_eigenvalue_node(re, -im));
+                }
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
     fn eigenvalues_direct_numeric(&self, env: &Environment) -> Option<Vec<Node>> {
         let n = self.rows;
         if n > 4 {
@@ -546,7 +634,13 @@ impl Matrix {
                 let det = vals[0][0] * vals[1][1] - vals[0][1] * vals[1][0];
                 let disc = tr * tr - 4.0 * det;
                 if disc < -1e-10 {
-                    return None;
+                    // Complex conjugate pair — report it, don't retreat to
+                    // paths that fabricate or garble it.
+                    let im = (-disc).sqrt() / 2.0;
+                    return Some(vec![
+                        Self::complex_eigenvalue_node(tr / 2.0, im),
+                        Self::complex_eigenvalue_node(tr / 2.0, -im),
+                    ]);
                 }
                 let disc = disc.max(0.0).sqrt();
                 vec![(tr + disc) / 2.0, (tr - disc) / 2.0]
@@ -561,13 +655,8 @@ impl Matrix {
                 let c2 = trace;
                 let c1 = -(a * e - b * d + a * k - c * g + e * k - f * h);
                 let c0 = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
-                let mut r = crate::expression::solve_cubic_f64_pub(c3, c2, c1, c0);
-                // Fill in missing repeated roots using the trace identity
-                while r.len() < 3 {
-                    let missing: f64 = trace - r.iter().sum::<f64>();
-                    r.push(missing / (3 - r.len()) as f64);
-                }
-                r
+                let r = crate::expression::solve_cubic_f64_pub(c3, c2, c1, c0);
+                return Self::complete_spectrum(&[c3, c2, c1, c0], &r);
             }
             4 => {
                 let (a, b, c, d) = (vals[0][0], vals[0][1], vals[0][2], vals[0][3]);
@@ -621,7 +710,11 @@ impl Matrix {
                 };
 
                 // λ⁴ - trace·λ³ + sum2·λ² - det3sum·λ + det4 = 0
-                crate::expression::solve_quartic_f64_pub(1.0, -trace, sum2, -det3sum, det4)
+                let coeffs = [1.0, -trace, sum2, -det3sum, det4];
+                let r = crate::expression::solve_quartic_f64_pub(
+                    coeffs[0], coeffs[1], coeffs[2], coeffs[3], coeffs[4],
+                );
+                return Self::complete_spectrum(&coeffs, &r);
             }
             _ => return None,
         };
@@ -662,19 +755,30 @@ impl Matrix {
                 let c = coeff(0);
                 let disc = b * b - 4.0 * a * c;
                 if disc < -1e-10 {
-                    return None;
+                    let im = (-disc).sqrt() / (2.0 * a).abs();
+                    let re = -b / (2.0 * a);
+                    return Some(vec![
+                        Self::complex_eigenvalue_node(re, im),
+                        Self::complex_eigenvalue_node(re, -im),
+                    ]);
                 }
                 let disc = disc.max(0.0).sqrt();
                 vec![(-b + disc) / (2.0 * a), (-b - disc) / (2.0 * a)]
             }
-            3 => crate::expression::solve_cubic_f64_pub(coeff(3), coeff(2), coeff(1), coeff(0)),
-            4 => crate::expression::solve_quartic_f64_pub(
-                coeff(4),
-                coeff(3),
-                coeff(2),
-                coeff(1),
-                coeff(0),
-            ),
+            3 => {
+                let coeffs = [coeff(3), coeff(2), coeff(1), coeff(0)];
+                let r = crate::expression::solve_cubic_f64_pub(
+                    coeffs[0], coeffs[1], coeffs[2], coeffs[3],
+                );
+                return Self::complete_spectrum(&coeffs, &r);
+            }
+            4 => {
+                let coeffs = [coeff(4), coeff(3), coeff(2), coeff(1), coeff(0)];
+                let r = crate::expression::solve_quartic_f64_pub(
+                    coeffs[0], coeffs[1], coeffs[2], coeffs[3], coeffs[4],
+                );
+                return Self::complete_spectrum(&coeffs, &r);
+            }
             _ => return None,
         };
         if roots.is_empty() {

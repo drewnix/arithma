@@ -182,3 +182,30 @@ fn limit_numeric_claim_is_verified() {
     );
     assert_eq!(resp["result"]["result_status"]["status"], "verified");
 }
+
+#[test]
+fn matrix_numeric_eigenvalues_are_not_exact() {
+    // Carl's A1: the eigenvalue routine is numeric root-finding; its floats
+    // must not wear the exact badge. (Companion matrix of x³−x−1.)
+    let resp = call(
+        "matrix",
+        json!({"operation": "eigenvalues", "matrix": "\\begin{pmatrix} 0 & 0 & 1 \\\\ 1 & 0 & 1 \\\\ 0 & 1 & 0 \\end{pmatrix}"}),
+    );
+    let status = &resp["result"]["result_status"];
+    assert_ne!(status["status"], "exact", "floats wearing exact: {}", resp);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains('i'),
+        "complex pair must be explicit: {}",
+        text
+    );
+}
+
+#[test]
+fn matrix_exact_operations_stay_exact() {
+    let resp = call(
+        "matrix",
+        json!({"operation": "determinant", "matrix": "\\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}"}),
+    );
+    assert_eq!(resp["result"]["result_status"]["status"], "exact");
+}

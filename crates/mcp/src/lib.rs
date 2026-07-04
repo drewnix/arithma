@@ -965,7 +965,6 @@ fn tool_matrix(args: &Value) -> ToolResult {
 
     let a = parse_latex_matrix(matrix_str, &env)?;
 
-    // All operations run in exact arithmetic over Q / symbolic entries.
     let text = match op {
         "determinant" => {
             let det = a.determinant(&env)?;
@@ -999,7 +998,21 @@ fn tool_matrix(args: &Value) -> ToolResult {
             ))
         }
     };
-    Ok((text, StatusReport::exact()))
+    // The exact claim must be conditioned on the code path actually taken,
+    // not on the tool name (Carl, Session 43). Exact arithmetic never
+    // prints a decimal point; a '.' in the output means a floating-point
+    // routine ran (numeric eigenvalue root-finding, float entries).
+    let status = if text.contains('.') {
+        let mut s =
+            StatusReport::verified(1).with_caveat("floating-point computation (f64 precision)");
+        if op == "eigenvalues" && text.contains('i') {
+            s = s.with_caveat("complex eigenvalues expressed with i as a symbol");
+        }
+        s
+    } else {
+        StatusReport::exact()
+    };
+    Ok((text, status))
 }
 
 fn tool_equivalent(args: &Value) -> ToolResult {
