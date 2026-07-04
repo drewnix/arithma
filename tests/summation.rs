@@ -357,3 +357,90 @@ mod summation_tests {
         );
     }
 }
+
+// ── Composition: Σ/Π as atoms inside larger expressions ─────
+// Regression tests for Carl's Session-43 report: any expression
+// containing \sum or \prod silently discarded everything around it
+// (2·Σk returned 15, 1+Σk² returned 55). A CAS must never return a
+// confidently wrong number; these pin the composed values.
+
+#[cfg(test)]
+mod indexed_composition_tests {
+    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+
+    fn eval(input: &str) -> f64 {
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        Evaluator::evaluate(&expr, &env).unwrap()
+    }
+
+    #[test]
+    fn scalar_times_sum() {
+        assert_eq!(eval("2 \\cdot \\sum_{k=1}^{5} k"), 30.0);
+    }
+
+    #[test]
+    fn constant_plus_sum() {
+        assert_eq!(eval("1 + \\sum_{k=1}^{5} k^2"), 56.0);
+    }
+
+    #[test]
+    fn sum_plus_constant() {
+        assert_eq!(eval("\\sum_{k=1}^{5} k^2 + 1"), 56.0);
+    }
+
+    #[test]
+    fn braced_body_sum_plus_constant() {
+        assert_eq!(eval("\\sum_{k=1}^{5}{k^2} + 1"), 56.0);
+    }
+
+    #[test]
+    fn constant_plus_product() {
+        assert_eq!(eval("1 + \\prod_{k=1}^{4} k"), 25.0);
+    }
+
+    #[test]
+    fn scalar_times_product() {
+        assert_eq!(eval("2 \\cdot \\prod_{k=1}^{4} k"), 48.0);
+    }
+
+    #[test]
+    fn sum_minus_sum() {
+        // Σk² − Σk over 1..5 = 55 − 15 = 40
+        assert_eq!(eval("\\sum_{k=1}^{5} k^2 - \\sum_{k=1}^{5} k"), 40.0);
+    }
+
+    #[test]
+    fn sum_divided_by_constant() {
+        assert_eq!(eval("\\frac{\\sum_{k=1}^{5} k}{3}"), 5.0);
+    }
+
+    #[test]
+    fn nested_sum_braced() {
+        // Σ_{i=1..3} Σ_{j=1..2} (i·j) = (1+2+3)·(1+2) = 18
+        assert_eq!(eval("\\sum_{i=1}^{3}{\\sum_{j=1}^{2}{i \\cdot j}}"), 18.0);
+    }
+
+    #[test]
+    fn sum_equation_still_parses() {
+        // Σ = 15 must still build an Equation node, not error.
+        let mut tokenizer = Tokenizer::new("\\sum_{k=1}^{5} k = 15");
+        let tokens = tokenizer.tokenize();
+        let expr = build_expression_tree(tokens).unwrap();
+        assert!(matches!(expr, arithma::Node::Equation(_, _)));
+    }
+
+    #[test]
+    fn lone_sum_still_works() {
+        assert_eq!(eval("\\sum_{k=1}^{5} k"), 15.0);
+    }
+
+    #[test]
+    fn unbraced_body_still_stops_at_top_level_plus() {
+        // The unbraced body convention: Σ_{k=1}^{5} k + 1 sums k, then
+        // adds 1 outside. (Braces widen the body: Σ{k+1} would differ.)
+        assert_eq!(eval("\\sum_{k=1}^{5} k + 1"), 16.0);
+    }
+}
