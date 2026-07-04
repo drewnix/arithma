@@ -4,7 +4,7 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 build: ## Build the library and MCP server
-	cargo build --release
+	cargo build --release --workspace
 
 test: ## Run all tests
 	cargo test --all
@@ -24,7 +24,7 @@ wasm: ## Build WebAssembly module
 	@echo "Copied WASM to frontend/public/pkg/"
 
 mcp: ## Build the MCP server (release)
-	cargo build --release --bin arithma-mcp
+	cargo build --release -p arithma-mcp-server --bin arithma-mcp
 	@echo "Binary: target/release/arithma-mcp"
 	@ls -lh target/release/arithma-mcp | awk '{print "Size:", $$5}'
 
