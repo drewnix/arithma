@@ -155,9 +155,18 @@ fn cmd_differentiate(cmd: &str, args: &[String]) {
 
 /// Render a NON_ELEMENTARY error as the status marker, so the CLI and the
 /// MCP server present impossibility identically (docs/result-status.md).
-fn non_elementary_marker(e: &str) -> String {
+/// When the antiderivative is a recognized special function (erf, Ei, li),
+/// the marker also names the form — strictly more information than the
+/// impossibility alone.
+fn non_elementary_marker(e: &str, integrand_latex: &str, var: &str) -> String {
     let reason = e.replacen("NON_ELEMENTARY: ", "", 1);
-    StatusReport::provably_impossible(&reason)
+    let status = StatusReport::provably_impossible(&reason);
+    let status =
+        match arithma::special_functions::recognize_special_form_latex(integrand_latex, var) {
+            Some((name, form)) => status.with_special_form(&name, &form),
+            None => status,
+        };
+    status
         .marker()
         .expect("provably_impossible always has a marker")
 }
@@ -178,7 +187,7 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
         match arithma::integration::definite_integral_exact_latex(expr, &var, lower, upper) {
             Ok(result) => println!("{}", result),
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                println!("{}", non_elementary_marker(&e));
+                println!("{}", non_elementary_marker(&e, expr, &var));
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -191,7 +200,7 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
     match arithma::integration::integrate_latex(expr, &var) {
         Ok(result) => println!("{}", result),
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-            println!("{}", non_elementary_marker(&e));
+            println!("{}", non_elementary_marker(&e, expr, &var));
         }
         Err(e) => {
             eprintln!("Error: {}", e);

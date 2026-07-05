@@ -59,6 +59,28 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
 }
 ```
 
+**Special-function recognition fields.** When a `provably_impossible`
+integration result's antiderivative is a recognized special function (erf,
+Ei, li — each table entry is a defining identity: DLMF 7.2.1, 6.2.5, 6.2.8),
+the status additionally carries `special_function` (the name) and
+`special_form` (the full antiderivative as LaTeX). The theorem is unchanged —
+erf is not elementary — and the fields are strictly additive per the
+extensibility contract below. Recognition is earned: the structural match is
+guarded by a numeric differentiation round-trip, and any failure drops the
+name and keeps the bare certificate. An unrecognized integrand never gets a
+guessed name.
+
+```json
+{
+  "result_status": {
+    "status": "provably_impossible",
+    "certificate": "No elementary antiderivative exists. The differential equation q' + (-2x)·q = 1 has no rational solution.",
+    "special_function": "erf",
+    "special_form": "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)"
+  }
+}
+```
+
 **The `verdict` field.** Tools whose result *is* a yes/no claim (`verify`,
 `equivalent`, `verify_chain`) additionally carry a machine-readable
 `verdict`: `"pass"`, `"fail"`, or `"inconclusive"` — one vocabulary across
@@ -115,7 +137,7 @@ justifies it, never asserted by optimism.
 | `format` | `exact` always — parsing and canonical printing make no equivalence claim beyond structure. |
 | `simplify` | If input and output are both polynomial/rational over ℚ (field ops + integer powers only), canonicalization is a decision procedure → `exact`. If transcendental subexpressions are present, run the numeric self-check (`verify_identity(input, output)`): pass → `verified` with point count; insufficient valid points → `heuristic` with caveat. A self-check *failure* is a simplifier bug surfaced in production: `heuristic` with a loud caveat carrying the counterexample. |
 | `differentiate` | Derivative rules are complete and sound → `exact`; final simplification inherits the simplify classification (minimum of the two). |
-| `integrate` (indefinite) | Differentiation round-trip: d/dx of the antiderivative, compare to integrand. Structural match after simplification → `exact` (the round-trip is algebraic — this is why `integral_of` can reach `exact` where `implies` cannot). Numeric-only agreement → `verified`. Risch non-elementarity → `provably_impossible` with certificate. |
+| `integrate` (indefinite) | Differentiation round-trip: d/dx of the antiderivative, compare to integrand. Structural match after simplification → `exact` (the round-trip is algebraic — this is why `integral_of` can reach `exact` where `implies` cannot). Numeric-only agreement → `verified`. Risch non-elementarity → `provably_impossible` with certificate; when the antiderivative is a recognized special function (erf, Ei, li), the status also carries `special_function`/`special_form` — recognition guarded by a differentiation round-trip, never guessed. |
 | `integrate` (definite) | The FTC path first checks the integrand for singularities inside [a, b] (exact roots for polynomial denominators, sign-change/magnitude scan otherwise) and refuses improper integrals. It then inherits the antiderivative's round-trip status; special-value evaluations are `exact`. |
 | `substitute` | Capture-avoiding substitution is algebraic → `exact`. |
 | `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat — the status conditions on the code path taken, not the tool name. Inequalities via sign analysis → `exact`. (Back-substitution self-audit is a planned follow-up.) |
@@ -152,8 +174,8 @@ declares a relation to its predecessor. How each relation earns its status:
 |---|---|---|
 | `equals` (expressions) | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: degree-aware exact rational evaluation.** Within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem — a decision, mechanism `interpolation_identity_Q`. Over budget or starved of valid points: bounded exact sampling (still zero tolerance), `verified` with the shortfall named. Outside the fragment: assumption-aware f64 sampling. | Yes, inside the fragment — including by interpolation, which is a proof, not a sample. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated; a polynomial constructed to vanish exactly on a fixed sample grid is caught by the degree count. Transcendental agreement caps at `verified`. |
 | `equals` (equations) | Two equation-shaped steps are compared by **solution set** (mechanism `solution_set_comparison`): both sides solved, sets compared exactly. This is the semantics under which dividing both sides by 2 is an identity step — residual (pointwise) comparison would refute valid algebra. A solution of one equation missing from the other refutes the step and is the witness. Mixing an equation with an expression is refused with guidance. | **No — capped at `verified`:** the comparison inherits the solver's completeness, which is not proven. |
-| `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result | Yes |
-| `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. | Yes — the round-trip is algebraic. |
+| `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result. Constant factors differentiate to *literal* zeros (d(c·f) = c·f', no dead f·0 term), so claims scaled by a constant — right or wrong — are checked through the raw path: recognized special-function antiderivatives like (√π/2)·erf(x) pass raw, and a wrong sign or multiple is refuted raw with a counterexample. If the raw comparison is still inconclusive (the residue: the special function survives in the derivative itself, e.g. erf(x)²), the constructed side is simplified and retried — the retry can pass (mechanism prefixed `simplify+`, auditable) but never refute: a disagreement reached only through an unverified transform stays inconclusive with the witness as a caveat, which reaches the rendered text. | Yes |
+| `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. Same raw-first, simplify-retry policy as `derivative_of`. | Yes — the round-trip is algebraic. |
 | `substitution` | Capture-avoiding substitution, then the `equals` ladder (follows variable-set changes) | Yes |
 | `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. | Yes, for roots inside the ℚ fragment, with a caveat: membership is proven, completeness of the solution set is not claimed. Irrational roots (x = √2 for x² = 2) currently land at `verified` — algebraic-number membership belongs to the certificate work. |
 | `implies` | Solve the antecedent, check every solution against the consequent. A violating solution refutes the implication and is the counterexample. | **No — capped at `verified` by design.** Finitely many checked solutions are evidence, not proof of implication. |

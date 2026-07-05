@@ -62,8 +62,11 @@ pub use crate::composition::{compose, compose_latex, compose_multiple};
 pub mod integration;
 pub use crate::integration::{
     definite_integral, definite_integral_exact, definite_integral_exact_latex,
-    definite_integral_latex, integrate, integrate_latex,
+    definite_integral_latex, integrate, integrate_latex, integrate_outcome, IntegralOutcome,
 };
+
+pub mod special_functions;
+pub use crate::special_functions::SpecialAntiderivative;
 
 // Declare the matrix module
 pub mod matrix;

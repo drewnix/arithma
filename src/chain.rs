@@ -302,9 +302,68 @@ fn check_derivative_of(
 ) -> Result<CheckedStep, String> {
     let derivative = crate::derivative::differentiate(prev, var)
         .map_err(|e| format!("could not differentiate the previous step: {}", e))?;
-    let mut checked = check_equals(&derivative, current, env);
+    let mut checked = compare_constructed_derivative(&derivative, current, env);
     checked.mechanism = format!("derivative_rules+{}", checked.mechanism);
     Ok(checked)
+}
+
+/// Compare a derivative the checker itself constructed against a claimed
+/// expression. The raw derivative is tried first — the exact tiers of the
+/// equals ladder must not depend on the simplifier. If (and only if) the
+/// raw comparison is inconclusive, the constructed side is simplified and
+/// retried: the product rule leaves exact-zero terms that can still mention
+/// a special function (erf, Ei, li) which refuses numeric evaluation, and
+/// folding them away is what makes the derivative sampleable at all.
+///
+/// The retry can *pass* (sampling evidence, with `simplify+` named in the
+/// mechanism so the assist is auditable) but never *refute*: a disagreement
+/// reached only through a believed-sound-but-unverified transform might
+/// refute the transform rather than the step, and a false refutation is the
+/// worst report a verifier can make. Such a disagreement stays inconclusive,
+/// with the witness preserved as a caveat.
+fn compare_constructed_derivative(
+    derivative: &Node,
+    claimed: &Node,
+    env: &Environment,
+) -> CheckedStep {
+    let raw = check_equals(derivative, claimed, env);
+    if raw.verdict != Verdict::Inconclusive {
+        return raw;
+    }
+    let simplified = match derivative.simplify(env) {
+        Ok(s) if &s != derivative => s,
+        _ => return raw,
+    };
+    let retried = check_equals(&simplified, claimed, env);
+    match retried.verdict {
+        Verdict::Pass => CheckedStep {
+            mechanism: format!("simplify+{}", retried.mechanism),
+            ..retried
+        },
+        Verdict::Fail => {
+            let witness = retried
+                .status
+                .counterexample_json()
+                .map(|cx| cx.to_string())
+                .unwrap_or_else(|| "no witness recorded".to_string());
+            CheckedStep {
+                verdict: Verdict::Inconclusive,
+                status: raw.status.with_caveat(&format!(
+                    "the simplified derivative disagreed with the claimed step at {}; \
+                     a refutation through an unverified simplification is not certified",
+                    witness
+                )),
+                mechanism: format!("simplify+{}", retried.mechanism),
+            }
+        }
+        // The retry ran and was also inconclusive: report the retried
+        // result with the assist named, so an auditor can distinguish
+        // "no retry possible" from "retry ran, also inconclusive".
+        Verdict::Inconclusive => CheckedStep {
+            mechanism: format!("simplify+{}", retried.mechanism),
+            ..retried
+        },
+    }
 }
 
 /// `current` is an antiderivative of `prev`: differentiate the current step
@@ -323,7 +382,7 @@ fn check_integral_of(
             e
         )
     })?;
-    let mut checked = check_equals(&derivative, prev, env);
+    let mut checked = compare_constructed_derivative(&derivative, prev, env);
     checked.mechanism = format!("differentiation_roundtrip+{}", checked.mechanism);
     Ok(checked)
 }

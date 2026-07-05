@@ -20,6 +20,47 @@ fn try_risch_fallback(expr: &Node, var_name: &str) -> Option<Result<Node, String
     None
 }
 
+/// The result of an integration request, typed. `Elementary` carries the
+/// antiderivative. `NonElementary` carries the Risch certificate and, when
+/// the integrand matches a defining identity, the antiderivative expressed
+/// via a named special function (erf, Ei, li) — strictly more information
+/// than the impossibility alone, and only ever attached when earned (see
+/// `special_functions`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum IntegralOutcome {
+    Elementary(Node),
+    NonElementary {
+        certificate: String,
+        special: Option<crate::special_functions::SpecialAntiderivative>,
+    },
+}
+
+/// Typed boundary for `integrate`: same computation, with non-elementarity
+/// as data instead of an error-string convention. Recognition runs here — as
+/// a post-pass on the whole simplified integrand — because constant factors
+/// peel off inside `integrate` before the Risch proof fires, so the interior
+/// error path no longer sees the full integrand.
+pub fn integrate_outcome(expr: &Node, var_name: &str) -> Result<IntegralOutcome, String> {
+    match integrate(expr, var_name) {
+        Ok(node) => Ok(IntegralOutcome::Elementary(node)),
+        Err(e) => match e.strip_prefix("NON_ELEMENTARY: ") {
+            Some(certificate) => {
+                let env = Environment::new();
+                let simplified = expr.simplify(&env).unwrap_or_else(|_| expr.clone());
+                let special = crate::special_functions::recognize_special_antiderivative(
+                    &simplified,
+                    var_name,
+                );
+                Ok(IntegralOutcome::NonElementary {
+                    certificate: certificate.to_string(),
+                    special,
+                })
+            }
+            None => Err(e),
+        },
+    }
+}
+
 pub fn integrate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
     let expr =

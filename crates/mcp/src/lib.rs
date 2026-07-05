@@ -17,6 +17,7 @@ use arithma::series::{
     taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
 };
 use arithma::simplify::Simplifiable;
+use arithma::special_functions::recognize_special_form_latex;
 use arithma::status::Verdict;
 use arithma::status::{
     classify_integral, classify_limit, classify_simplify, classify_verify, free_variables,
@@ -679,8 +680,7 @@ fn tool_integrate(args: &Value) -> ToolResult {
                 Ok((format!("{value}"), status))
             }
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                let reason = e.replacen("NON_ELEMENTARY: ", "", 1);
-                Ok((String::new(), StatusReport::provably_impossible(&reason)))
+                Ok((String::new(), non_elementary_status(&e, expr, &var)))
             }
             Err(e) => Err(e),
         };
@@ -697,10 +697,22 @@ fn tool_integrate(args: &Value) -> ToolResult {
             Ok((format!("{antiderivative}"), status))
         }
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-            let reason = e.replacen("NON_ELEMENTARY: ", "", 1);
-            Ok((String::new(), StatusReport::provably_impossible(&reason)))
+            Ok((String::new(), non_elementary_status(&e, expr, &var)))
         }
         Err(e) => Err(e),
+    }
+}
+
+/// Build the provably_impossible status for a NON_ELEMENTARY error and, when
+/// the integrand's antiderivative is a recognized special function (erf, Ei,
+/// li), attach the named form — strictly more information than the
+/// impossibility alone. Unrecognized integrands keep the bare certificate.
+fn non_elementary_status(error: &str, integrand_latex: &str, var: &str) -> StatusReport {
+    let reason = error.replacen("NON_ELEMENTARY: ", "", 1);
+    let status = StatusReport::provably_impossible(&reason);
+    match recognize_special_form_latex(integrand_latex, var) {
+        Some((name, form)) => status.with_special_form(&name, &form),
+        None => status,
     }
 }
 
@@ -1206,10 +1218,14 @@ fn tool_verify(args: &Value) -> ToolResult {
     Ok((format!("{}", result), status))
 }
 
-/// Human-readable one-line description of a step's evidence.
+/// Human-readable one-line description of a step's evidence. Caveats are
+/// appended for every variant — a witness attached as a caveat (e.g. from a
+/// simplify-assisted retry) is the diagnosis, and dropping it here would
+/// make "preserved as a caveat" true in the data structure and false on
+/// the wire.
 fn describe_status(report: &arithma::status::StatusReport) -> String {
     use arithma::status::ResultStatus;
-    match &report.status {
+    let base = match &report.status {
         ResultStatus::Exact => "exact".to_string(),
         ResultStatus::Verified { points_tested } => {
             format!(
@@ -1223,6 +1239,11 @@ fn describe_status(report: &arithma::status::StatusReport) -> String {
         ResultStatus::ProvablyImpossible { certificate } => {
             format!("provably impossible: {}", certificate)
         }
+    };
+    if report.caveats.is_empty() {
+        base
+    } else {
+        format!("{} — {}", base, report.caveats.join("; "))
     }
 }
 

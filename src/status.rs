@@ -81,6 +81,11 @@ pub struct StatusReport {
     /// `{point: {var: value, …}, lhs: …, rhs: …}`. The counterexample is
     /// the diagnosis — nothing generative.
     counterexample: Option<Value>,
+    /// Present on `provably_impossible` integration results whose
+    /// antiderivative was recognized as a named special function:
+    /// `(name, LaTeX form)`, e.g. `("erf", "(√π/2)·erf(x)")`. A strictly
+    /// additive refinement of the impossibility — the theorem stands.
+    special_form: Option<(String, String)>,
 }
 
 impl StatusReport {
@@ -114,7 +119,16 @@ impl StatusReport {
             caveats: Vec::new(),
             verdict: None,
             counterexample: None,
+            special_form: None,
         }
+    }
+
+    /// Attach a recognized special-function antiderivative to a
+    /// `provably_impossible` result: the impossibility concerns the
+    /// *elementary* class; the named form is the answer beyond it.
+    pub fn with_special_form(mut self, function: &str, latex_form: &str) -> Self {
+        self.special_form = Some((function.to_string(), latex_form.to_string()));
+        self
     }
 
     pub fn with_caveat(mut self, caveat: &str) -> Self {
@@ -196,6 +210,10 @@ impl StatusReport {
         if let Some(cx) = &self.counterexample {
             obj["counterexample"] = cx.clone();
         }
+        if let Some((function, form)) = &self.special_form {
+            obj["special_function"] = json!(function);
+            obj["special_form"] = json!(form);
+        }
         obj
     }
 
@@ -214,11 +232,26 @@ impl StatusReport {
                 Some(format!("[heuristic] {}", detail))
             }
             ResultStatus::UnableToCompute { reason } => {
-                Some(format!("[unable to compute] {}", reason))
+                // Caveats can carry the diagnosis (e.g. the witness from a
+                // simplify-assisted retry) — attached evidence must reach
+                // the wire, not just the data structure.
+                if self.caveats.is_empty() {
+                    Some(format!("[unable to compute] {}", reason))
+                } else {
+                    Some(format!(
+                        "[unable to compute] {} — {}",
+                        reason,
+                        self.caveats.join("; ")
+                    ))
+                }
             }
-            ResultStatus::ProvablyImpossible { certificate } => {
-                Some(format!("[provably impossible] {}", certificate))
-            }
+            ResultStatus::ProvablyImpossible { certificate } => match &self.special_form {
+                Some((_, form)) => Some(format!(
+                    "[provably impossible] {} — antiderivative in special functions: {}",
+                    certificate, form
+                )),
+                None => Some(format!("[provably impossible] {}", certificate)),
+            },
         }
     }
 }

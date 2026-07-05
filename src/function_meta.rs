@@ -97,8 +97,15 @@ pub fn is_log_or_exp(name: &str) -> bool {
     matches!(name, "log" | "ln" | "lg" | "exp")
 }
 
+/// Special functions arising as non-elementary antiderivatives (erf, Ei, li).
+/// Symbolic-only: they parse, print, and differentiate exactly; numeric
+/// evaluation is deliberately unimplemented until it carries an error bound.
+pub fn is_special_function(name: &str) -> bool {
+    matches!(name, "erf" | "Ei" | "li")
+}
+
 /// Functions that map exact (rational) inputs to generally irrational values.
 /// `simplify` keeps these symbolic instead of collapsing to a float.
 pub fn is_transcendental_function(name: &str) -> bool {
-    is_trig_or_hyperbolic(name) || is_log_or_exp(name)
+    is_trig_or_hyperbolic(name) || is_log_or_exp(name) || is_special_function(name)
 }

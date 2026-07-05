@@ -68,11 +68,62 @@ fn provably_impossible_marker_includes_certificate() {
 }
 
 #[test]
+fn special_form_serializes_on_provably_impossible() {
+    // Recognition of a non-elementary antiderivative as a named special
+    // function rides as evidence fields on provably_impossible: the theorem
+    // ("no elementary antiderivative") is unchanged; the name is a strictly
+    // additive refinement (extensibility contract: consumers ignore unknown
+    // fields).
+    let json = StatusReport::provably_impossible("no elementary antiderivative")
+        .with_special_form("erf", "\\frac{\\sqrt{\\pi}}{2}\\erf(x)")
+        .to_json();
+    assert_eq!(json["status"], "provably_impossible");
+    assert_eq!(json["certificate"], "no elementary antiderivative");
+    assert_eq!(json["special_function"], "erf");
+    assert_eq!(json["special_form"], "\\frac{\\sqrt{\\pi}}{2}\\erf(x)");
+}
+
+#[test]
+fn special_form_absent_when_not_attached() {
+    let json = StatusReport::provably_impossible("no elementary antiderivative").to_json();
+    assert!(json.get("special_function").is_none());
+    assert!(json.get("special_form").is_none());
+}
+
+#[test]
+fn provably_impossible_marker_names_special_form_when_present() {
+    let m = StatusReport::provably_impossible("no elementary antiderivative exists")
+        .with_special_form("erf", "\\frac{\\sqrt{\\pi}}{2}\\erf(x)")
+        .marker()
+        .unwrap();
+    assert_eq!(
+        m,
+        "[provably impossible] no elementary antiderivative exists — antiderivative in special functions: \\frac{\\sqrt{\\pi}}{2}\\erf(x)"
+    );
+}
+
+#[test]
 fn unable_to_compute_marker_includes_reason() {
     let m = StatusReport::unable_to_compute("insufficient test points")
         .marker()
         .unwrap();
     assert_eq!(m, "[unable to compute] insufficient test points");
+}
+
+#[test]
+fn unable_to_compute_marker_includes_caveats() {
+    // Carl's F3 (PR #68 attack): a witness attached as a caveat was
+    // computed, stored, and then dropped by every renderer — "preserved as
+    // a caveat" must be true on the wire, not just in the data structure.
+    let m = StatusReport::unable_to_compute("only 0 valid test points")
+        .with_caveat("the simplified derivative disagreed at {\"x\": 0.5}")
+        .marker()
+        .unwrap();
+    assert!(
+        m.contains("disagreed at"),
+        "caveats must reach the marker text, got: {}",
+        m
+    );
 }
 
 #[test]
