@@ -16,6 +16,11 @@ pub struct VerifyResult {
     pub points_tested: usize,
     pub counterexample: Option<Counterexample>,
     pub insufficient_points: bool,
+    /// Sample points where exactly one side was undefined (NaN). Such
+    /// points are excluded from the numeric evidence — they witness a
+    /// *domain* difference, which callers surface as a caveat rather than
+    /// as a numeric counterexample with a null in it.
+    pub domain_mismatches: usize,
 }
 
 pub struct Counterexample {
@@ -32,6 +37,7 @@ pub fn verify_identity(
 ) -> VerifyResult {
     let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
+    let mut domain_mismatches = 0;
 
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
@@ -61,12 +67,16 @@ pub fn verify_identity(
             Err(_) => continue,
         };
 
-        // NaN on either side means the point tests domain membership, not
-        // values: shared undefinedness is not numeric agreement, and
-        // one-sided undefinedness is a domain question, not a numeric
-        // counterexample with a null in it (Carl R5c). Skip such points —
-        // they carry no evidence either way.
+        // NaN means the point tests domain membership, not values (Carl
+        // R5c): shared undefinedness is not numeric agreement (skip,
+        // uncounted); one-sided undefinedness witnesses a DOMAIN
+        // difference — excluded from the numeric evidence but counted, so
+        // callers can caveat it instead of hiding it.
+        if lhs_val.is_nan() && rhs_val.is_nan() {
+            continue;
+        }
         if lhs_val.is_nan() || rhs_val.is_nan() {
+            domain_mismatches += 1;
             continue;
         }
 
@@ -82,6 +92,7 @@ pub fn verify_identity(
                     rhs_value: rhs_val,
                 }),
                 insufficient_points: false,
+                domain_mismatches,
             };
         }
     }
@@ -92,6 +103,7 @@ pub fn verify_identity(
         points_tested,
         counterexample: None,
         insufficient_points: insufficient,
+        domain_mismatches,
     }
 }
 

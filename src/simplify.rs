@@ -749,14 +749,20 @@ impl Simplifiable for Node {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
 
-                // 0/u → 0 for any non-literal-zero denominator, including
-                // Fraction-node denominators (the polynomial-denominator
-                // path already reduced these; \frac{0}{\frac{x}{y}}
-                // stalled — Carl, Session 44). Equality in Q(x): removable
-                // domain differences do not exist in the rational function
-                // field, consistent with pole cancellation elsewhere.
+                // 0/u → 0, justified by Q(x) semantics (removable domain
+                // differences do not exist in the rational function field,
+                // consistent with pole cancellation elsewhere) — so the
+                // rule fires only where that justification applies: u in
+                // the poly/rational fragment and not the literal zero.
+                // Covers Fraction-node denominators, where the polynomial
+                // path stalled (\frac{0}{\frac{x}{y}} — Carl, Session 44).
+                // Transcendental denominators are excluded: they can be
+                // identically zero without reducing to 0, and 0/0 is not 0.
                 if let Node::Num(ref l) = left_simplified {
-                    if l.is_zero() && !matches!(&right_simplified, Node::Num(r) if r.is_zero()) {
+                    if l.is_zero()
+                        && crate::status::is_algebraic_exact(&right_simplified)
+                        && !matches!(&right_simplified, Node::Num(r) if r.is_zero())
+                    {
                         return Ok(Node::Num(ExactNum::integer(0)));
                     }
                 }

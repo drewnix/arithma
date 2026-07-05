@@ -33,9 +33,20 @@ no closed form exists, not silence or a wrong answer.
 at n points — evidence, never proof), `heuristic`, `unable_to_compute`, or
 `provably_impossible` (with certificate). An agent can tell an algebraic
 identity from "agreed at 12 test points" — because those are different
-things. See [docs/result-status.md](docs/result-status.md).
+things. Verdict-shaped tools additionally carry a machine-readable
+`verdict` (`pass`/`fail`/`inconclusive`) — no consumer ever parses prose to
+learn an outcome. See [docs/result-status.md](docs/result-status.md).
 
-**1623 tests, zero failures.** Every algorithm is verified against known results.
+**Verifies whole derivations, not just answers.** The `verify_chain` tool
+takes an ordered list of reasoning steps — each declaring its relation to
+the previous one (`equals`, `derivative_of`, `integral_of`, `substitution`,
+`implies`, `solution_of`, `factored_form_of`) — and checks every step by
+the mechanism appropriate to its relation. The chain's status is the
+*minimum* evidence across steps: one numeric step makes the whole chain
+`verified`, never `exact`. A failing step carries the specific
+counterexample that refutes it. The counterexample is the diagnosis.
+
+**1677 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -124,10 +135,13 @@ The simplifier has a verified idempotency contract:
 
 | Feature | Description |
 |---------|-------------|
+| Reasoning-chain verification | `verify_chain`: per-step relations (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`), per-step verdict + mechanism, chain status = minimum evidence across steps |
 | Numeric cross-check | 12 test points, assumption-aware, counterexample on FAIL |
+| Exact refutation | inside the polynomial/rational fragment, disagreements are established in exact rational arithmetic — no floating-point tolerance; `x = x + 10^{-15}` is refuted, not tolerated |
 | Expression equivalence | simplify-and-compare, then assumption-aware sampling |
 | Non-elementarity proofs | Risch algorithm certificates |
 | Result status | evidence taxonomy on every response — `exact` / `verified` / `heuristic` / `unable_to_compute` / `provably_impossible` |
+| Machine-readable verdicts | `pass` / `fail` / `inconclusive` on `verify`, `equivalent`, `verify_chain` — outcomes are fields, not prose |
 | Self-checking | transcendental simplifications and integration round-trips are independently verified before being blessed |
 
 ---
@@ -135,7 +149,7 @@ The simplifier has a verified idempotency contract:
 ## MCP Server
 
 The `arithma-mcp` binary speaks [MCP](https://modelcontextprotocol.io) over
-stdio. 16 tools with LaTeX I/O:
+stdio. 17 tools with LaTeX I/O:
 
 | Tool | Purpose |
 |------|---------|
@@ -154,7 +168,27 @@ stdio. 16 tools with LaTeX I/O:
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, $Ax=b$ |
 | `equivalent` | Check if two expressions are equal |
 | `verify` | Numerically cross-check at multiple test points |
+| `verify_chain` | Verify a multi-step derivation, step by step, with per-step verdicts and evidence |
 | `solve_ode` | First-order, constant-coeff, and power series |
+
+`verify_chain` takes an ordered list of steps, each declaring its relation
+to the previous one:
+
+```json
+{
+  "steps": [
+    { "label": "f",  "expr": "x^3 - x" },
+    { "label": "factored", "expr": "x(x-1)(x+1)", "relation": "factored_form_of" },
+    { "label": "f'", "expr": "3x^2 - 1", "relation": "derivative_of", "variable": "x" }
+  ]
+}
+```
+
+Each step reports `verdict` (`pass`/`fail`/`inconclusive`), the `mechanism`
+that actually ran (`canonical_form_Q`, `differentiation_roundtrip`, …), and
+its evidence class. A wrong step comes back with the counterexample that
+refutes it. For incremental use, send a two-step chain of the previous and
+new step.
 
 All tools accept an optional `assumptions` parameter:
 
@@ -257,7 +291,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1623 tests
+cargo test --workspace                    # run all 1677 tests
 ```
 
 ---

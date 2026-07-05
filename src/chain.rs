@@ -324,24 +324,41 @@ fn check_substitution(
 ) -> Result<CheckedStep, String> {
     let value_node = crate::parser::parse_latex_raw(value)
         .map_err(|e| format!("could not parse substitution value '{}': {}", value, e))?;
-    // A capture refusal is a step-level outcome, not a chain-aborting
-    // error: a ten-step chain with a capture at step 7 must still report
-    // steps 1–6 (audit trail over abort — decided Session 44, Carl's
-    // design note). Other substitution failures remain protocol errors.
-    let substituted = match crate::substitute::substitute_variable(prev, var, &value_node) {
-        Ok(s) => s,
-        Err(e) if e.contains("capture") => {
-            return Ok(CheckedStep {
-                verdict: Verdict::Inconclusive,
-                status: StatusReport::unable_to_compute(&e),
-                mechanism: "substitute".to_string(),
-            })
-        }
-        Err(e) => return Err(format!("substitution failed: {}", e)),
+    let substituted = match capture_aware_substitute(prev, var, &value_node, "substitute")? {
+        SubstOutcome::Node(s) => s,
+        SubstOutcome::Refused(step) => return Ok(step),
     };
     let mut checked = check_equals(&substituted, current, env);
     checked.mechanism = format!("substitute+{}", checked.mechanism);
     Ok(checked)
+}
+
+enum SubstOutcome {
+    Node(Node),
+    Refused(CheckedStep),
+}
+
+/// Substitution with the capture-refusal-as-step-outcome policy applied
+/// uniformly: a refusal is a step-level `inconclusive` naming the capture —
+/// a ten-step chain with a capture at step 7 must still report steps 1–6
+/// (audit trail over abort — decided Session 44, Carl's design note). It
+/// covers every relation that substitutes: `substitution`, `solution_of`,
+/// and `implies`. Genuine failures remain chain-aborting protocol errors.
+fn capture_aware_substitute(
+    expr: &Node,
+    var: &str,
+    value: &Node,
+    mechanism: &str,
+) -> Result<SubstOutcome, String> {
+    match crate::substitute::substitute_variable(expr, var, value) {
+        Ok(n) => Ok(SubstOutcome::Node(n)),
+        Err(e) if e.contains("capture") => Ok(SubstOutcome::Refused(CheckedStep {
+            verdict: Verdict::Inconclusive,
+            status: StatusReport::unable_to_compute(&e),
+            mechanism: mechanism.to_string(),
+        })),
+        Err(e) => Err(format!("substitution failed: {}", e)),
+    }
 }
 
 /// Split an equation node into (lhs, rhs).
@@ -372,10 +389,16 @@ fn check_solution_of(
         }
     };
 
-    let lhs_sub = crate::substitute::substitute_variable(eq_lhs, &sol_var, &sol_value)
-        .map_err(|e| format!("substitution failed: {}", e))?;
-    let rhs_sub = crate::substitute::substitute_variable(eq_rhs, &sol_var, &sol_value)
-        .map_err(|e| format!("substitution failed: {}", e))?;
+    let lhs_sub =
+        match capture_aware_substitute(eq_lhs, &sol_var, &sol_value, "solution_substitution")? {
+            SubstOutcome::Node(n) => n,
+            SubstOutcome::Refused(step) => return Ok(step),
+        };
+    let rhs_sub =
+        match capture_aware_substitute(eq_rhs, &sol_var, &sol_value, "solution_substitution")? {
+            SubstOutcome::Node(n) => n,
+            SubstOutcome::Refused(step) => return Ok(step),
+        };
 
     let mut checked = check_equals(&lhs_sub, &rhs_sub, env);
     checked.mechanism = format!("solution_substitution+{}", checked.mechanism);
@@ -450,10 +473,14 @@ fn check_implies(
     let (con_lhs, con_rhs) = as_equation(current).expect("checked above");
     let mut checked_count = 0usize;
     for sol in &solved.solutions {
-        let lhs_sub = crate::substitute::substitute_variable(con_lhs, &var, sol)
-            .map_err(|e| format!("substitution failed: {}", e))?;
-        let rhs_sub = crate::substitute::substitute_variable(con_rhs, &var, sol)
-            .map_err(|e| format!("substitution failed: {}", e))?;
+        let lhs_sub = match capture_aware_substitute(con_lhs, &var, sol, &mechanism)? {
+            SubstOutcome::Node(n) => n,
+            SubstOutcome::Refused(step) => return Ok(step),
+        };
+        let rhs_sub = match capture_aware_substitute(con_rhs, &var, sol, &mechanism)? {
+            SubstOutcome::Node(n) => n,
+            SubstOutcome::Refused(step) => return Ok(step),
+        };
         let step = check_equals(&lhs_sub, &rhs_sub, env);
         match step.verdict {
             Verdict::Pass => checked_count += 1,
@@ -849,10 +876,27 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
 
     let result = verify_identity(lhs, rhs, &vars, env.assumptions());
 
+    // One-sided undefinedness witnesses a domain difference: excluded
+    // from the numeric evidence, but never silently (probe finding,
+    // Session 44 round 3 — skipping was the R5c fix, hiding was not).
+    let domain_caveat = |report: StatusReport| {
+        if result.domain_mismatches > 0 {
+            report.with_caveat(&format!(
+                "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
+                result.domain_mismatches,
+                if result.domain_mismatches == 1 { "" } else { "s" }
+            ))
+        } else {
+            report
+        }
+    };
+
     if let Some(ref cx) = result.counterexample {
         return CheckedStep {
             verdict: Verdict::Fail,
-            status: StatusReport::verified(result.points_tested).with_counterexample(cx),
+            status: domain_caveat(
+                StatusReport::verified(result.points_tested).with_counterexample(cx),
+            ),
             mechanism: "numeric_sample".to_string(),
         };
     }
@@ -869,7 +913,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     }
     CheckedStep {
         verdict: Verdict::Pass,
-        status: StatusReport::verified(result.points_tested),
+        status: domain_caveat(StatusReport::verified(result.points_tested)),
         mechanism: "numeric_sample".to_string(),
     }
 }

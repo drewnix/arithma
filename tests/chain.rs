@@ -687,3 +687,73 @@ fn p3_correction_ratio_chain_lands_exact() {
     assert_eq!(result.verdict, Verdict::Pass);
     assert_eq!(result.status.status, ResultStatus::Exact);
 }
+
+// ---------------------------------------------------------------------------
+// Probe-harness findings (Session 44, round 3): gaps in the round-2 fixes
+// themselves, surfaced by adversarial probes against the fixed branch.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn probe_zero_over_hidden_zero_is_not_simplified_to_zero() {
+    // sin²x + cos²x − 1 is identically zero but does not reduce to the
+    // literal 0. 0/(that) is 0/0 everywhere — undefined, not 0. The
+    // 0/u → 0 rule must fire only where u is certified nonzero, i.e.
+    // inside the Q fragment.
+    use arithma::simplify::Simplifiable;
+    let node = arithma::parse_latex_raw("\\frac{0}{\\sin(x)^2 + \\cos(x)^2 - 1}").unwrap();
+    let simplified = node.simplify(&Environment::new()).unwrap();
+    assert_ne!(format!("{}", simplified), "0");
+}
+
+#[test]
+fn probe_solution_of_capture_is_step_level() {
+    // The capture-refusal-as-step-outcome decision must cover the
+    // substitutions inside solution_of, not just the substitution relation.
+    let steps = vec![
+        eq_step("eq", "\\sum_{k=1}^{3} k \\cdot x = 0"),
+        rel_step("root", "x = k", Relation::SolutionOf, None, None),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Inconclusive);
+    match &result.steps[1].status.status {
+        ResultStatus::UnableToCompute { reason } => {
+            assert!(reason.contains("capture"), "got: {}", reason)
+        }
+        other => panic!("expected UnableToCompute, got {:?}", other),
+    }
+}
+
+#[test]
+fn probe_implies_capture_is_step_level() {
+    let steps = vec![
+        eq_step("antecedent", "x = k"),
+        rel_step(
+            "consequent",
+            "\\sum_{k=1}^{3} k \\cdot x = \\sum_{k=1}^{3} k^2",
+            Relation::Implies,
+            Some("x"),
+            None,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Inconclusive);
+}
+
+#[test]
+fn probe_one_sided_undefinedness_is_caveated_not_silent() {
+    // √(x²) and (√x)² agree wherever both are defined but differ in
+    // domain (x < 0). Skipping those points was the R5c fix; skipping
+    // them SILENTLY hides a real difference. The status must say so.
+    let steps = vec![eq_step("a", "\\sqrt{x^2}"), eq_step("b", "(\\sqrt{x})^2")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.contains("domain")),
+        "expected a domain caveat, got: {:?}",
+        result.steps[1].status.caveats
+    );
+}

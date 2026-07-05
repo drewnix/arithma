@@ -371,7 +371,14 @@ pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
         ))
         .with_verdict(Verdict::Inconclusive);
     }
-    let report = StatusReport::verified(result.points_tested);
+    let mut report = StatusReport::verified(result.points_tested);
+    if result.domain_mismatches > 0 {
+        report = report.with_caveat(&format!(
+            "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
+            result.domain_mismatches,
+            if result.domain_mismatches == 1 { "" } else { "s" }
+        ));
+    }
     match &result.counterexample {
         Some(cx) => report.with_counterexample(cx).with_verdict(Verdict::Fail),
         None => report.with_verdict(Verdict::Pass),

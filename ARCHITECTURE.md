@@ -30,7 +30,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ## Current State
 
-**1623 tests. 0 failures. 16 MCP tools. ~40K lines of Rust. MCP binary under 3 MB. Zero clippy warnings.**
+**1677 tests. 0 failures. 17 MCP tools. ~40K lines of Rust. MCP binary under 3 MB. Zero clippy warnings.**
 
 ---
 
@@ -68,7 +68,8 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Negation normalization**: `f·(-g) → -(f·g)`, nested negations eliminated.
 - **Assumption system**: 6 property types (positive, nonneg, negative, nonzero, real, integer). `√(x²) → x` when x ≥ 0. Conservative default.
 - **f64 → rational canonicalization**: float coefficients near simple rationals (denominators ≤ 100) are converted to exact BigRational. `0.5·x → (1/2)·x`, `0.333...·x → (1/3)·x`. Improves equivalence detection.
-- **Numeric verification**: `verify` tool evaluates two expressions at 12 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Assumption-aware**: test points are filtered by stated assumptions — `verify(√(x²), x, {x: positive})` correctly skips negative test points instead of producing spurious counterexamples.
+- **Numeric verification**: `verify` tool evaluates two expressions at 12 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Assumption-aware**: test points are filtered by stated assumptions — `verify(√(x²), x, {x: positive})` correctly skips negative test points instead of producing spurious counterexamples. Points where either side is NaN test domain membership, not values, and carry no evidence. The built-in constants `e` and `π` are never sampled as free variables.
+- **Reasoning-chain verification** (`src/chain.rs`): `verify_chain` checks an ordered list of steps, each declaring a typed relation to its predecessor (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`). Each relation is checked by its own mechanism — the `equals` evidence ladder is syntactic identity → unit-normal form (side-condition-free identities only) → canonical form over ℚ → exact rational evaluation (no floating-point tolerance inside the fragment) → assumption-aware f64 sampling; `integral_of` uses the differentiation round-trip (exact-capable); `implies` solves the antecedent and checks each solution against the consequent (capped at `verified` by design); `solution_of` checks membership exactly without claiming completeness. Chain status is the minimum evidence across steps; a failing chain carries the first failing step's report, counterexample included. Per-relation earning rules: `docs/result-status.md`.
 - **Idempotency contract**: simplification is stable — applying it twice gives the same result.
 
 ### Differentiation
@@ -182,9 +183,9 @@ The design target is not "everything Mathematica does" but "everything an agent 
 
 ### MCP Server
 
-16 tools with LaTeX I/O: `format`, `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter.
+17 tools with LaTeX I/O: `format`, `simplify`, `differentiate`, `integrate`, `solve`, `solve_system`, `factor`, `partial_fractions`, `evaluate`, `substitute`, `taylor_series`, `limit`, `solve_ode`, `matrix`, `equivalent`, `verify`, `verify_chain`. Hand-rolled JSON-RPC, under 3 MB binary. All tools accept optional `assumptions` parameter.
 
-**Result status (evidence taxonomy).** Every tool response carries a `result_status` object stating what kind of evidence backs the result: `exact` (decision procedure or complete sound algorithm), `verified` (independent numeric check, with point count and counterexample on negative verdicts), `heuristic` (believed sound, unverified — with loud caveats), `unable_to_compute` (honest refusal, with reason), `provably_impossible` (a theorem, e.g. Risch non-elementarity, with certificate). Statuses are *earned by the mechanism that ran*, conditioned on the code path rather than the tool name: polynomial/rational canonicalization is a decision procedure, transcendental rewrites are numerically self-checked, integrals certify by differentiation round-trip, numeric eigenvalue/root paths carry f64 caveats and never claim `exact`. Full contract and per-tool earning rules: `docs/result-status.md`. Planned next: certificate-emitting `exact` ("no certificate, no exact") — the tool boundary replays a cheap exact check (multiply factors back, substitute roots, differentiate antiderivatives) before granting the status, making over-claims structurally impossible and producing artifacts a proof assistant can consume. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution). `format` parses and normalizes LaTeX without simplifying — useful for canonicalizing messy input.
+**Result status (evidence taxonomy).** Every tool response carries a `result_status` object stating what kind of evidence backs the result: `exact` (decision procedure or complete sound algorithm), `verified` (independent numeric check, with point count and counterexample on negative verdicts), `heuristic` (believed sound, unverified — with loud caveats), `unable_to_compute` (honest refusal, with reason), `provably_impossible` (a theorem, e.g. Risch non-elementarity, with certificate). Statuses are *earned by the mechanism that ran*, conditioned on the code path rather than the tool name: polynomial/rational canonicalization is a decision procedure, transcendental rewrites are numerically self-checked, integrals certify by differentiation round-trip, numeric eigenvalue/root paths carry f64 caveats and never claim `exact`. Verdict-shaped tools (`verify`, `equivalent`, `verify_chain`) additionally carry a machine-readable `verdict` field (`pass`/`fail`/`inconclusive`) — one vocabulary across all three, so no consumer parses prose to learn an outcome; verdict and status are orthogonal ("not equal, counterexample attached" is a `fail` verdict carried by well-earned `verified` evidence). `verify_chain` responses include a per-step audit trail: each step's `verdict`, the `mechanism` that actually ran (`canonical_form_Q`, `exact_rational_sample`, `differentiation_roundtrip+…`), its status object, plus chain-level `first_failure` and `weakest_step` indices. Exact-arithmetic counterexamples carry `lhs_exact`/`rhs_exact` strings alongside f64 renderings (two distinct rationals can share an f64 image). Full contract and per-tool earning rules: `docs/result-status.md`. Planned next: certificate-emitting `exact` ("no certificate, no exact") — the tool boundary replays a cheap exact check (multiply factors back, substitute roots, differentiate antiderivatives) before granting the status, making over-claims structurally impossible and producing artifacts a proof assistant can consume. `solve_ode` accepts `poly_coeffs` for general linear ODEs with polynomial coefficients (power series solution). `format` parses and normalizes LaTeX without simplifying — useful for canonicalizing messy input.
 
 ### CLI
 
@@ -264,10 +265,14 @@ The root crate is the public API — downstream Rust projects depend on `arithma
 
 Arithma's computation surface is mature. The next phase is **verification infrastructure** — making Arithma the mathematical reasoning verification layer for AI agents. See [Discussion #63](https://github.com/drewnix/arithma/discussions/63) for the full design.
 
+**Landed:**
+- **Structured result status** on all tool outputs (`exact`, `verified`, `heuristic`, `unable_to_compute`, `provably_impossible`) — agents know the strength of evidence behind every result, earned by the mechanism that ran
+- **Reasoning-chain verification** (`verify_chain`) with typed step relations (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`) — each step of a derivation checked by the appropriate primitive, with machine-readable verdicts and named mechanisms
+
 **In progress:**
-- **Structured result status** on all tool outputs (`exact`, `numerically_consistent`, `heuristic`, `unable_to_compute`, `provably_impossible`) — so agents know the strength of evidence behind every result
-- **Reasoning-chain verification** with typed step relations (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`) — check each step of a derivation using the appropriate primitive
+- **Certificate-emitting `exact`** ("no certificate, no exact") — replayable exact checks at the tool boundary; the bridge to proof-assistant consumption
 - **Impossibility proofs as first-class output** — structured proof certificates for Risch non-elementarity, special function recognition (erf, Ei, Li)
+- **Multivariate rational normal form** — make "canonicalization is a decision procedure over ℚ(x₁,…,xₙ)" true as written, by cross-multiplied multivariate polynomial comparison
 
 **The thesis:** the biggest gap in AI-assisted mathematics isn't missing features — it's missing verification. An agent that can check each step of its own reasoning, catch errors at the exact point they occur, and prove when something is mathematically impossible changes the class of problems agents can reliably solve.
 

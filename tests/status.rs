@@ -299,6 +299,7 @@ fn verify_inconclusive_maps_to_unable_to_compute() {
         points_tested: 1,
         counterexample: None,
         insufficient_points: true,
+        domain_mismatches: 0,
     };
     let report = classify_verify(&result);
     match report.status {
