@@ -245,12 +245,19 @@ input expression
 (`\erf(x)`), print, and differentiate exactly (chain rule included); numeric
 evaluation deliberately returns an error until an implementation with a
 stated error bound lands. `is_transcendental_function` includes them, so
-`simplify` never collapses them to floats. In `verify_chain`, the
+`simplify` never collapses them to floats. The derivative engine emits
+*literal* zeros for constant factors (d(c·f) = c·f' with no dead f·0
+term; an expression provably free of the variable differentiates to
+`Num(0)` directly) — so derivatives of c·erf(x) forms mention no special
+function and evaluate numerically, making both true and false scaled
+claims checkable through the raw path. In `verify_chain`, the
 `derivative_of`/`integral_of` checkers try the raw constructed derivative
-first and, only when inconclusive, retry with the simplified derivative
-(mechanism prefixed `simplify+`); the retry can pass but never refute — a
-disagreement reached only through an unverified transform stays
-inconclusive with the witness preserved as a caveat.
+first and, only when inconclusive (the residue: the special function
+survives differentiation, e.g. erf(x)²), retry with the simplified
+derivative (mechanism prefixed `simplify+`); the retry can pass but never
+refute — a disagreement reached only through an unverified transform
+stays inconclusive with the witness preserved as a caveat, and caveats
+reach the rendered step text.
 
 ### Crate Structure
 

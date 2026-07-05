@@ -983,17 +983,15 @@ fn integral_of_step_with_recognized_erf_form_passes() {
             .map(|s| (&s.mechanism, s.verdict))
             .collect::<Vec<_>>()
     );
-    // √π is outside the ℚ fragment: agreement is sampling evidence, and the
-    // simplify fold that made the derivative evaluable must be named.
+    // √π is outside the ℚ fragment: agreement is sampling evidence.
+    // (Originally this also asserted the simplify+ mechanism — with
+    // d(c·f) = c·f' built correctly, the raw path handles this family and
+    // the assist is reserved for the residue; see
+    // true_scaled_erf_claim_passes_through_the_raw_path.)
     assert!(
         matches!(result.status.status, ResultStatus::Verified { .. }),
         "transcendental agreement caps at verified, got {:?}",
         result.status.status
-    );
-    assert!(
-        result.steps[1].mechanism.contains("simplify"),
-        "the simplify assist must be auditable in the mechanism, got: {}",
-        result.steps[1].mechanism
     );
 }
 
@@ -1034,5 +1032,109 @@ fn integral_of_step_with_wrong_erf_constant_is_not_certified() {
         result.verdict,
         Verdict::Pass,
         "a wrong constant must never pass"
+    );
+}
+
+// Carl's F2 (PR #68 attack): refutability must not depend on a constant
+// factor. Bare wrong claims (erf(x) for ∫e^{−x²}) were refutable because
+// their raw derivative mentions no special function; c·erf(x) claims were
+// unrefutable because the product rule emitted erf(x)·d(c) with d(c) an
+// exact-zero TREE — erf refuses evaluation and every sample point starved.
+// With d(c·f) = c·f' built correctly (constant factors never generate a
+// sibling term), wrong c·SF claims are refuted through the RAW path with
+// counterexamples, and true ones pass raw without the simplify assist.
+
+#[test]
+fn wrong_sign_erf_constant_is_refuted() {
+    let steps = vec![
+        step("integrand", "\\exp(-x^2)", Relation::Equals),
+        step(
+            "wrong-sign",
+            "-\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)",
+            Relation::IntegralOf,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(
+        result.verdict,
+        Verdict::Fail,
+        "a wrong sign must be refuted, not starved into inconclusive; got: {:?}",
+        result
+            .steps
+            .iter()
+            .map(|s| (&s.mechanism, s.verdict))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn wrong_multiple_ei_is_refuted() {
+    let steps = vec![
+        step("integrand", "\\frac{\\exp(2x)}{x}", Relation::Equals),
+        step("wrong-multiple", "5 \\cdot \\Ei(2x)", Relation::IntegralOf),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn wrong_argument_scaled_erf_is_refuted() {
+    let steps = vec![
+        step("integrand", "\\exp(-x^2)", Relation::Equals),
+        step(
+            "wrong-arg",
+            "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(2x)",
+            Relation::IntegralOf,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn true_scaled_erf_claim_passes_through_the_raw_path() {
+    // With constant factors handled by d(c·f) = c·f', the raw derivative of
+    // (√π/2)·erf(x) mentions no special function — the true claim passes
+    // WITHOUT the simplify assist, which is the stronger audit trail.
+    let steps = vec![
+        step("integrand", "\\exp(-x^2)", Relation::Equals),
+        step(
+            "antiderivative",
+            "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)",
+            Relation::IntegralOf,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        !result.steps[1].mechanism.contains("simplify"),
+        "true c·erf claims should pass raw now; the simplify assist should be \
+         reserved for the residue that genuinely needs it. Got mechanism: {}",
+        result.steps[1].mechanism
+    );
+}
+
+#[test]
+fn retry_that_also_starves_is_audited_as_simplify_assisted() {
+    // Carl's F3, second part: when the raw comparison is inconclusive AND
+    // the simplify retry also comes back inconclusive, the mechanism must
+    // say the retry ran (simplify+ prefix) — an auditor must be able to
+    // distinguish "no retry possible" from "retry ran, also inconclusive".
+    // erf(x)² keeps erf in its derivative even after simplification, so
+    // both passes starve.
+    let steps = vec![
+        step(
+            "integrand",
+            "2 \\cdot \\erf(x) \\cdot \\frac{2}{\\sqrt{\\pi}} \\cdot \\exp(-x^2)",
+            Relation::Equals,
+        ),
+        step("claim", "\\erf(x)^2", Relation::IntegralOf),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Inconclusive);
+    assert!(
+        result.steps[1].mechanism.contains("simplify"),
+        "the attempted retry must be auditable, got mechanism: {}",
+        result.steps[1].mechanism
     );
 }

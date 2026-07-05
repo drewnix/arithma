@@ -356,7 +356,13 @@ fn compare_constructed_derivative(
                 mechanism: format!("simplify+{}", retried.mechanism),
             }
         }
-        Verdict::Inconclusive => raw,
+        // The retry ran and was also inconclusive: report the retried
+        // result with the assist named, so an auditor can distinguish
+        // "no retry possible" from "retry ran, also inconclusive".
+        Verdict::Inconclusive => CheckedStep {
+            mechanism: format!("simplify+{}", retried.mechanism),
+            ..retried
+        },
     }
 }
 

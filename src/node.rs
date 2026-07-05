@@ -154,6 +154,29 @@ impl Node {
             Node::Variable(_) | Node::Power(_, _) | Node::Sqrt(_) | Node::Function(_, _)
         )
     }
+
+    /// Is this expression *provably* free of `var`? Only node kinds this
+    /// predicate knows how to inspect can answer "yes"; anything
+    /// unrecognized (including binders like Σ/Π, whose index scoping needs
+    /// care) is conservatively assumed to contain the variable. Callers use
+    /// a "yes" to justify constant-like treatment — d/d(var) = 0, factor
+    /// out of an integral — so the default must point away from that claim.
+    pub fn is_provably_free_of(&self, var: &str) -> bool {
+        match self {
+            Node::Num(_) => true,
+            Node::Variable(name) => name != var,
+            Node::Add(l, r)
+            | Node::Subtract(l, r)
+            | Node::Multiply(l, r)
+            | Node::Divide(l, r)
+            | Node::Power(l, r) => l.is_provably_free_of(var) && r.is_provably_free_of(var),
+            Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => {
+                inner.is_provably_free_of(var)
+            }
+            Node::Function(_, args) => args.iter().all(|a| a.is_provably_free_of(var)),
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Node {

@@ -168,6 +168,46 @@ mod special_recognition_tests {
         expect_special("\\frac{\\exp(x)}{x}", "Ei", &[0.5, 1.3, 2.9]);
     }
 
+    // Carl's F1 (PR #68 attack): the stated coverage is c·e^{bx}/x and
+    // c/ln(x), but the constant-peeler had no arm for a free factor in the
+    // numerator of a Divide whose denominator carries the variable — and
+    // simplify normalizes every alternative spelling into exactly that
+    // shape, so no spelling could dodge the missing arm.
+
+    #[test]
+    fn test_scaled_reciprocal_log_recognized_as_li() {
+        // ∫3/ln(x) dx = 3·li(x)
+        expect_special("\\frac{3}{\\ln(x)}", "li", &[2.0, 3.5, 7.0]);
+    }
+
+    #[test]
+    fn test_negative_scaled_li_via_product_spelling() {
+        // -3·(1/ln(x)) — simplify routes this into the Divide shape too
+        expect_special("-3 \\cdot \\frac{1}{\\ln(x)}", "li", &[2.0, 3.5, 7.0]);
+    }
+
+    #[test]
+    fn test_scaled_ei_with_constant_in_numerator() {
+        // ∫3e^{2x}/x dx = 3·Ei(2x)
+        expect_special("\\frac{3\\exp(2x)}{x}", "Ei", &[0.5, 1.3, 2.9]);
+    }
+
+    #[test]
+    fn test_negative_scaled_ei() {
+        // ∫(-2e^x)/x dx = -2·Ei(x)
+        expect_special("\\frac{-2\\exp(x)}{x}", "Ei", &[0.5, 1.3, 2.9]);
+    }
+
+    #[test]
+    fn test_rational_scaled_ei_product_spelling() {
+        // ∫(22/7)·e^x/x dx = (22/7)·Ei(x)
+        expect_special(
+            "\\frac{22}{7} \\cdot \\frac{\\exp(x)}{x}",
+            "Ei",
+            &[0.5, 1.3, 2.9],
+        );
+    }
+
     #[test]
     fn test_scaled_exp_over_x_recognized_as_ei() {
         // ∫e^{2x}/x dx = Ei(2x)

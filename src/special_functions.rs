@@ -99,6 +99,29 @@ fn peel_constant_factor(expr: &Node, var: &str) -> (Option<Node>, Node) {
             );
             (Some(combine_mul(reciprocal, inner)), core)
         }
+        // Free factor in the *numerator* of a variable-bearing quotient:
+        // c/den → c · (1/den), and (c·f)/den → c · (f/den). Simplify
+        // normalizes every product spelling into this Divide shape before
+        // recognition runs, so without this arm no spelling of 3/ln(x) or
+        // 3e^{2x}/x could ever be named (Carl's F1, PR #68 attack).
+        Node::Divide(a, b) if !is_free_of_var(b, var) => {
+            if is_free_of_var(a, var) {
+                let core = Node::Divide(
+                    Box::new(Node::Num(ExactNum::one())),
+                    Box::new(b.as_ref().clone()),
+                );
+                (Some(a.as_ref().clone()), core)
+            } else {
+                let (coeff, core_num) = peel_constant_factor(a, var);
+                match coeff {
+                    Some(c) => (
+                        Some(c),
+                        Node::Divide(Box::new(core_num), Box::new(b.as_ref().clone())),
+                    ),
+                    None => (None, expr.clone()),
+                }
+            }
+        }
         Node::Negate(a) => {
             let (inner, core) = peel_constant_factor(a, var);
             let minus_one = Node::Num(ExactNum::integer(-1));
@@ -115,24 +138,11 @@ fn combine_mul(factor: Node, existing: Option<Node>) -> Node {
     }
 }
 
-/// Is `node` provably free of `var`? Only node kinds this module knows how
-/// to inspect can answer "yes"; anything unrecognized is assumed to contain
-/// the variable, so it is never peeled as a constant. A wrong "free" here
-/// would fold a variable-bearing factor into the recognized form — the
-/// default must point the other way.
+/// Shared conservative predicate (see `Node::is_provably_free_of`): a
+/// wrong "free" here would fold a variable-bearing factor into the
+/// recognized form, so unknown node kinds are never treated as constants.
 fn is_free_of_var(node: &Node, var: &str) -> bool {
-    match node {
-        Node::Num(_) => true,
-        Node::Variable(name) => name != var,
-        Node::Add(l, r)
-        | Node::Subtract(l, r)
-        | Node::Multiply(l, r)
-        | Node::Divide(l, r)
-        | Node::Power(l, r) => is_free_of_var(l, var) && is_free_of_var(r, var),
-        Node::Negate(inner) | Node::Sqrt(inner) | Node::Abs(inner) => is_free_of_var(inner, var),
-        Node::Function(_, args) => args.iter().all(|a| is_free_of_var(a, var)),
-        _ => false,
-    }
+    node.is_provably_free_of(var)
 }
 
 /// Match the variable-bearing core of the integrand against the table.

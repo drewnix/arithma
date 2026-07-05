@@ -232,7 +232,18 @@ impl StatusReport {
                 Some(format!("[heuristic] {}", detail))
             }
             ResultStatus::UnableToCompute { reason } => {
-                Some(format!("[unable to compute] {}", reason))
+                // Caveats can carry the diagnosis (e.g. the witness from a
+                // simplify-assisted retry) — attached evidence must reach
+                // the wire, not just the data structure.
+                if self.caveats.is_empty() {
+                    Some(format!("[unable to compute] {}", reason))
+                } else {
+                    Some(format!(
+                        "[unable to compute] {} — {}",
+                        reason,
+                        self.caveats.join("; ")
+                    ))
+                }
             }
             ResultStatus::ProvablyImpossible { certificate } => match &self.special_form {
                 Some((_, form)) => Some(format!(

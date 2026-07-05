@@ -1218,10 +1218,14 @@ fn tool_verify(args: &Value) -> ToolResult {
     Ok((format!("{}", result), status))
 }
 
-/// Human-readable one-line description of a step's evidence.
+/// Human-readable one-line description of a step's evidence. Caveats are
+/// appended for every variant — a witness attached as a caveat (e.g. from a
+/// simplify-assisted retry) is the diagnosis, and dropping it here would
+/// make "preserved as a caveat" true in the data structure and false on
+/// the wire.
 fn describe_status(report: &arithma::status::StatusReport) -> String {
     use arithma::status::ResultStatus;
-    match &report.status {
+    let base = match &report.status {
         ResultStatus::Exact => "exact".to_string(),
         ResultStatus::Verified { points_tested } => {
             format!(
@@ -1235,6 +1239,11 @@ fn describe_status(report: &arithma::status::StatusReport) -> String {
         ResultStatus::ProvablyImpossible { certificate } => {
             format!("provably impossible: {}", certificate)
         }
+    };
+    if report.caveats.is_empty() {
+        base
+    } else {
+        format!("{} — {}", base, report.caveats.join("; "))
     }
 }
 

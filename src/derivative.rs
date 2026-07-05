@@ -9,6 +9,16 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
     let expr =
         &crate::simplify::Simplifiable::simplify(expr, &env).unwrap_or_else(|_| expr.clone());
 
+    // An expression provably free of the variable differentiates to a
+    // *literal* zero. Without this, d/dx of a constant like √π/2 is an
+    // exact-zero tree — (1/(2√π))·0 — that downstream consumers must
+    // evaluate to discover is zero; if that tree ends up multiplying a
+    // function that refuses numeric evaluation (erf, Ei, li), every sample
+    // point starves. Zeros should be born literal.
+    if expr.is_provably_free_of(var_name) {
+        return Ok(Node::Num(ExactNum::zero()));
+    }
+
     if let Ok(poly) = Polynomial::from_node(expr, var_name) {
         return Ok(poly.derivative().to_node());
     }
@@ -51,6 +61,20 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
             let left_derivative = differentiate(left, var_name)?;
             let right_derivative = differentiate(right, var_name)?;
 
+            // Constant-factor cases first: d(c·f) = c·f'. Emitting the dead
+            // term f·0 instead would keep a mention of f in the result —
+            // harmless for most f, but a function that refuses numeric
+            // evaluation (erf, Ei, li) would poison every evaluation of a
+            // derivative it appears in, even multiplied by zero.
+            let left_is_zero = matches!(left_derivative, Node::Num(ref n) if n.is_zero());
+            let right_is_zero = matches!(right_derivative, Node::Num(ref n) if n.is_zero());
+            if left_is_zero {
+                return Ok(Node::Multiply(left.clone(), Box::new(right_derivative)));
+            }
+            if right_is_zero {
+                return Ok(Node::Multiply(right.clone(), Box::new(left_derivative)));
+            }
+
             // f * dg/dx
             let term1 = Node::Multiply(left.clone(), Box::new(right_derivative));
 
@@ -65,6 +89,26 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
         Node::Divide(left, right) => {
             let left_derivative = differentiate(left, var_name)?;
             let right_derivative = differentiate(right, var_name)?;
+
+            // Constant cases first, for the same reason as the product
+            // rule: dead f·0 / g·0 terms must not keep a mention of a
+            // function that refuses numeric evaluation.
+            let left_is_zero = matches!(left_derivative, Node::Num(ref n) if n.is_zero());
+            let right_is_zero = matches!(right_derivative, Node::Num(ref n) if n.is_zero());
+            if right_is_zero {
+                // d(f/c) = f'/c
+                return Ok(Node::Divide(Box::new(left_derivative), right.clone()));
+            }
+            if left_is_zero {
+                // d(c/g) = -c·g'/g²
+                return Ok(Node::Negate(Box::new(Node::Divide(
+                    Box::new(Node::Multiply(left.clone(), Box::new(right_derivative))),
+                    Box::new(Node::Power(
+                        right.clone(),
+                        Box::new(Node::Num(ExactNum::two())),
+                    )),
+                ))));
+            }
 
             // g * df/dx
             let term1 = Node::Multiply(right.clone(), Box::new(left_derivative));
