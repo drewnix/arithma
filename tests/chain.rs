@@ -893,3 +893,51 @@ fn finding7_float_valued_solution_of_does_not_claim_membership() {
         caveats
     );
 }
+
+// ---------------------------------------------------------------------------
+// Round-5 finding: a REFUSED degree bound must never become a zero bound.
+// (The refusal-becomes-default family: the mathematics is sound, the hole
+// is where the mechanism declines and a default swallows the refusal.)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn refused_degree_bound_is_not_a_zero_bound() {
+    // Exponents above the bound-computation cap make the degree bounds
+    // unavailable. Unavailable must route to bounded exact sampling —
+    // reading it as "degree zero, one point suffices" certifies a false
+    // identity whose payload vanishes at the single sample point.
+    let steps = vec![
+        eq_step("a", "x^{10001}"),
+        eq_step("b", "x^{10001} + 2 \\cdot x - 1"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+
+    // Control: a payload that does not vanish at the first sample point.
+    let steps = vec![eq_step("a", "x^{10001}"), eq_step("b", "x^{10001} + x")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+
+    // The zero-bound collapse also re-admitted the simplifier for these
+    // inputs (total degree 0 passes the size guard) — pin the bypass.
+    let steps = vec![
+        eq_step("a", "(x+1)^{10001}"),
+        eq_step("b", "(x+1)^{10001} + 2 \\cdot x - 1"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn refused_degree_bound_agreement_is_verified_not_exact() {
+    // When the bounds are unavailable, agreement is evidence from bounded
+    // sampling — never the polynomial identity theorem.
+    let steps = vec![eq_step("a", "x^{10001} + x"), eq_step("b", "x + x^{10001}")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        matches!(result.status.status, ResultStatus::Verified { .. }),
+        "unavailable bounds must cap at verified, got {:?}",
+        result.status.status
+    );
+}

@@ -749,8 +749,18 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
     // PROOF (polynomial identity theorem) and whether the simplifier can
     // be afforded at all — large-degree inputs go straight to bounded
     // exact evaluation instead of hanging inside polynomial expansion.
+    //
+    // A REFUSED bound (None: exponent beyond the cap) must propagate as
+    // "bounds unavailable → bounded sampling, verified". A default here
+    // would read the refusal as "degree zero, one point suffices" and
+    // certify a false identity whose payload vanishes at that point. The
+    // refusal also skips the simplifier: the size guard cannot be trusted
+    // when the size computation itself declined.
     let diff_raw = Node::Subtract(Box::new(prev.clone()), Box::new(current.clone()));
-    let bounds = numerator_degree_bounds(&diff_raw).unwrap_or_default();
+    let bounds = match numerator_degree_bounds(&diff_raw) {
+        Some(b) => b,
+        None => return bounded_exact_sample(prev, current, env, &free_variables(&[prev, current])),
+    };
     let total_degree: u64 = bounds.values().fold(0u64, |acc, d| acc.saturating_add(*d));
 
     const MAX_SIMPLIFY_DEGREE: u64 = 32;
@@ -935,12 +945,19 @@ fn exact_rational_check(
     }
 
     // Points needed per variable for the identity theorem: deg + 1.
-    // A variable free in the expressions but absent from the bounds map
-    // contributes degree 0 (it cancelled structurally); one point suffices.
-    let needed: Vec<(String, u64)> = vars
+    // Every free variable must have a bound — a missing entry would be
+    // another refusal-becomes-default hole ("no bound" read as "degree
+    // zero"). It should be structurally impossible (the bounds are
+    // computed on the difference of these very expressions), but if it
+    // happens, downgrade to bounded sampling rather than mint a proof.
+    let needed: Vec<(String, u64)> = match vars
         .iter()
-        .map(|v| (v.clone(), bounds.get(v).copied().unwrap_or(0) + 1))
-        .collect();
+        .map(|v| bounds.get(v).map(|d| (v.clone(), d + 1)))
+        .collect::<Option<Vec<_>>>()
+    {
+        Some(n) => n,
+        None => return bounded_exact_sample(lhs, rhs, env, &vars),
+    };
     let total_evals = needed
         .iter()
         .fold(1u64, |acc, (_, n)| acc.saturating_mul(*n));
@@ -1129,12 +1146,23 @@ fn exact_counterexample_json(
         .iter()
         .map(|(var, val)| (var.clone(), serde_json::json!(val)))
         .collect();
+    // Exact witnesses can be enormous ((1/2)^10001 has thousands of
+    // digits); cap the rendering — the magnitude of the disagreement is
+    // the message, not the digits.
+    let render_exact = |v: &num_rational::BigRational| -> String {
+        let s = format!("{}", Node::Num(ExactNum::Rational(v.clone())));
+        if s.len() > 64 {
+            format!("{}… ({} more characters)", &s[..64], s.len() - 64)
+        } else {
+            s
+        }
+    };
     serde_json::json!({
         "point": point_map,
         "lhs": ExactNum::Rational(lhs.clone()).to_f64(),
         "rhs": ExactNum::Rational(rhs.clone()).to_f64(),
-        "lhs_exact": format!("{}", Node::Num(ExactNum::Rational(lhs.clone()))),
-        "rhs_exact": format!("{}", Node::Num(ExactNum::Rational(rhs.clone()))),
+        "lhs_exact": render_exact(lhs),
+        "rhs_exact": render_exact(rhs),
     })
 }
 
