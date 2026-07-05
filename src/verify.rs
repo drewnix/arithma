@@ -9,13 +9,18 @@ const TEST_POINTS: &[f64] = &[
 ];
 
 const TOLERANCE: f64 = 1e-8;
-const MIN_POINTS_FOR_PASS: usize = 3;
+pub(crate) const MIN_POINTS_FOR_PASS: usize = 3;
 
 pub struct VerifyResult {
     pub passed: bool,
     pub points_tested: usize,
     pub counterexample: Option<Counterexample>,
     pub insufficient_points: bool,
+    /// Sample points where exactly one side was undefined (NaN). Such
+    /// points are excluded from the numeric evidence — they witness a
+    /// *domain* difference, which callers surface as a caveat rather than
+    /// as a numeric counterexample with a null in it.
+    pub domain_mismatches: usize,
 }
 
 pub struct Counterexample {
@@ -32,6 +37,7 @@ pub fn verify_identity(
 ) -> VerifyResult {
     let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
+    let domain_mismatches = 0;
 
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
@@ -61,6 +67,29 @@ pub fn verify_identity(
             Err(_) => continue,
         };
 
+        // Shared undefinedness is not numeric agreement: a point where
+        // BOTH sides are NaN tests domain membership, not values — skip,
+        // uncounted. One-sided undefinedness is a DOMAIN VIOLATION: one
+        // expression exists where the other does not, which refutes the
+        // identity as stated. That is a counterexample (serialized with an
+        // explicit "undefined", never a bare null), not a skippable point.
+        if lhs_val.is_nan() && rhs_val.is_nan() {
+            continue;
+        }
+        if lhs_val.is_nan() || rhs_val.is_nan() {
+            return VerifyResult {
+                passed: false,
+                points_tested,
+                counterexample: Some(Counterexample {
+                    point: point_values,
+                    lhs_value: lhs_val,
+                    rhs_value: rhs_val,
+                }),
+                insufficient_points: false,
+                domain_mismatches: domain_mismatches + 1,
+            };
+        }
+
         points_tested += 1;
 
         if !values_match(lhs_val, rhs_val) {
@@ -73,6 +102,7 @@ pub fn verify_identity(
                     rhs_value: rhs_val,
                 }),
                 insufficient_points: false,
+                domain_mismatches,
             };
         }
     }
@@ -83,10 +113,11 @@ pub fn verify_identity(
         points_tested,
         counterexample: None,
         insufficient_points: insufficient,
+        domain_mismatches,
     }
 }
 
-fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -> bool {
+pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -> bool {
     if assumptions.is_positive(var) && val <= 0.0 {
         return false;
     }
@@ -105,7 +136,7 @@ fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -
     true
 }
 
-fn values_match(a: f64, b: f64) -> bool {
+pub(crate) fn values_match(a: f64, b: f64) -> bool {
     if a.is_nan() && b.is_nan() {
         return true;
     }

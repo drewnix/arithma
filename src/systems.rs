@@ -65,7 +65,10 @@ pub fn solve_linear_system(equations: &[Node], vars: &[String]) -> Result<System
         let zero = Node::Num(ExactNum::integer(0));
         let mut const_expr = expr.clone();
         for var in vars {
-            const_expr = substitute_variable(&const_expr, var, &zero).unwrap_or(const_expr);
+            // A substitution failure (e.g. binder-capture refusal) must
+            // propagate: proceeding on the UNSUBSTITUTED equation solves a
+            // different system than the one requested.
+            const_expr = substitute_variable(&const_expr, var, &zero)?;
         }
         let const_expr = const_expr.simplify(&env).unwrap_or(const_expr);
 
@@ -139,10 +142,10 @@ fn solve_by_substitution(equations: &[Node], vars: &[String]) -> Result<SystemSo
                     }
                     let substituted = match other_eq {
                         Node::Equation(lhs, rhs) => {
-                            let new_lhs =
-                                substitute_variable(lhs, var, &solved).unwrap_or(*lhs.clone());
-                            let new_rhs =
-                                substitute_variable(rhs, var, &solved).unwrap_or(*rhs.clone());
+                            // Propagate substitution refusals — solving
+                            // against the unsubstituted equation is wrong.
+                            let new_lhs = substitute_variable(lhs, var, &solved)?;
+                            let new_rhs = substitute_variable(rhs, var, &solved)?;
                             let new_lhs = new_lhs.simplify(&env).unwrap_or(new_lhs);
                             let new_rhs = new_rhs.simplify(&env).unwrap_or(new_rhs);
                             Node::Equation(Box::new(new_lhs), Box::new(new_rhs))
@@ -175,7 +178,7 @@ fn solve_by_substitution(equations: &[Node], vars: &[String]) -> Result<SystemSo
                 for sub_solutions in &sub_solution_sets {
                     let mut val = solved.clone();
                     for (sv, sval) in sub_solutions {
-                        val = substitute_variable(&val, sv, sval).unwrap_or(val);
+                        val = substitute_variable(&val, sv, sval)?;
                     }
                     let val = val.simplify(&env).unwrap_or(val);
 
@@ -249,7 +252,9 @@ fn solve_linear_for_var(
     }
 
     let zero = Node::Num(ExactNum::integer(0));
-    let rest = substitute_variable(expr, var, &zero).unwrap_or_else(|_| expr.clone());
+    // On substitution refusal this equation cannot be solved linearly
+    // this way; say so (None) rather than solve the wrong equation.
+    let rest = substitute_variable(expr, var, &zero).ok()?;
     let rest = rest.simplify(env).unwrap_or(rest);
 
     let neg_rest = Node::Negate(Box::new(rest));

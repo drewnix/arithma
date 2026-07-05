@@ -8,6 +8,7 @@
 use serde_json::{json, Value};
 
 use arithma::assumptions::Assumptions;
+use arithma::chain::{verify_chain, ChainResult, ChainStepInput, Relation};
 use arithma::derivative::differentiate_latex;
 use arithma::exact::ExactNum;
 use arithma::integration::{definite_integral_exact_latex, integrate_latex};
@@ -16,6 +17,7 @@ use arithma::series::{
     taylor_series_latex, taylor_series_latex_symbolic, taylor_series_multivar_latex,
 };
 use arithma::simplify::Simplifiable;
+use arithma::status::Verdict;
 use arithma::status::{
     classify_integral, classify_limit, classify_simplify, classify_verify, free_variables,
     StatusReport,
@@ -403,6 +405,49 @@ fn tools_schema() -> Value {
             }
         },
         {
+            "name": "verify_chain",
+            "description": "Verify a chain of mathematical reasoning steps. Each step after the first declares its relation to the previous step: equals, derivative_of, integral_of, substitution, implies, solution_of, or factored_form_of. Each relation is checked by the mechanism appropriate to it (canonical forms over Q, differentiation round-trips, substitution, numeric sampling) and reports a machine-readable verdict (pass/fail/inconclusive) plus the evidence class backing it. The chain status is the MINIMUM evidence across steps — one numeric step makes the whole chain 'verified', never 'exact'. A failing step carries the counterexample: the counterexample is the diagnosis. For incremental (step-at-a-time) use, send a two-step chain of the previous and the new step.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "description": "Ordered reasoning steps. The first step is the anchor and declares no relation.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {
+                                    "type": "string",
+                                    "description": "Optional human-readable step name, echoed in results"
+                                },
+                                "expr": {
+                                    "type": "string",
+                                    "description": "LaTeX expression for this step. For solution_of use the form \"x = 2\"; for implies both steps must be equations."
+                                },
+                                "relation": {
+                                    "type": "string",
+                                    "enum": ["equals", "derivative_of", "integral_of", "substitution", "implies", "solution_of", "factored_form_of"],
+                                    "description": "Relation of this step to the previous one. Default: equals. derivative_of: this step is d/d(variable) of the previous. integral_of: this step is an antiderivative of the previous (checked by differentiation round-trip; can earn exact). substitution: this step is the previous with variable := value. implies: previous equation implies this equation (checked at the antecedent's solutions; capped at verified). solution_of: this step (variable = value) solves the previous equation (membership only, not completeness). factored_form_of: this step is a factored form of the previous.",
+                                    "default": "equals"
+                                },
+                                "variable": {
+                                    "type": "string",
+                                    "description": "Variable for derivative_of / integral_of / substitution / implies / equation comparison. If omitted, it is inferred when the relevant expression has exactly one free variable; ambiguity is an error, never a silent default."
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "LaTeX value substituted for the variable (substitution steps only)"
+                                }
+                            },
+                            "required": ["expr"]
+                        }
+                    },
+                    "assumptions": assumptions_schema()
+                },
+                "required": ["steps"]
+            }
+        },
+        {
             "name": "solve_ode",
             "description": "Solve an ordinary differential equation. First-order: provide expr where dy/dx = expr. Second-order constant-coefficient: provide a, b, c for ay''+by'+cy=0. General linear with polynomial coefficients: provide poly_coeffs for power series solution.",
             "inputSchema": {
@@ -461,6 +506,29 @@ fn tools_schema() -> Value {
 pub fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
     let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
+
+    // verify_chain carries structured per-step detail beyond the shared
+    // (text, status) shape, so it assembles its own response.
+    if tool_name == "verify_chain" {
+        return match tool_verify_chain(&args) {
+            Ok((text, status_json)) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "content": [{ "type": "text", "text": text }],
+                    "result_status": status_json
+                }
+            }),
+            Err(e) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "content": [{ "type": "text", "text": format!("Error: {}", e) }],
+                    "isError": true
+                }
+            }),
+        };
+    }
 
     let result = match tool_name {
         "format" => tool_format(&args),
@@ -692,7 +760,7 @@ fn tool_solve(args: &Value) -> ToolResult {
     // Quadratics come from genuinely symbolic formulas (exact); cubic and
     // quartic paths can degrade to f64 root-finding. Exact arithmetic never
     // prints a decimal point — condition the status on the code path taken,
-    // not on the tool name (Carl, Session 43). A back-substitution
+    // not on the tool name. A back-substitution
     // self-audit is a planned follow-up.
     if parts.is_empty() {
         Ok(("No solutions found".to_string(), StatusReport::exact()))
@@ -1009,7 +1077,7 @@ fn tool_matrix(args: &Value) -> ToolResult {
         }
     };
     // The exact claim must be conditioned on the code path actually taken,
-    // not on the tool name (Carl, Session 43). Exact arithmetic never
+    // not on the tool name. Exact arithmetic never
     // prints a decimal point; a '.' in the output means a floating-point
     // routine ran (numeric eigenvalue root-finding, float entries).
     let status = if text.contains('.') {
@@ -1045,7 +1113,7 @@ fn tool_equivalent(args: &Value) -> ToolResult {
     if a_form == b_form {
         return Ok((
             format!("Equivalent: true\nBoth simplify to: {}", a_form),
-            StatusReport::exact(),
+            StatusReport::exact().with_verdict(Verdict::Pass),
         ));
     }
 
@@ -1062,7 +1130,7 @@ fn tool_equivalent(args: &Value) -> ToolResult {
                 "Equivalent: true\nSimplified forms differ but difference is zero.\nA simplifies to: {}\nB simplifies to: {}",
                 a_form, b_form
             ),
-            StatusReport::exact(),
+            StatusReport::exact().with_verdict(Verdict::Pass),
         ));
     }
 
@@ -1136,6 +1204,161 @@ fn tool_verify(args: &Value) -> ToolResult {
     let result = arithma::verify_identity(&a_expr, &b_expr, &variables, &assumptions);
     let status = classify_verify(&result);
     Ok((format!("{}", result), status))
+}
+
+/// Human-readable one-line description of a step's evidence.
+fn describe_status(report: &arithma::status::StatusReport) -> String {
+    use arithma::status::ResultStatus;
+    match &report.status {
+        ResultStatus::Exact => "exact".to_string(),
+        ResultStatus::Verified { points_tested } => {
+            format!(
+                "verified at {} point{}",
+                points_tested,
+                if *points_tested == 1 { "" } else { "s" }
+            )
+        }
+        ResultStatus::Heuristic => "heuristic".to_string(),
+        ResultStatus::UnableToCompute { reason } => format!("unable to compute: {}", reason),
+        ResultStatus::ProvablyImpossible { certificate } => {
+            format!("provably impossible: {}", certificate)
+        }
+    }
+}
+
+fn chain_text(chain: &ChainResult) -> String {
+    let headline = match chain.verdict {
+        Verdict::Pass => {
+            let evidence = match chain.weakest_step {
+                Some(i) => format!(
+                    "weakest evidence: {} at step {} \"{}\"",
+                    describe_status(&chain.steps[i].status),
+                    i,
+                    chain.steps[i].label
+                ),
+                None => "anchor only".to_string(),
+            };
+            format!(
+                "Chain: PASS ({} step{}; {})",
+                chain.steps.len(),
+                if chain.steps.len() == 1 { "" } else { "s" },
+                evidence
+            )
+        }
+        Verdict::Fail => {
+            let i = chain.first_failure.expect("fail verdict has a failure");
+            format!("Chain: FAIL at step {} \"{}\"", i, chain.steps[i].label)
+        }
+        Verdict::Inconclusive => {
+            let i = chain
+                .steps
+                .iter()
+                .position(|s| s.verdict == Verdict::Inconclusive)
+                .expect("inconclusive verdict has an inconclusive step");
+            format!(
+                "Chain: INCONCLUSIVE at step {} \"{}\"",
+                i, chain.steps[i].label
+            )
+        }
+    };
+
+    let mut lines = vec![headline];
+    for (i, step) in chain.steps.iter().enumerate() {
+        let line = match step.relation {
+            None => format!("  {}. {} — anchor", i, step.label),
+            Some(rel) => {
+                let mut l = format!(
+                    "  {}. {} [{}] — {} ({}; {})",
+                    i,
+                    step.label,
+                    rel.as_str(),
+                    step.verdict.as_str(),
+                    describe_status(&step.status),
+                    step.mechanism
+                );
+                if let Some(cx) = step.status.counterexample_json() {
+                    l.push_str(&format!("\n     counterexample: {}", cx));
+                }
+                l
+            }
+        };
+        lines.push(line);
+    }
+    lines.join("\n")
+}
+
+fn tool_verify_chain(args: &Value) -> Result<(String, Value), String> {
+    let steps_arr = args
+        .get("steps")
+        .and_then(|v| v.as_array())
+        .ok_or("Missing required parameter: steps (array of step objects)")?;
+
+    let mut steps: Vec<ChainStepInput> = Vec::with_capacity(steps_arr.len());
+    for (i, s) in steps_arr.iter().enumerate() {
+        let obj = s
+            .as_object()
+            .ok_or_else(|| format!("steps[{}] must be an object", i))?;
+        let expr = obj
+            .get("expr")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("steps[{}] is missing required field: expr", i))?;
+        let relation = match obj.get("relation").and_then(|v| v.as_str()) {
+            Some(r) => Relation::parse(r).map_err(|e| format!("steps[{}]: {}", i, e))?,
+            None => Relation::Equals,
+        };
+        steps.push(ChainStepInput {
+            label: obj
+                .get("label")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            expr: expr.to_string(),
+            relation,
+            variable: obj
+                .get("variable")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            value: obj
+                .get("value")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        });
+    }
+
+    let env = env_from_args(args)?;
+    let chain = verify_chain(&steps, &env)?;
+
+    // Chain-level status: the minimum evidence across steps, with the
+    // machine-readable verdict and the full per-step audit trail.
+    let mut status_json = chain.status.clone().with_verdict(chain.verdict).to_json();
+    status_json["steps"] = Value::Array(
+        chain
+            .steps
+            .iter()
+            .map(|step| {
+                json!({
+                    "label": step.label,
+                    "relation": step.relation.map(|r| r.as_str()),
+                    "verdict": step.verdict.as_str(),
+                    "mechanism": step.mechanism,
+                    "status": step.status.to_json(),
+                })
+            })
+            .collect(),
+    );
+    if let Some(i) = chain.first_failure {
+        status_json["first_failure"] = json!(i);
+    }
+    if let Some(i) = chain.weakest_step {
+        status_json["weakest_step"] = json!(i);
+    }
+
+    // Loud chain statuses get the same text marker as every other tool.
+    let text = chain_text(&chain);
+    let text = match chain.status.marker() {
+        Some(marker) => format!("{}\n{}", marker, text),
+        None => text,
+    };
+    Ok((text, status_json))
 }
 
 fn tool_solve_ode(args: &Value) -> ToolResult {

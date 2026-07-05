@@ -1176,7 +1176,7 @@ mod algebra_tests {
     }
 }
 
-// ── Berlekamp null-space regression (Carl A6, Session 43) ─────
+// ── Berlekamp null-space regression ─────
 // x⁴+4 and x⁴+64 were declared "irreducible over Q" — false theorems
 // (Sophie Germain: x⁴+4a⁴ = (x²+2ax+2a²)(x²−2ax+2a²)). Root cause: the
 // null-space extraction in Berlekamp used column swaps during

@@ -45,12 +45,37 @@ pub enum ResultStatus {
     ProvablyImpossible { certificate: String },
 }
 
+/// Machine-readable verdict for tools whose result *is* a yes/no claim
+/// (verify, equivalent, verify_chain). Orthogonal to the evidence class:
+/// "not equal, counterexample attached" is a `fail` verdict carried by
+/// well-earned `verified` evidence. Uniform vocabulary across tools so a
+/// consumer switches on one enum, never parses prose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Pass,
+    Fail,
+    Inconclusive,
+}
+
+impl Verdict {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Verdict::Pass => "pass",
+            Verdict::Fail => "fail",
+            Verdict::Inconclusive => "inconclusive",
+        }
+    }
+}
+
 /// A status plus caveats. Caveats are orthogonal to the evidence class:
 /// domain restrictions, truncation orders, precision notes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusReport {
     pub status: ResultStatus,
     pub caveats: Vec<String>,
+    /// Present for verdict-shaped tools; `None` for tools whose result is
+    /// an expression rather than a claim.
+    pub verdict: Option<Verdict>,
     /// Present when a `verified` status carries a *negative* verdict: the
     /// specific point where the expressions disagree, as JSON
     /// `{point: {var: value, …}, lhs: …, rhs: …}`. The counterexample is
@@ -87,6 +112,7 @@ impl StatusReport {
         StatusReport {
             status,
             caveats: Vec::new(),
+            verdict: None,
             counterexample: None,
         }
     }
@@ -96,22 +122,44 @@ impl StatusReport {
         self
     }
 
+    pub fn with_verdict(mut self, verdict: Verdict) -> Self {
+        self.verdict = Some(verdict);
+        self
+    }
+
     pub fn with_counterexample(mut self, cx: &crate::verify::Counterexample) -> Self {
+        // NaN would serialize as a bare null; an undefined side is a
+        // meaningful verdict (domain violation) and says so explicitly.
+        let render = |v: f64| -> Value {
+            if v.is_nan() {
+                json!("undefined")
+            } else {
+                json!(v)
+            }
+        };
         let point: serde_json::Map<String, Value> = cx
             .point
             .iter()
-            .map(|(var, val)| (var.clone(), json!(val)))
+            .map(|(var, val)| (var.clone(), render(*val)))
             .collect();
         self.counterexample = Some(json!({
             "point": point,
-            "lhs": cx.lhs_value,
-            "rhs": cx.rhs_value,
+            "lhs": render(cx.lhs_value),
+            "rhs": render(cx.rhs_value),
         }));
         self
     }
 
     pub fn counterexample_json(&self) -> Option<&Value> {
         self.counterexample.as_ref()
+    }
+
+    /// Attach an already-serialized counterexample (used when propagating a
+    /// counterexample from an inner check, e.g. implies re-reporting the
+    /// consequent check's witness).
+    pub fn with_counterexample_value(mut self, cx: Value) -> Self {
+        self.counterexample = Some(cx);
+        self
     }
 
     /// The JSON shape consumed by MCP clients. Contract: consumers switch on
@@ -138,6 +186,9 @@ impl StatusReport {
                 obj["status"] = json!("provably_impossible");
                 obj["certificate"] = json!(certificate);
             }
+        }
+        if let Some(v) = &self.verdict {
+            obj["verdict"] = json!(v.as_str());
         }
         if !self.caveats.is_empty() {
             obj["caveats"] = json!(self.caveats);
@@ -178,11 +229,19 @@ impl StatusReport {
 /// equivalence over ℚ(x₁,…,xₙ). Anything outside it (transcendental
 /// functions, radicals, float literals, variable exponents) disqualifies —
 /// conservatively: the classifier may under-claim, never over-claim.
+/// Names the evaluator treats as built-in transcendental constants, not
+/// free variables. They must be excluded from sampling (binding e := 0.5
+/// shadows Euler's constant and manufactures false counterexamples)
+/// and from the ℚ-exact fragment (they are not rational atoms).
+pub fn is_builtin_constant(name: &str) -> bool {
+    matches!(name, "e" | "π")
+}
+
 pub fn is_algebraic_exact(node: &Node) -> bool {
     match node {
         Node::Num(ExactNum::Rational(_)) => true,
         Node::Num(ExactNum::Float(_)) => false,
-        Node::Variable(_) => true,
+        Node::Variable(v) => !is_builtin_constant(v),
         Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
             is_algebraic_exact(l) && is_algebraic_exact(r)
         }
@@ -202,10 +261,18 @@ fn is_integer_exponent(node: &Node) -> bool {
     }
 }
 
-fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
+/// `bound` is the stack of binder-scoped names currently in force. Scoping
+/// must be tracked on the way DOWN, not undone on the way up: removing a
+/// binder's name from the shared accumulator after recursion also erases
+/// same-named FREE occurrences collected from sibling subtrees
+/// (`y + Σ_{y=1}^{3} y` has a free y), which turns variable inference —
+/// and everything downstream of it — silently wrong.
+fn collect_variables(node: &Node, vars: &mut BTreeSet<String>, bound: &mut Vec<String>) {
     match node {
         Node::Variable(v) => {
-            vars.insert(v.clone());
+            if !is_builtin_constant(v) && !bound.iter().any(|b| b == v) {
+                vars.insert(v.clone());
+            }
         }
         Node::Num(_) => {}
         Node::Add(l, r)
@@ -219,8 +286,8 @@ fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
         | Node::LessEqual(l, r)
         | Node::Equal(l, r)
         | Node::Equation(l, r) => {
-            collect_variables(l, vars);
-            collect_variables(r, vars);
+            collect_variables(l, vars, bound);
+            collect_variables(r, vars, bound);
         }
         Node::Sqrt(inner)
         | Node::Abs(inner)
@@ -229,33 +296,37 @@ fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
         | Node::Round(inner)
         | Node::Trunc(inner)
         | Node::Negate(inner)
-        | Node::Factorial(inner) => collect_variables(inner, vars),
+        | Node::Factorial(inner) => collect_variables(inner, vars, bound),
         Node::Piecewise(arms) => {
             for (expr, cond) in arms {
-                collect_variables(expr, vars);
-                collect_variables(cond, vars);
+                collect_variables(expr, vars, bound);
+                collect_variables(cond, vars, bound);
             }
         }
         Node::Summation(idx, start, end, body) | Node::Product(idx, start, end, body) => {
-            collect_variables(start, vars);
-            collect_variables(end, vars);
-            collect_variables(body, vars);
-            vars.remove(idx); // bound, not free
+            // The index is bound in the body only; the bounds are outside
+            // the binder's scope.
+            collect_variables(start, vars, bound);
+            collect_variables(end, vars, bound);
+            bound.push(idx.clone());
+            collect_variables(body, vars, bound);
+            bound.pop();
         }
         Node::Function(_, args) => {
             for a in args {
-                collect_variables(a, vars);
+                collect_variables(a, vars, bound);
             }
         }
     }
 }
 
 /// Free variables across a set of expressions, sorted. Summation and
-/// product index variables are bound, not free.
+/// product index variables are bound in their bodies, not free.
 pub fn free_variables(nodes: &[&Node]) -> Vec<String> {
     let mut vars = BTreeSet::new();
+    let mut bound = Vec::new();
     for n in nodes {
-        collect_variables(n, &mut vars);
+        collect_variables(n, &mut vars, &mut bound);
     }
     vars.into_iter().collect()
 }
@@ -316,12 +387,20 @@ pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
             "only {} valid test point{} in the assumed domain (need at least 3)",
             result.points_tested,
             if result.points_tested == 1 { "" } else { "s" }
+        ))
+        .with_verdict(Verdict::Inconclusive);
+    }
+    let mut report = StatusReport::verified(result.points_tested);
+    if result.domain_mismatches > 0 {
+        report = report.with_caveat(&format!(
+            "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
+            result.domain_mismatches,
+            if result.domain_mismatches == 1 { "" } else { "s" }
         ));
     }
-    let report = StatusReport::verified(result.points_tested);
     match &result.counterexample {
-        Some(cx) => report.with_counterexample(cx),
-        None => report,
+        Some(cx) => report.with_counterexample(cx).with_verdict(Verdict::Fail),
+        None => report.with_verdict(Verdict::Pass),
     }
 }
 

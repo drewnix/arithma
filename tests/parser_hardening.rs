@@ -188,7 +188,7 @@ mod parser_hardening_tests {
 
     #[test]
     fn test_eigenvalues_decimal_correctness() {
-        // Carl's bug: α=0.3 gives {1, 1.3, 0.7} instead of {1.6, 0.7, 0.7}
+        // Regression: α=0.3 gave {1, 1.3, 0.7} instead of {1.6, 0.7, 0.7}
         let env = Environment::new();
         let latex =
             "\\begin{pmatrix} 1 & 0.3 & 0.3 \\\\ 0.3 & 1 & 0.3 \\\\ 0.3 & 0.3 & 1 \\end{pmatrix}";
@@ -418,11 +418,11 @@ mod parser_hardening_tests {
     }
 }
 
-// ── Bare |...| absolute value (Session 43, ar-fix-bare-abs) ─────
+// ── Bare |...| absolute value ─────
 // Bare pipes were silently DROPPED by the tokenizer: |x| parsed as x.
 // Worse, the printer emits bare pipes (d/dx|x| prints as x/|x|), so any
 // print→reparse round-trip silently stripped every absolute value —
-// the mechanism behind Carl's A2 (d/dx|x| → 1 "exact") and A3
+// the mechanism behind wrong derivatives (d/dx|x| → 1 "exact") and
 // (∫1/x → ln(x) without |·|). Bare | now toggles ABS_START/ABS_END.
 
 #[cfg(test)]
@@ -508,4 +508,15 @@ mod bare_abs_nesting_tests {
     fn abs_after_negation() {
         assert_eq!(eval_at("-|x|", "x", -3.0), -3.0);
     }
+}
+
+#[test]
+fn finding8_unary_minus_after_comma_and_double_equals() {
+    // The unary-minus contexts must come from the tokenizer's shared
+    // operand-expectation predicate, not a hand-copied list. The comma
+    // case was a wrong-VALUE bug: \max(2, -1) parsed as \max(2 - 1) = 1.
+    let env = arithma::Environment::new();
+    let node = arithma::parse_latex("\\max(2, -1)", &env).unwrap();
+    assert_eq!(format!("{}", node), "2");
+    assert!(arithma::parse_latex_raw("x == -2").is_ok());
 }

@@ -354,6 +354,18 @@ impl<'a> Tokenizer<'a> {
             else if c == '-' {
                 self.tokenize_minus(&mut tokens, &last_token);
             }
+            // Argument separator. Previously dropped silently, which
+            // merged function arguments: \max(2, -1) tokenized as
+            // max(2 - 1) — a wrong VALUE, not an error. The token opens a
+            // unary-minus context; the parser discards it after
+            // shunting-yard sees operand adjacency.
+            else if c == ',' {
+                if !current_token.is_empty() {
+                    tokens.push(current_token.clone());
+                    current_token.clear();
+                }
+                tokens.push(",".to_string());
+            }
             // Postfix factorial: 5!, (n+1)!
             else if c == '!' {
                 if !current_token.is_empty() {
@@ -371,29 +383,7 @@ impl<'a> Tokenizer<'a> {
                     tokens.push(current_token.clone());
                     current_token.clear();
                 }
-                let expects_operand = match last_token.as_deref() {
-                    None => true,
-                    Some(last) => matches!(
-                        last,
-                        "+" | "-"
-                            | "*"
-                            | "/"
-                            | "^"
-                            | "="
-                            | "=="
-                            | "<"
-                            | ">"
-                            | "<="
-                            | ">="
-                            | "("
-                            | "{"
-                            | ","
-                            | "NEG"
-                            | "ABS_START"
-                            | "FLOOR_START"
-                            | "CEIL_START"
-                    ),
-                };
+                let expects_operand = token_expects_operand(last_token.as_deref());
                 if bare_abs_depth > 0 && !expects_operand {
                     tokens.push("ABS_END".to_string());
                     bare_abs_depth -= 1;
@@ -1041,13 +1031,46 @@ impl<'a> Tokenizer<'a> {
         tokens.push(op);
     }
 
-    /// Handle the minus '-' sign, distinguishing between unary and binary usage
+    /// Handle the minus '-' sign, distinguishing between unary and binary
+    /// usage. Unary contexts come from the shared operand-expectation
+    /// predicate — a hand-copied list here drifts from the tokenizer's own
+    /// notion of "an operand comes next" (the comma case turned
+    /// `\max(2, -1)` into `\max(2 - 1)`, a wrong VALUE, not an error).
     fn tokenize_minus(&mut self, tokens: &mut Vec<String>, last_token: &Option<String>) {
-        match last_token.as_deref().unwrap_or("") {
-            "" | "+" | "-" | "*" | "/" | "^" | "(" | "{" | "ABS_START" | "FLOOR_START"
-            | "CEIL_START" => tokens.push("NEG".to_string()),
-            _ => tokens.push("-".to_string()),
+        if token_expects_operand(last_token.as_deref()) {
+            tokens.push("NEG".to_string());
+        } else {
+            tokens.push("-".to_string());
         }
+    }
+}
+
+/// Does an operand (not an operator) come next after this token? The
+/// single source of truth for unary-minus contexts and bare-|x| closing
+/// decisions.
+fn token_expects_operand(last_token: Option<&str>) -> bool {
+    match last_token {
+        None => true,
+        Some(last) => matches!(
+            last,
+            "+" | "-"
+                | "*"
+                | "/"
+                | "^"
+                | "="
+                | "=="
+                | "<"
+                | ">"
+                | "<="
+                | ">="
+                | "("
+                | "{"
+                | ","
+                | "NEG"
+                | "ABS_START"
+                | "FLOOR_START"
+                | "CEIL_START"
+        ),
     }
 }
 

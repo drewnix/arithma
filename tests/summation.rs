@@ -359,7 +359,7 @@ mod summation_tests {
 }
 
 // ── Composition: Σ/Π as atoms inside larger expressions ─────
-// Regression tests for Carl's Session-43 report: any expression
+// Regression tests: any expression
 // containing \sum or \prod silently discarded everything around it
 // (2·Σk returned 15, 1+Σk² returned 55). A CAS must never return a
 // confidently wrong number; these pin the composed values.

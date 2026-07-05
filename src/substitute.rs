@@ -171,6 +171,17 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
         }
 
         Node::Summation(index, start, end, body) => {
+            // Substituting a value that mentions the bound index into a
+            // summation that contains the target variable would capture the
+            // index (x := k under Σ_k turns k·x into k² silently). Refuse
+            // explicitly — a wrong answer in either direction is worse than
+            // an error.
+            if node.contains_variable(var_name) && value.contains_variable(index) {
+                return Err(format!(
+                    "substituting '{}' for '{}' would capture the summation index '{}'; rename the bound index first",
+                    value, var_name, index
+                ));
+            }
             // If the summation uses the same index variable, don't substitute in the body
             // to avoid variable capture issues
             if index == var_name {
@@ -196,6 +207,13 @@ pub fn substitute_variable(node: &Node, var_name: &str, value: &Node) -> Result<
         }
 
         Node::Product(index, start, end, body) => {
+            // Same capture refusal as Summation.
+            if node.contains_variable(var_name) && value.contains_variable(index) {
+                return Err(format!(
+                    "substituting '{}' for '{}' would capture the product index '{}'; rename the bound index first",
+                    value, var_name, index
+                ));
+            }
             // If the product uses the same index variable, don't substitute in the body
             // to avoid variable capture issues
             if index == var_name {

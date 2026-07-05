@@ -470,6 +470,17 @@ impl Polynomial {
             return vec![];
         }
 
+        // Degree 1 is solved by division, not by root search: a·x + b = 0
+        // has exactly the root −b/a. The candidate enumeration below
+        // factors the constant term, which for large coefficients (an
+        // equation mentioning 10⁻¹⁵ has a 16-digit constant) turns a
+        // one-step solve into seconds of trial division.
+        if self.degree() == Some(1) {
+            let a = self.leading_coeff().unwrap().clone();
+            let b = self.coeff(0);
+            return vec![-b / a];
+        }
+
         let prim = self.primitive_part();
 
         if prim.coeff(0).is_zero() {

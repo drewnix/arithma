@@ -1,6 +1,6 @@
 # Phase 10: Basic ODE Solver
 
-*2026-05-18 — Knuth*
+*2026-05-18*
 
 ## Summary
 

@@ -165,3 +165,20 @@ mod verify_tests {
         );
     }
 }
+
+#[test]
+fn finding4_one_sided_undefinedness_is_a_counterexample() {
+    // √x and √|x| differ on the entire negative axis: √x is undefined
+    // there, √|x| is not. One-sided undefinedness is a domain violation —
+    // a refutation, not a skippable sample point.
+    let lhs = arithma::parse_latex_raw("\\sqrt{x}").unwrap();
+    let rhs = arithma::parse_latex_raw("\\sqrt{|x|}").unwrap();
+    let result = arithma::verify_identity(
+        &lhs,
+        &rhs,
+        &["x".to_string()],
+        &arithma::assumptions::Assumptions::default(),
+    );
+    assert!(!result.passed);
+    assert!(result.counterexample.is_some());
+}

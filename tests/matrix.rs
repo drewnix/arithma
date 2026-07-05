@@ -533,7 +533,7 @@ fn test_eigenvalues_no_regression_numeric() {
     assert!((numeric[1] - 1.0).abs() < 1e-10);
 }
 
-// ── Complex eigenvalues must not be fabricated (Carl, Session 43) ──
+// ── Complex eigenvalues must not be fabricated  ──
 // The companion matrix of x³−x−1 has one real eigenvalue (the plastic
 // number ≈ 1.3247) and a complex conjugate pair ≈ −0.6624 ± 0.5623i.
 // The old "fill in missing repeated roots" loop printed the real part
