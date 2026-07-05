@@ -1044,8 +1044,11 @@ impl<'a> Tokenizer<'a> {
     /// Handle the minus '-' sign, distinguishing between unary and binary usage
     fn tokenize_minus(&mut self, tokens: &mut Vec<String>, last_token: &Option<String>) {
         match last_token.as_deref().unwrap_or("") {
+            // "=" and the comparison operators open a unary context:
+            // "x = -1" is an equation with a negative RHS, not a
+            // subtraction with a missing operand (Carl R4).
             "" | "+" | "-" | "*" | "/" | "^" | "(" | "{" | "ABS_START" | "FLOOR_START"
-            | "CEIL_START" => tokens.push("NEG".to_string()),
+            | "CEIL_START" | "=" | "<" | ">" | "<=" | ">=" => tokens.push("NEG".to_string()),
             _ => tokens.push("-".to_string()),
         }
     }

@@ -61,6 +61,15 @@ pub fn verify_identity(
             Err(_) => continue,
         };
 
+        // NaN on either side means the point tests domain membership, not
+        // values: shared undefinedness is not numeric agreement, and
+        // one-sided undefinedness is a domain question, not a numeric
+        // counterexample with a null in it (Carl R5c). Skip such points —
+        // they carry no evidence either way.
+        if lhs_val.is_nan() || rhs_val.is_nan() {
+            continue;
+        }
+
         points_tested += 1;
 
         if !values_match(lhs_val, rhs_val) {
@@ -86,7 +95,7 @@ pub fn verify_identity(
     }
 }
 
-fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -> bool {
+pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Assumptions) -> bool {
     if assumptions.is_positive(var) && val <= 0.0 {
         return false;
     }

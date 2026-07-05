@@ -182,17 +182,21 @@ pub fn verify_chain(steps: &[ChainStepInput], env: &Environment) -> Result<Chain
         Verdict::Pass
     };
 
-    // Chain status: the weakest evidence among relation steps (the anchor
-    // makes no claim). A one-step chain verifies nothing and says so.
+    // Chain status: on FAIL, the chain-level report is the first failing
+    // step's report — the diagnosis must never be outranked by a passing
+    // step (Carl R5a). Otherwise it is the weakest evidence among relation
+    // steps (the anchor makes no claim); a one-step chain verifies nothing
+    // and says so.
     let weakest_step = results
         .iter()
         .enumerate()
         .skip(1)
         .min_by_key(|(_, r)| rank(&r.status.status))
         .map(|(i, _)| i);
-    let status = match weakest_step {
-        Some(i) => results[i].status.clone(),
-        None => StatusReport::exact()
+    let status = match (first_failure, weakest_step) {
+        (Some(i), _) => results[i].status.clone(),
+        (None, Some(i)) => results[i].status.clone(),
+        (None, None) => StatusReport::exact()
             .with_caveat("anchor only; a one-step chain contains no relations to verify"),
     };
 
@@ -223,29 +227,47 @@ fn check_step(
     step: &ChainStepInput,
     env: &Environment,
 ) -> Result<CheckedStep, String> {
-    let var = || {
-        step.variable
-            .as_deref()
-            .map(crate::tokenizer::normalize_var)
-            .unwrap_or_else(|| "x".to_string())
-    };
     match step.relation {
-        Relation::Equals => Ok(check_equals(prev, current, env)),
-        Relation::FactoredFormOf => Ok(CheckedStep {
-            mechanism: "expand_and_compare".to_string(),
-            ..check_equals(prev, current, env)
-        }),
-        Relation::DerivativeOf => check_derivative_of(prev, current, &var(), env),
-        Relation::IntegralOf => check_integral_of(prev, current, &var(), env),
+        Relation::Equals | Relation::FactoredFormOf => Ok(check_equals(prev, current, env)),
+        Relation::DerivativeOf => {
+            let var = infer_variable(step.variable.as_deref(), prev, "derivative_of")?;
+            check_derivative_of(prev, current, &var, env)
+        }
+        Relation::IntegralOf => {
+            let var = infer_variable(step.variable.as_deref(), current, "integral_of")?;
+            check_integral_of(prev, current, &var, env)
+        }
         Relation::Substitution => {
             let value = step
                 .value
                 .as_deref()
                 .ok_or("substitution requires a 'value' parameter")?;
-            check_substitution(prev, current, &var(), value, env)
+            let var = infer_variable(step.variable.as_deref(), prev, "substitution")?;
+            check_substitution(prev, current, &var, value, env)
         }
         Relation::SolutionOf => check_solution_of(prev, current, env),
         Relation::Implies => check_implies(prev, current, step.variable.as_deref(), env),
+    }
+}
+
+/// One rule for every relation (Carl R6b): use the declared variable, or
+/// infer it when the relevant expression has exactly one free variable.
+/// Defaulting silently to `x` refutes true steps in other variables
+/// (d/dx t² = 0). A constant expression accepts any variable.
+fn infer_variable(declared: Option<&str>, node: &Node, relation: &str) -> Result<String, String> {
+    if let Some(v) = declared {
+        return Ok(crate::tokenizer::normalize_var(v));
+    }
+    let vars = free_variables(&[node]);
+    match vars.as_slice() {
+        [] => Ok("x".to_string()),
+        [v] => Ok(v.clone()),
+        _ => Err(format!(
+            "{} needs a 'variable' parameter: the expression has {} free variables ({})",
+            relation,
+            vars.len(),
+            vars.join(", ")
+        )),
     }
 }
 
@@ -422,19 +444,33 @@ fn check_implies(
                 // This solution of the antecedent violates the consequent:
                 // the implication is refuted, and the solution is the
                 // diagnosis.
-                let cx = crate::verify::Counterexample {
-                    point: vec![(var.clone(), node_to_f64(sol, env))],
-                    lhs_value: node_to_f64(&lhs_sub, env),
-                    rhs_value: node_to_f64(&rhs_sub, env),
-                };
+                let mut status = StatusReport::verified(checked_count + 1).with_caveat(&format!(
+                    "the antecedent solution {} = {} does not satisfy the consequent",
+                    var, sol
+                ));
+                // Prefer the inner check's counterexample — for parametric
+                // solutions it carries actual numbers where a direct f64
+                // rendering of the symbolic solution would serialize as
+                // null (Carl R5b).
+                if let Some(inner_cx) = step.status.counterexample_json() {
+                    status = status.with_counterexample_value(inner_cx.clone());
+                } else {
+                    let point_val = node_to_f64(sol, env);
+                    let lhs_val = node_to_f64(&lhs_sub, env);
+                    let rhs_val = node_to_f64(&rhs_sub, env);
+                    if point_val.is_finite() && lhs_val.is_finite() && rhs_val.is_finite() {
+                        status = status.with_counterexample(&crate::verify::Counterexample {
+                            point: vec![(var.clone(), point_val)],
+                            lhs_value: lhs_val,
+                            rhs_value: rhs_val,
+                        });
+                    }
+                    // Otherwise the symbolic witness lives in the caveat —
+                    // no null-stuffed counterexample field.
+                }
                 return Ok(CheckedStep {
                     verdict: Verdict::Fail,
-                    status: StatusReport::verified(checked_count + 1)
-                        .with_counterexample(&cx)
-                        .with_caveat(&format!(
-                            "the antecedent solution {} = {} does not satisfy the consequent",
-                            var, sol
-                        )),
+                    status,
                     mechanism,
                 });
             }
@@ -483,13 +519,27 @@ fn node_to_f64(node: &Node, env: &Environment) -> f64 {
 ///    pass → `verified`, disagreement → `Fail` with the counterexample,
 ///    too few valid points → `Inconclusive`.
 fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
-    // Syntactic identity needs no simplifier and no fragment restriction:
-    // the two sides are the same expression.
-    if format!("{}", prev) == format!("{}", current) {
+    // Syntactic identity needs no simplifier and no fragment restriction —
+    // but it must be structural equality of the trees, not a Display-string
+    // coincidence (Carl R6c: printer normalization makes distinct trees
+    // print alike).
+    if prev == current {
         return CheckedStep {
             verdict: Verdict::Pass,
             status: StatusReport::exact(),
             mechanism: "syntactic_identity".to_string(),
+        };
+    }
+    // Unit-law normalization (u·1 → u, u+0 → u, u^1 → u, −(−u) → u) is
+    // sound in every interpretation — the laws hold pointwise even where u
+    // is undefined — so structural equality after it still carries
+    // decision-procedure weight. This is NOT the general simplifier; only
+    // rewrites valid without side conditions are admitted here.
+    if unit_normal_form(prev) == unit_normal_form(current) {
+        return CheckedStep {
+            verdict: Verdict::Pass,
+            status: StatusReport::exact(),
+            mechanism: "unit_normal_form".to_string(),
         };
     }
     let prev_s = prev.simplify(env).unwrap_or_else(|_| prev.clone());
@@ -514,9 +564,210 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
                 };
             }
         }
+        // Canonical forms did not decide it. In the fragment the honest
+        // fallback is exact rational evaluation — never f64 tolerance,
+        // which accepts provably false steps like x = x + 10⁻¹⁵ (Carl R1).
+        return exact_rational_check(&prev_s, &current_s, env);
     }
 
     numeric_check(prev, current, env)
+}
+
+/// Compare two in-fragment expressions by exact rational evaluation at
+/// assumption-respecting sample points. Any disagreement is a certificate:
+/// f(p) ≠ g(p) in exact arithmetic, no tolerance anywhere. Agreement at n
+/// points is `verified` evidence (canonicalization should have decided it;
+/// that it did not is a simplifier completeness gap, not a licence to
+/// upgrade).
+fn exact_rational_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
+    use crate::evaluator::Evaluator;
+    use crate::exact::ExactNum;
+
+    const POINTS: &[(i64, i64)] = &[
+        (1, 2),
+        (-1, 2),
+        (3, 2),
+        (-3, 2),
+        (3, 10),
+        (-7, 10),
+        (21, 10),
+        (1, 10),
+        (-23, 10),
+        (3, 1),
+        (4, 5),
+        (9, 2),
+    ];
+    let mechanism = "exact_rational_sample".to_string();
+    let vars = free_variables(&[lhs, rhs]);
+
+    // Variable-free comparison: one exact evaluation DECIDES it — exact
+    // rational arithmetic on constants is a decision procedure, and
+    // repeating the same point 12 times would be evidence inflation.
+    if vars.is_empty() {
+        let env_pt = Environment::new();
+        if let (Ok(ExactNum::Rational(a)), Ok(ExactNum::Rational(b))) = (
+            Evaluator::evaluate_exact(lhs, &env_pt),
+            Evaluator::evaluate_exact(rhs, &env_pt),
+        ) {
+            let mechanism = "exact_constant_eval".to_string();
+            if a == b {
+                return CheckedStep {
+                    verdict: Verdict::Pass,
+                    status: StatusReport::exact(),
+                    mechanism,
+                };
+            }
+            let cx = crate::verify::Counterexample {
+                point: Vec::new(),
+                lhs_value: ExactNum::Rational(a).to_f64(),
+                rhs_value: ExactNum::Rational(b).to_f64(),
+            };
+            return CheckedStep {
+                verdict: Verdict::Fail,
+                status: StatusReport::exact()
+                    .with_caveat("constants differ in exact rational arithmetic")
+                    .with_counterexample(&cx),
+                mechanism,
+            };
+        }
+        return numeric_check(lhs, rhs, env);
+    }
+
+    let mut tested = 0usize;
+
+    for (i, &(pn, pd)) in POINTS.iter().enumerate() {
+        let mut env_pt = Environment::with_assumptions(env.assumptions().clone());
+        let mut point_values: Vec<(String, f64)> = Vec::new();
+        let mut skip = false;
+        for (j, var) in vars.iter().enumerate() {
+            // Same spread as the f64 sampler: base + 3j/10 + i/10, exactly.
+            let val = &(&ExactNum::rational(pn, pd) + &ExactNum::rational(3 * j as i64, 10))
+                + &ExactNum::rational(i as i64, 10);
+            if !crate::verify::point_satisfies_assumptions(var, val.to_f64(), env.assumptions()) {
+                skip = true;
+                break;
+            }
+            point_values.push((var.clone(), val.to_f64()));
+            env_pt.set_exact(var, val);
+        }
+        if skip {
+            continue;
+        }
+        // Only exact rational results count; an error (pole) or a float
+        // leak means the point decides nothing.
+        let (a, b) = match (
+            Evaluator::evaluate_exact(lhs, &env_pt),
+            Evaluator::evaluate_exact(rhs, &env_pt),
+        ) {
+            (Ok(ExactNum::Rational(a)), Ok(ExactNum::Rational(b))) => (a, b),
+            _ => continue,
+        };
+        tested += 1;
+        if a != b {
+            let cx = crate::verify::Counterexample {
+                point: point_values,
+                lhs_value: ExactNum::Rational(a).to_f64(),
+                rhs_value: ExactNum::Rational(b).to_f64(),
+            };
+            return CheckedStep {
+                verdict: Verdict::Fail,
+                status: StatusReport::exact()
+                    .with_caveat(
+                        "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
+                    )
+                    .with_counterexample(&cx),
+                mechanism,
+            };
+        }
+    }
+
+    if tested < 3 {
+        return CheckedStep {
+            verdict: Verdict::Inconclusive,
+            status: StatusReport::unable_to_compute(&format!(
+                "only {} valid exact test point{} in the assumed domain (need at least 3)",
+                tested,
+                if tested == 1 { "" } else { "s" }
+            )),
+            mechanism,
+        };
+    }
+    CheckedStep {
+        verdict: Verdict::Pass,
+        status: StatusReport::verified(tested).with_caveat(
+            "canonical forms did not decide; agreement established by exact rational evaluation (no floating-point tolerance)",
+        ),
+        mechanism,
+    }
+}
+
+/// Apply only rewrites that are identities in every interpretation,
+/// including at points of undefinedness: multiplicative and additive unit
+/// laws, exponent one, and double negation. Deliberately NOT the general
+/// simplifier — nothing here has a side condition. (u·0 → 0 is excluded:
+/// it fails where u is undefined.)
+fn unit_normal_form(node: &Node) -> Node {
+    let is_one = |n: &Node| matches!(n, Node::Num(crate::exact::ExactNum::Rational(r)) if r.numer() == &1.into() && r.denom() == &1.into());
+    let is_zero = |n: &Node| matches!(n, Node::Num(crate::exact::ExactNum::Rational(r)) if r.numer() == &0.into());
+    match node {
+        Node::Multiply(l, r) => {
+            let l = unit_normal_form(l);
+            let r = unit_normal_form(r);
+            if is_one(&l) {
+                r
+            } else if is_one(&r) {
+                l
+            } else {
+                Node::Multiply(Box::new(l), Box::new(r))
+            }
+        }
+        Node::Add(l, r) => {
+            let l = unit_normal_form(l);
+            let r = unit_normal_form(r);
+            if is_zero(&l) {
+                r
+            } else if is_zero(&r) {
+                l
+            } else {
+                Node::Add(Box::new(l), Box::new(r))
+            }
+        }
+        Node::Subtract(l, r) => {
+            let l = unit_normal_form(l);
+            let r = unit_normal_form(r);
+            if is_zero(&r) {
+                l
+            } else {
+                Node::Subtract(Box::new(l), Box::new(r))
+            }
+        }
+        Node::Power(b, e) => {
+            let b = unit_normal_form(b);
+            let e = unit_normal_form(e);
+            if is_one(&e) {
+                b
+            } else {
+                Node::Power(Box::new(b), Box::new(e))
+            }
+        }
+        Node::Negate(inner) => {
+            let inner = unit_normal_form(inner);
+            if let Node::Negate(twice) = inner {
+                *twice
+            } else {
+                Node::Negate(Box::new(inner))
+            }
+        }
+        Node::Divide(l, r) => {
+            Node::Divide(Box::new(unit_normal_form(l)), Box::new(unit_normal_form(r)))
+        }
+        Node::Function(name, args) => {
+            Node::Function(name.clone(), args.iter().map(unit_normal_form).collect())
+        }
+        Node::Sqrt(inner) => Node::Sqrt(Box::new(unit_normal_form(inner))),
+        Node::Abs(inner) => Node::Abs(Box::new(unit_normal_form(inner))),
+        other => other.clone(),
+    }
 }
 
 /// Assumption-aware numeric comparison, phrased as a step outcome.

@@ -348,3 +348,231 @@ fn chain_status_is_minimum_across_steps() {
         ResultStatus::Verified { .. }
     ));
 }
+
+// ---------------------------------------------------------------------------
+// Carl's adversarial pass on PR #67 (Session 44) — regression suite.
+// Each test names the finding it pins down.
+// ---------------------------------------------------------------------------
+
+use arithma::assumptions::Assumptions;
+
+fn env_with(assumptions: serde_json::Value) -> Environment {
+    Environment::with_assumptions(Assumptions::from_json(&assumptions).unwrap())
+}
+
+#[test]
+fn r1_constant_offset_below_tolerance_is_refuted_exactly() {
+    // x vs x + 10^-15: provably false in the fragment. The f64 tolerance
+    // must never get a vote — the simplified difference is a nonzero
+    // rational constant, which is a disproof certificate.
+    let steps = vec![
+        eq_step("start", "x"),
+        eq_step("offset", "x + \\frac{1}{1000000000000000}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+    assert_eq!(result.steps[1].status.status, ResultStatus::Exact);
+}
+
+#[test]
+fn r1_relative_offset_below_tolerance_is_refuted_exactly() {
+    // x vs x + x/10^13: non-constant in-fragment difference — exact
+    // rational sampling finds a nonzero exact value; no tolerance anywhere.
+    let steps = vec![
+        eq_step("start", "x"),
+        eq_step("offset", "x + \\frac{x}{10000000000000}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+    assert_eq!(result.steps[1].status.status, ResultStatus::Exact);
+    assert!(result.steps[1].status.counterexample_json().is_some());
+}
+
+#[test]
+fn r2_euler_constant_is_not_a_free_variable() {
+    // ln(e^x) = x is true; sampling e := 0.5 refuted it and handed the
+    // user a "counterexample" that redefines Euler's constant.
+    let steps = vec![eq_step("start", "\\ln(e^{x})"), eq_step("simplified", "x")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+}
+
+#[test]
+fn r2_pi_is_not_a_free_variable() {
+    let steps = vec![
+        eq_step("start", "\\sin(2 \\cdot \\pi)"),
+        eq_step("zero", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+}
+
+#[test]
+fn r2_regression_e_to_minus_50_documented_limitation() {
+    // e^{-50} ≠ 0, but with e bound to its constant the difference is
+    // ~2e-22 and f64 tolerance accepts it. This is the documented limit of
+    // numeric evidence until the `approximate` tier lands (ar-schema-v2).
+    // This test pins the CURRENT behavior so the eventual fix flips it
+    // deliberately, not accidentally.
+    let steps = vec![eq_step("start", "e^{-50}"), eq_step("zero", "0")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass); // known false pass — see above
+    assert!(matches!(
+        result.status.status,
+        ResultStatus::Verified { .. }
+    ));
+}
+
+#[test]
+fn r3_substitution_refuses_binder_capture() {
+    // Σ_{k=1}^{3} k·x with x := k would capture the bound index and
+    // silently produce Σ k² = 14. Refusal with an explicit capture error;
+    // silence is not acceptable in either direction.
+    let steps = vec![
+        eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
+        rel_step(
+            "sub",
+            "6 \\cdot k",
+            Relation::Substitution,
+            Some("x"),
+            Some("k"),
+        ),
+    ];
+    let err = verify_chain(&steps, &Environment::new()).unwrap_err();
+    assert!(err.contains("capture"), "got: {}", err);
+}
+
+#[test]
+fn r3_capture_artifact_cannot_be_confirmed() {
+    // The dual probe: the capture artifact (14) must not PASS either.
+    let steps = vec![
+        eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
+        rel_step("sub", "14", Relation::Substitution, Some("x"), Some("k")),
+    ];
+    assert!(verify_chain(&steps, &Environment::new()).is_err());
+}
+
+#[test]
+fn r4_solution_of_accepts_negative_roots() {
+    // "x = -2" must parse: the tool's own counterexample for x²=4 ⇒ x=2
+    // is a step its parser previously rejected.
+    let steps = vec![
+        eq_step("equation", "x^2 - 4 = 0"),
+        rel_step("root", "x = -2", Relation::SolutionOf, None, None),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.status.status, ResultStatus::Exact);
+}
+
+#[test]
+fn r5a_failing_chain_status_carries_the_counterexample() {
+    // A passing verified step must not outrank the failing step in the
+    // chain-level report: on FAIL, the chain status is the failing step's
+    // report, diagnosis included.
+    let steps = vec![
+        eq_step("start", "\\sin(x) + \\sin(x)"),
+        eq_step("collect", "2\\sin(x)"),
+        eq_step("broken", "2\\sin(x) + 1"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+    assert!(
+        result.status.counterexample_json().is_some(),
+        "chain-level FAIL status must carry the failing step's counterexample"
+    );
+}
+
+#[test]
+fn r5b_parametric_implies_counterexample_has_values() {
+    // x² = a² does not imply x = a (witness: x = −a). The machine-readable
+    // counterexample must carry actual numbers, not nulls.
+    let steps = vec![
+        eq_step("antecedent", "x^2 = a^2"),
+        rel_step("consequent", "x = a", Relation::Implies, Some("x"), None),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+    let cx = result.steps[1]
+        .status
+        .counterexample_json()
+        .expect("counterexample present");
+    let point = cx["point"].as_object().expect("point object");
+    assert!(
+        point.values().all(|v| v.is_number()),
+        "counterexample point must be numeric, got: {}",
+        cx
+    );
+}
+
+#[test]
+fn r5c_shared_undefined_domain_is_inconclusive_not_verified() {
+    // Under x < 0 both sides of ln(x) = ln(x)·(2/2) are undefined at every
+    // sample point. Points of shared undefinedness test domain agreement,
+    // not values — they must not count as evidence.
+    let steps = vec![
+        eq_step("start", "\\ln(x)"),
+        eq_step("times-one", "\\ln(x) \\cdot \\frac{2}{2}"),
+    ];
+    let env = env_with(serde_json::json!({"x": ["negative"]}));
+    let result = verify_chain(&steps, &env).unwrap();
+    assert_eq!(result.verdict, Verdict::Inconclusive);
+}
+
+#[test]
+fn r6b_derivative_variable_is_inferred_when_unambiguous() {
+    // d/dt t² = 2t: with a single free variable, defaulting to x would
+    // refute a true step (d/dx t² = 0).
+    let steps = vec![
+        eq_step("f", "t^2"),
+        rel_step("f'", "2t", Relation::DerivativeOf, None, None),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.status.status, ResultStatus::Exact);
+}
+
+#[test]
+fn r6b_ambiguous_derivative_variable_is_an_error() {
+    let steps = vec![
+        eq_step("f", "x \\cdot y"),
+        rel_step("f'", "y", Relation::DerivativeOf, None, None),
+    ];
+    let err = verify_chain(&steps, &Environment::new()).unwrap_err();
+    assert!(err.contains("variable"), "got: {}", err);
+}
+
+#[test]
+fn r6c_display_coincidence_is_not_syntactic_identity() {
+    // √x·1 prints identically to √x after normalization, but they are not
+    // the same tree — the mechanism must not claim syntactic identity it
+    // did not establish. It IS however a unit-law identity (u·1 = u holds
+    // in every interpretation, undefined points included), so the honest
+    // outcome is exact via the named unit_normal_form mechanism.
+    let steps = vec![
+        eq_step("start", "\\sqrt{x} \\cdot 1"),
+        eq_step("dropped-one", "\\sqrt{x}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.steps[1].mechanism, "unit_normal_form");
+    assert_eq!(result.steps[1].status.status, ResultStatus::Exact);
+}
+
+#[test]
+fn p3_zero_over_nonzero_simplifies_so_fragment_identities_stay_exact() {
+    // Carl's P3: a Lean-blessed in-fragment identity fell to numeric
+    // sampling because the simplifier lacked 0/u → 0 and the difference
+    // stalled at \frac{0}{...}. The evidence ladder must decide such
+    // identities exactly — by canonical form or by the difference rule.
+    let steps = vec![
+        eq_step(
+            "ratio",
+            "\\frac{(1-b)(1+3a)}{(1-a)(1+3b)} - \\frac{(1-b)(1+3a)}{(1-a)(1+3b)} + \\frac{0}{x^2+1}",
+        ),
+        eq_step("zero", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.status.status, ResultStatus::Exact);
+}

@@ -145,6 +145,14 @@ impl StatusReport {
         self.counterexample.as_ref()
     }
 
+    /// Attach an already-serialized counterexample (used when propagating a
+    /// counterexample from an inner check, e.g. implies re-reporting the
+    /// consequent check's witness — Carl R5b).
+    pub fn with_counterexample_value(mut self, cx: Value) -> Self {
+        self.counterexample = Some(cx);
+        self
+    }
+
     /// The JSON shape consumed by MCP clients. Contract: consumers switch on
     /// the `status` string and ignore unknown fields; evidence fields appear
     /// only for the status that earns them.
@@ -212,11 +220,19 @@ impl StatusReport {
 /// equivalence over ℚ(x₁,…,xₙ). Anything outside it (transcendental
 /// functions, radicals, float literals, variable exponents) disqualifies —
 /// conservatively: the classifier may under-claim, never over-claim.
+/// Names the evaluator treats as built-in transcendental constants, not
+/// free variables. They must be excluded from sampling (binding e := 0.5
+/// shadows Euler's constant and manufactures false counterexamples — Carl
+/// R2) and from the ℚ-exact fragment (they are not rational atoms).
+pub fn is_builtin_constant(name: &str) -> bool {
+    matches!(name, "e" | "π")
+}
+
 pub fn is_algebraic_exact(node: &Node) -> bool {
     match node {
         Node::Num(ExactNum::Rational(_)) => true,
         Node::Num(ExactNum::Float(_)) => false,
-        Node::Variable(_) => true,
+        Node::Variable(v) => !is_builtin_constant(v),
         Node::Add(l, r) | Node::Subtract(l, r) | Node::Multiply(l, r) | Node::Divide(l, r) => {
             is_algebraic_exact(l) && is_algebraic_exact(r)
         }
@@ -239,7 +255,9 @@ fn is_integer_exponent(node: &Node) -> bool {
 fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
     match node {
         Node::Variable(v) => {
-            vars.insert(v.clone());
+            if !is_builtin_constant(v) {
+                vars.insert(v.clone());
+            }
         }
         Node::Num(_) => {}
         Node::Add(l, r)

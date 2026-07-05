@@ -150,19 +150,27 @@ declares a relation to its predecessor. How each relation earns its status:
 
 | Relation | Mechanism | Can earn `exact`? |
 |---|---|---|
-| `equals` | Syntactic identity → canonical form over ℚ (poly/rational fragment only) → assumption-aware numeric sampling | Yes, inside the fragment. Transcendental agreement caps at `verified` — structural agreement after simplification is only as trustworthy as the simplifier's rewrite rules, which is precisely what a chain verifier must not assume. |
+| `equals` | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: exact rational evaluation at sample points, no floating-point tolerance anywhere** → outside the fragment: assumption-aware f64 sampling | Yes, inside the fragment. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated. Transcendental agreement caps at `verified` — structural agreement after simplification is only as trustworthy as the simplifier's rewrite rules, which is precisely what a chain verifier must not assume. |
 | `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result | Yes |
 | `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. | Yes — the round-trip is algebraic. |
 | `substitution` | Capture-avoiding substitution, then the `equals` ladder (follows variable-set changes) | Yes |
-| `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. | Yes, with a caveat: membership is proven, completeness of the solution set is not claimed. |
+| `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. | Yes, for roots inside the ℚ fragment, with a caveat: membership is proven, completeness of the solution set is not claimed. Irrational roots (x = √2 for x² = 2) currently land at `verified` — algebraic-number membership belongs to the certificate work. |
 | `implies` | Solve the antecedent, check every solution against the consequent. A violating solution refutes the implication and is the counterexample. | **No — capped at `verified` by design.** Finitely many checked solutions are evidence, not proof of implication. |
 | `factored_form_of` | The `equals` ladder (expansion happens in canonicalization) | Yes |
 
 Per-step results carry `verdict`, `mechanism` (so over-claims are auditable),
-and a full status object; the chain-level `result_status` carries the
-weakest step's evidence plus `steps`, `first_failure`, and `weakest_step`.
-Failing steps carry the counterexample — the counterexample is the
-diagnosis, and no generative repair is attempted.
+and a full status object. The chain-level `result_status` carries `steps`,
+`first_failure`, and `weakest_step`; its evidence is the weakest step's
+report when the chain passes or is inconclusive, and the **first failing
+step's report when the chain fails** — the diagnosis is never outranked by
+a passing step. Failing steps carry the counterexample — the counterexample
+is the diagnosis, and no generative repair is attempted.
+
+Sampling notes: the built-in constants `e` and `π` are never treated as
+free variables (a "counterexample" that rebinds Euler's constant is a lie);
+sample points where both sides are undefined test domain agreement, not
+values, and carry no evidence; substitutions that would capture a bound
+summation/product index are refused with an explicit error.
 
 For incremental use (checking one new step against the last accepted one),
 send a two-step chain.
