@@ -45,12 +45,37 @@ pub enum ResultStatus {
     ProvablyImpossible { certificate: String },
 }
 
+/// Machine-readable verdict for tools whose result *is* a yes/no claim
+/// (verify, equivalent, verify_chain). Orthogonal to the evidence class:
+/// "not equal, counterexample attached" is a `fail` verdict carried by
+/// well-earned `verified` evidence. Uniform vocabulary across tools so a
+/// consumer switches on one enum, never parses prose (Carl F1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Pass,
+    Fail,
+    Inconclusive,
+}
+
+impl Verdict {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Verdict::Pass => "pass",
+            Verdict::Fail => "fail",
+            Verdict::Inconclusive => "inconclusive",
+        }
+    }
+}
+
 /// A status plus caveats. Caveats are orthogonal to the evidence class:
 /// domain restrictions, truncation orders, precision notes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusReport {
     pub status: ResultStatus,
     pub caveats: Vec<String>,
+    /// Present for verdict-shaped tools; `None` for tools whose result is
+    /// an expression rather than a claim.
+    pub verdict: Option<Verdict>,
     /// Present when a `verified` status carries a *negative* verdict: the
     /// specific point where the expressions disagree, as JSON
     /// `{point: {var: value, …}, lhs: …, rhs: …}`. The counterexample is
@@ -87,12 +112,18 @@ impl StatusReport {
         StatusReport {
             status,
             caveats: Vec::new(),
+            verdict: None,
             counterexample: None,
         }
     }
 
     pub fn with_caveat(mut self, caveat: &str) -> Self {
         self.caveats.push(caveat.to_string());
+        self
+    }
+
+    pub fn with_verdict(mut self, verdict: Verdict) -> Self {
+        self.verdict = Some(verdict);
         self
     }
 
@@ -138,6 +169,9 @@ impl StatusReport {
                 obj["status"] = json!("provably_impossible");
                 obj["certificate"] = json!(certificate);
             }
+        }
+        if let Some(v) = &self.verdict {
+            obj["verdict"] = json!(v.as_str());
         }
         if !self.caveats.is_empty() {
             obj["caveats"] = json!(self.caveats);
@@ -316,12 +350,13 @@ pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
             "only {} valid test point{} in the assumed domain (need at least 3)",
             result.points_tested,
             if result.points_tested == 1 { "" } else { "s" }
-        ));
+        ))
+        .with_verdict(Verdict::Inconclusive);
     }
     let report = StatusReport::verified(result.points_tested);
     match &result.counterexample {
-        Some(cx) => report.with_counterexample(cx),
-        None => report,
+        Some(cx) => report.with_counterexample(cx).with_verdict(Verdict::Fail),
+        None => report.with_verdict(Verdict::Pass),
     }
 }
 

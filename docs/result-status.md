@@ -59,6 +59,24 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
 }
 ```
 
+**The `verdict` field.** Tools whose result *is* a yes/no claim (`verify`,
+`equivalent`, `verify_chain`) additionally carry a machine-readable
+`verdict`: `"pass"`, `"fail"`, or `"inconclusive"` — one vocabulary across
+all three tools, so no consumer ever parses prose to learn an outcome.
+Verdict and status are orthogonal: "not equal, counterexample attached" is a
+`fail` verdict carried by well-earned `verified` evidence.
+
+```json
+{
+  "result_status": {
+    "status": "verified",
+    "verdict": "fail",
+    "points_tested": 4,
+    "counterexample": { "point": { "x": 0.5 }, "lhs": 2.25, "rhs": 1.25 }
+  }
+}
+```
+
 **Extensibility contract.** Consumers switch on the `status` string and ignore
 unknown fields. New evidence fields and new caveat strings are non-breaking
 additions. New `status` values are additions reserved for a version bump and
@@ -108,8 +126,9 @@ justifies it, never asserted by optimism.
 | `taylor_series` | Exact rational coefficient recurrences → `exact`, with truncation-order caveat. |
 | `evaluate` | Exact-rational path → `exact`. Floating-point path → `verified` with `points_tested: 1` and caveat `"floating-point evaluation (f64)"`. |
 | `matrix` | Exact arithmetic over ℚ / symbolic entries → `exact`. Numeric eigenvalue root-finding (detected by floating-point output) → `verified` with an f64 caveat; complex pairs are explicit as re ± im·i, recovered by deflation or refused — never fabricated. |
-| `equivalent` | Structural or difference-zero match → `exact`. Numeric-only agreement → `verified` with point count. Disagreement → the *"not equivalent"* verdict is `verified` with the counterexample as evidence. |
-| `verify` | PASS → `verified` with point count (never `exact` — this tool is numeric by definition). FAIL → `verified` carrying the counterexample. INCONCLUSIVE → `unable_to_compute` with reason. |
+| `equivalent` | Structural or difference-zero match → `exact`. Numeric-only agreement → `verified` with point count. Disagreement → the *"not equivalent"* verdict is `verified` with the counterexample as evidence. Carries a machine-readable `verdict`. |
+| `verify` | PASS → `verified` with point count (never `exact` — this tool is numeric by definition). FAIL → `verified` carrying the counterexample. INCONCLUSIVE → `unable_to_compute` with reason. Carries a machine-readable `verdict`. |
+| `verify_chain` | Per-relation mechanisms (see the verify_chain section below); chain status = minimum across steps; `implies` capped at `verified`. Carries `verdict`, per-step `mechanism`, `first_failure`, `weakest_step`. |
 | `solve_ode` | Closed-form paths → `exact`. Series solutions → `exact` coefficients with truncation caveat. |
 
 Errors of protocol (missing parameters, unparseable LaTeX) remain JSON-RPC
@@ -118,9 +137,32 @@ Library error strings that represent *mathematical limitations* ("no technique
 applies") will migrate to `unable_to_compute` as the library error taxonomy is
 refactored — a follow-up, not this change.
 
-## What verify_chain consumes
+## verify_chain
 
-The chain verifier (next work item) consumes these statuses directly: a chain's
-status is the minimum across its steps, `implies` steps cap at `verified`, and
-audit witnesses are exactly the evidence fields defined here. This document is
-therefore the schema contract between the two features.
+The chain verifier consumes these statuses directly: a chain's status is the
+**minimum** across its steps (one numeric step makes the whole chain
+`verified`, never `exact`), and audit witnesses are exactly the evidence
+fields defined here. This document is therefore the schema contract between
+the two features.
+
+A chain is an ordered list of steps; each step after the first (the anchor)
+declares a relation to its predecessor. How each relation earns its status:
+
+| Relation | Mechanism | Can earn `exact`? |
+|---|---|---|
+| `equals` | Syntactic identity → canonical form over ℚ (poly/rational fragment only) → assumption-aware numeric sampling | Yes, inside the fragment. Transcendental agreement caps at `verified` — structural agreement after simplification is only as trustworthy as the simplifier's rewrite rules, which is precisely what a chain verifier must not assume. |
+| `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result | Yes |
+| `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. | Yes — the round-trip is algebraic. |
+| `substitution` | Capture-avoiding substitution, then the `equals` ladder (follows variable-set changes) | Yes |
+| `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. | Yes, with a caveat: membership is proven, completeness of the solution set is not claimed. |
+| `implies` | Solve the antecedent, check every solution against the consequent. A violating solution refutes the implication and is the counterexample. | **No — capped at `verified` by design.** Finitely many checked solutions are evidence, not proof of implication. |
+| `factored_form_of` | The `equals` ladder (expansion happens in canonicalization) | Yes |
+
+Per-step results carry `verdict`, `mechanism` (so over-claims are auditable),
+and a full status object; the chain-level `result_status` carries the
+weakest step's evidence plus `steps`, `first_failure`, and `weakest_step`.
+Failing steps carry the counterexample — the counterexample is the
+diagnosis, and no generative repair is attempted.
+
+For incremental use (checking one new step against the last accepted one),
+send a two-step chain.
