@@ -166,11 +166,24 @@ step's report when the chain fails** — the diagnosis is never outranked by
 a passing step. Failing steps carry the counterexample — the counterexample
 is the diagnosis, and no generative repair is attempted.
 
+On a FAIL chain, `weakest_step` still marks the evidence floor and may
+differ from `first_failure`; consumers explaining a failure should follow
+`first_failure`, not `weakest_step`.
+
+**Equality notion.** In-fragment `exact` means equality in the rational
+function field ℚ(x₁,…,xₙ) — the standard CAS convention, in which removable
+domain differences do not exist (`0·(1/x) = 0`, and `(x²−1)/(x−1) = x+1`).
+Pointwise equality of partial functions is a different notion; declaring
+and reconciling the two across tools is `ar-equality-notion` (Carl F4).
+
 Sampling notes: the built-in constants `e` and `π` are never treated as
 free variables (a "counterexample" that rebinds Euler's constant is a lie);
 sample points where both sides are undefined test domain agreement, not
-values, and carry no evidence; substitutions that would capture a bound
-summation/product index are refused with an explicit error.
+values, and carry no evidence; a substitution that would capture a bound
+summation/product index is a *step-level* `inconclusive` naming the capture
+— the rest of the chain still reports (audit trail over abort); exact-
+arithmetic counterexamples carry `lhs_exact`/`rhs_exact` strings alongside
+the f64 renderings, because two distinct rationals can share an f64 image.
 
 For incremental use (checking one new step against the last accepted one),
 send a two-step chain.

@@ -114,7 +114,7 @@ pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Ass
     true
 }
 
-fn values_match(a: f64, b: f64) -> bool {
+pub(crate) fn values_match(a: f64, b: f64) -> bool {
     if a.is_nan() && b.is_nan() {
         return true;
     }

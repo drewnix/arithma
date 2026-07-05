@@ -438,8 +438,14 @@ fn r3_substitution_refuses_binder_capture() {
             Some("k"),
         ),
     ];
-    let err = verify_chain(&steps, &Environment::new()).unwrap_err();
-    assert!(err.contains("capture"), "got: {}", err);
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Inconclusive);
+    match &result.steps[1].status.status {
+        ResultStatus::UnableToCompute { reason } => {
+            assert!(reason.contains("capture"), "got: {}", reason)
+        }
+        other => panic!("expected UnableToCompute, got {:?}", other),
+    }
 }
 
 #[test]
@@ -449,7 +455,8 @@ fn r3_capture_artifact_cannot_be_confirmed() {
         eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
         rel_step("sub", "14", Relation::Substitution, Some("x"), Some("k")),
     ];
-    assert!(verify_chain(&steps, &Environment::new()).is_err());
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_ne!(result.steps[1].verdict, Verdict::Pass);
 }
 
 #[test]
@@ -571,6 +578,110 @@ fn p3_zero_over_nonzero_simplifies_so_fragment_identities_stay_exact() {
             "\\frac{(1-b)(1+3a)}{(1-a)(1+3b)} - \\frac{(1-b)(1+3a)}{(1-a)(1+3b)} + \\frac{0}{x^2+1}",
         ),
         eq_step("zero", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.status.status, ResultStatus::Exact);
+}
+
+// ---------------------------------------------------------------------------
+// Carl's retest residuals (Session 44, MSG-01KWRBEG) — none blocking, all
+// fixed before merge anyway.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn residual2_exact_counterexample_survives_f64_collapse() {
+    // 1/3 + 1/6 ≠ 1/2 + 10⁻¹⁸, but both render to 0.5 in f64. The
+    // counterexample must carry the exact values so it never asserts a
+    // disagreement its own numbers fail to exhibit.
+    let steps = vec![
+        eq_step("a", "\\frac{1}{3} + \\frac{1}{6}"),
+        eq_step("b", "\\frac{1}{2} + \\frac{1}{1000000000000000000}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+    let cx = result.steps[1]
+        .status
+        .counterexample_json()
+        .expect("counterexample");
+    let lhs = cx["lhs_exact"].as_str().expect("lhs_exact string");
+    let rhs = cx["rhs_exact"].as_str().expect("rhs_exact string");
+    assert_ne!(lhs, rhs, "exact witnesses must differ: {}", cx);
+}
+
+#[test]
+fn residual3_variable_free_transcendental_comparison_is_one_evaluation() {
+    // The golden ratio solves x² = x + 1. The comparison after substitution
+    // is variable-free and outside the ℚ fragment: one f64 evaluation is
+    // the evidence — reporting verified(12) for the same point twelve
+    // times is evidence inflation.
+    let steps = vec![
+        eq_step("equation", "x^2 = x + 1"),
+        rel_step(
+            "root",
+            "x = \\frac{1 + \\sqrt{5}}{2}",
+            Relation::SolutionOf,
+            None,
+            None,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    match result.steps[1].status.status {
+        ResultStatus::Verified { points_tested } => assert_eq!(points_tested, 1),
+        ref other => panic!("expected Verified, got {:?}", other),
+    }
+}
+
+#[test]
+fn design_capture_refusal_is_step_level_and_preserves_the_chain() {
+    // A capture at step 2 must not amputate the report for step 1: the
+    // refusal is a step-level inconclusive, and the audit trail survives.
+    let steps = vec![
+        eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
+        eq_step("same", "\\sum_{k=1}^{3} k \\cdot x"),
+        rel_step(
+            "capture",
+            "6 \\cdot k",
+            Relation::Substitution,
+            Some("x"),
+            Some("k"),
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Inconclusive);
+    assert_eq!(result.steps[1].verdict, Verdict::Pass);
+    assert_eq!(result.steps[2].verdict, Verdict::Inconclusive);
+    match &result.steps[2].status.status {
+        ResultStatus::UnableToCompute { reason } => {
+            assert!(reason.contains("capture"), "got: {}", reason)
+        }
+        other => panic!("expected UnableToCompute, got {:?}", other),
+    }
+}
+
+#[test]
+fn p3_zero_over_fraction_node_simplifies_to_zero() {
+    // Carl's minimal case: the zero-numerator reduction fired only for
+    // polynomial denominators; \frac{0}{\frac{x}{y}} stalled.
+    use arithma::simplify::Simplifiable;
+    let node = arithma::parse_latex_raw("\\frac{0}{\\frac{x}{y}}").unwrap();
+    let simplified = node.simplify(&Environment::new()).unwrap();
+    assert_eq!(format!("{}", simplified), "0");
+}
+
+#[test]
+fn p3_correction_ratio_chain_lands_exact() {
+    // Carl's real P3 pair from his Part-1 workflow (Lean: correction_ratio_3).
+    let steps = vec![
+        eq_step(
+            "excess-ratio",
+            "\\frac{\\frac{3}{1+2 \\cdot \\beta} - 1}{\\frac{3}{1+2 \\cdot \\alpha} - 1}",
+        ),
+        eq_step(
+            "closed-form",
+            "\\frac{(1-\\beta) \\cdot (1+2 \\cdot \\alpha)}{(1-\\alpha) \\cdot (1+2 \\cdot \\beta)}",
+        ),
     ];
     let result = verify_chain(&steps, &Environment::new()).unwrap();
     assert_eq!(result.verdict, Verdict::Pass);

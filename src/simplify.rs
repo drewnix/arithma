@@ -749,6 +749,18 @@ impl Simplifiable for Node {
                 let left_simplified = left.simplify(env)?;
                 let right_simplified = right.simplify(env)?;
 
+                // 0/u → 0 for any non-literal-zero denominator, including
+                // Fraction-node denominators (the polynomial-denominator
+                // path already reduced these; \frac{0}{\frac{x}{y}}
+                // stalled — Carl, Session 44). Equality in Q(x): removable
+                // domain differences do not exist in the rational function
+                // field, consistent with pole cancellation elsewhere.
+                if let Node::Num(ref l) = left_simplified {
+                    if l.is_zero() && !matches!(&right_simplified, Node::Num(r) if r.is_zero()) {
+                        return Ok(Node::Num(ExactNum::integer(0)));
+                    }
+                }
+
                 // Cancel common leading negative signs in fractions
                 if has_leading_negative(&left_simplified) && has_leading_negative(&right_simplified)
                 {

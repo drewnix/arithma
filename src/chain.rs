@@ -113,8 +113,12 @@ pub struct ChainResult {
     /// Minimum evidence across steps; carries the weakest step's caveats
     /// and counterexample.
     pub status: StatusReport,
-    /// Index of the step whose evidence determined the chain status
-    /// (`None` for a chain with no relation steps).
+    /// Index of the relation step with the weakest evidence — the chain's
+    /// evidence floor. On PASS/INCONCLUSIVE chains this is also the step
+    /// whose report becomes the chain status; on FAIL chains the status
+    /// routes from `first_failure` instead (the diagnosis is never
+    /// outranked), so the two indices can differ. `None` for a chain with
+    /// no relation steps.
     pub weakest_step: Option<usize>,
     /// Index of the first failing step, if any.
     pub first_failure: Option<usize>,
@@ -320,8 +324,21 @@ fn check_substitution(
 ) -> Result<CheckedStep, String> {
     let value_node = crate::parser::parse_latex_raw(value)
         .map_err(|e| format!("could not parse substitution value '{}': {}", value, e))?;
-    let substituted = crate::substitute::substitute_variable(prev, var, &value_node)
-        .map_err(|e| format!("substitution failed: {}", e))?;
+    // A capture refusal is a step-level outcome, not a chain-aborting
+    // error: a ten-step chain with a capture at step 7 must still report
+    // steps 1–6 (audit trail over abort — decided Session 44, Carl's
+    // design note). Other substitution failures remain protocol errors.
+    let substituted = match crate::substitute::substitute_variable(prev, var, &value_node) {
+        Ok(s) => s,
+        Err(e) if e.contains("capture") => {
+            return Ok(CheckedStep {
+                verdict: Verdict::Inconclusive,
+                status: StatusReport::unable_to_compute(&e),
+                mechanism: "substitute".to_string(),
+            })
+        }
+        Err(e) => return Err(format!("substitution failed: {}", e)),
+    };
     let mut checked = check_equals(&substituted, current, env);
     checked.mechanism = format!("substitute+{}", checked.mechanism);
     Ok(checked)
@@ -617,16 +634,11 @@ fn exact_rational_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedSte
                     mechanism,
                 };
             }
-            let cx = crate::verify::Counterexample {
-                point: Vec::new(),
-                lhs_value: ExactNum::Rational(a).to_f64(),
-                rhs_value: ExactNum::Rational(b).to_f64(),
-            };
             return CheckedStep {
                 verdict: Verdict::Fail,
                 status: StatusReport::exact()
                     .with_caveat("constants differ in exact rational arithmetic")
-                    .with_counterexample(&cx),
+                    .with_counterexample_value(exact_counterexample_json(&[], &a, &b)),
                 mechanism,
             };
         }
@@ -664,18 +676,13 @@ fn exact_rational_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedSte
         };
         tested += 1;
         if a != b {
-            let cx = crate::verify::Counterexample {
-                point: point_values,
-                lhs_value: ExactNum::Rational(a).to_f64(),
-                rhs_value: ExactNum::Rational(b).to_f64(),
-            };
             return CheckedStep {
                 verdict: Verdict::Fail,
                 status: StatusReport::exact()
                     .with_caveat(
                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                     )
-                    .with_counterexample(&cx),
+                    .with_counterexample_value(exact_counterexample_json(&point_values, &a, &b)),
                 mechanism,
             };
         }
@@ -699,6 +706,29 @@ fn exact_rational_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedSte
         ),
         mechanism,
     }
+}
+
+/// Counterexample JSON for exact-arithmetic disagreements: carries the
+/// f64 renderings for uniformity AND the exact values as strings, because
+/// two distinct rationals can share an f64 image (1/2 vs 1/2 + 10⁻³⁰) and
+/// the witness must never contradict its own claim (Carl, residual 2).
+fn exact_counterexample_json(
+    point: &[(String, f64)],
+    lhs: &num_rational::BigRational,
+    rhs: &num_rational::BigRational,
+) -> serde_json::Value {
+    use crate::exact::ExactNum;
+    let point_map: serde_json::Map<String, serde_json::Value> = point
+        .iter()
+        .map(|(var, val)| (var.clone(), serde_json::json!(val)))
+        .collect();
+    serde_json::json!({
+        "point": point_map,
+        "lhs": ExactNum::Rational(lhs.clone()).to_f64(),
+        "rhs": ExactNum::Rational(rhs.clone()).to_f64(),
+        "lhs_exact": format!("{}", Node::Num(ExactNum::Rational(lhs.clone()))),
+        "rhs_exact": format!("{}", Node::Num(ExactNum::Rational(rhs.clone()))),
+    })
 }
 
 /// Apply only rewrites that are identities in every interpretation,
@@ -772,10 +802,51 @@ fn unit_normal_form(node: &Node) -> Node {
 
 /// Assumption-aware numeric comparison, phrased as a step outcome.
 fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
-    let mut vars = free_variables(&[lhs, rhs]);
+    let vars = free_variables(&[lhs, rhs]);
+
+    // Variable-free comparison: there is exactly one point to test, so the
+    // evidence is one evaluation — running the sampler would report the
+    // same point twelve times as twelve (Carl, residual 3: evidence
+    // inflation).
     if vars.is_empty() {
-        vars.push("x".to_string());
+        let env_pt = Environment::new();
+        let mechanism = "numeric_constant_eval".to_string();
+        let (a, b) = match (
+            crate::evaluator::Evaluator::evaluate(lhs, &env_pt),
+            crate::evaluator::Evaluator::evaluate(rhs, &env_pt),
+        ) {
+            (Ok(a), Ok(b)) if !a.is_nan() && !b.is_nan() => (a, b),
+            _ => {
+                return CheckedStep {
+                    verdict: Verdict::Inconclusive,
+                    status: StatusReport::unable_to_compute(
+                        "variable-free comparison could not be evaluated numerically",
+                    ),
+                    mechanism,
+                }
+            }
+        };
+        if crate::verify::values_match(a, b) {
+            return CheckedStep {
+                verdict: Verdict::Pass,
+                status: StatusReport::verified(1).with_caveat(
+                    "variable-free comparison: a single floating-point evaluation is the evidence",
+                ),
+                mechanism,
+            };
+        }
+        let cx = crate::verify::Counterexample {
+            point: Vec::new(),
+            lhs_value: a,
+            rhs_value: b,
+        };
+        return CheckedStep {
+            verdict: Verdict::Fail,
+            status: StatusReport::verified(1).with_counterexample(&cx),
+            mechanism,
+        };
     }
+
     let result = verify_identity(lhs, rhs, &vars, env.assumptions());
 
     if let Some(ref cx) = result.counterexample {
