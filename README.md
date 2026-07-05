@@ -26,7 +26,13 @@ that gets a wrong answer propagates it through its entire reasoning chain.
 **Proves what's impossible.** The Risch algorithm doesn't just integrate — it
 can *prove* when no elementary antiderivative exists. Ask for
 $\int e^{-x^2}\,dx$ and you get a mathematically rigorous explanation of why
-no closed form exists, not silence or a wrong answer.
+no closed form exists, not silence or a wrong answer. And when the
+antiderivative is a known special function, the impossibility result names
+it: $\int e^{-x^2}\,dx = \tfrac{\sqrt{\pi}}{2}\,\mathrm{erf}(x)$ — the
+theorem ("not elementary") and the answer beyond it, together. Recognition
+covers erf, Ei, and li, each guarded by a differentiation round-trip; an
+unrecognized integrand keeps the bare certificate rather than a guessed
+name.
 
 **Every answer declares its evidence.** Each MCP response carries a
 `result_status`: `exact` (decision procedure), `verified` (numeric agreement
@@ -85,6 +91,7 @@ The simplifier has a verified idempotency contract:
 | All 24 trig/hyperbolic functions | sin, cos, ..., arccoth — derivatives and integrals |
 | 8 integration methods | polynomial, parts, u-sub, trig, partial fractions, ... |
 | Risch algorithm | proves non-elementarity with certificate |
+| Special function recognition | $\int e^{-x^2} \to \tfrac{\sqrt{\pi}}{2}\mathrm{erf}(x)$, $\int \tfrac{e^x}{x} \to \mathrm{Ei}(x)$, $\int \tfrac{dx}{\ln x} \to \mathrm{li}(x)$ — named alongside the impossibility proof |
 | Multi-extension towers | $\int(\!e^x\ln x + \frac{e^x}{x})\,dx = e^x\ln x$ |
 | Parametric integration | $\int\frac{dx}{x^2+a} = \frac{1}{\sqrt{a}}\arctan\!\frac{x}{\sqrt{a}}$ |
 | Exact definite integrals | $\int_0^1\frac{dx}{x^2+1} = \frac{\pi}{4}$ |
@@ -139,7 +146,7 @@ The simplifier has a verified idempotency contract:
 | Numeric cross-check | 12 test points, assumption-aware, counterexample on FAIL |
 | Exact refutation | inside the polynomial/rational fragment, disagreements are established in exact rational arithmetic — no floating-point tolerance; `x = x + 10^{-15}` is refuted, not tolerated |
 | Expression equivalence | simplify-and-compare, then assumption-aware sampling |
-| Non-elementarity proofs | Risch algorithm certificates |
+| Non-elementarity proofs | Risch algorithm certificates; recognized special-function antiderivatives (erf, Ei, li) named alongside the certificate, guarded by a differentiation round-trip |
 | Result status | evidence taxonomy on every response — `exact` / `verified` / `heuristic` / `unable_to_compute` / `provably_impossible` |
 | Machine-readable verdicts | `pass` / `fail` / `inconclusive` on `verify`, `equivalent`, `verify_chain` — outcomes are fields, not prose |
 | Self-checking | transcendental simplifications and integration round-trips are independently verified before being blessed |
@@ -156,7 +163,7 @@ stdio. 17 tools with LaTeX I/O:
 | `format` | Parse and normalize LaTeX without simplifying |
 | `simplify` | Reduce an expression to canonical form |
 | `differentiate` | Symbolic derivative |
-| `integrate` | Indefinite/definite; proves non-elementary when applicable |
+| `integrate` | Indefinite/definite; proves non-elementary when applicable, naming the special-function antiderivative (erf, Ei, li) when recognized |
 | `substitute` | Replace a variable with an expression |
 | `solve` | Equations or inequalities |
 | `solve_system` | Systems of linear/polynomial equations |
@@ -272,9 +279,9 @@ $ arithma solve "x^2 - 4 > 0"
 (-∞, -2) ∪ (2, ∞)
 
 $ arithma integrate "\exp(-x^2)" x
-No elementary antiderivative exists. The Risch algorithm proves that
-the differential equation q' + (-2x)·q = 1 has no polynomial solution,
-so ∫1·exp(-x^2) dx cannot be expressed in terms of elementary functions.
+[provably impossible] No elementary antiderivative exists. The differential
+equation q' + (-2x)·q = 1 has no rational solution. — antiderivative in
+special functions: \frac{\sqrt{\pi}}{2} \cdot \erf(x)
 ```
 
 All 13 subcommands: `format`, `simplify`, `differentiate` (`diff`), `integrate`,

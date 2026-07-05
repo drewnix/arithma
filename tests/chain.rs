@@ -941,3 +941,98 @@ fn refused_degree_bound_agreement_is_verified_not_exact() {
         result.status.status
     );
 }
+
+// --- Special functions (erf, Ei, li) in chain steps ---
+//
+// A recognized non-elementary antiderivative (e.g. (√π/2)·erf(x) for
+// e^{−x²}) must be checkable as an integral_of step: differentiation
+// eliminates the special function, so the comparison is between elementary
+// expressions. The raw derivative, however, carries exact-zero terms that
+// still mention erf — which (deliberately) refuses numeric evaluation — so
+// the checker must fold those away before sampling rather than reporting
+// a starved, inconclusive step.
+
+fn step(label: &str, expr: &str, relation: Relation) -> ChainStepInput {
+    ChainStepInput {
+        label: Some(label.to_string()),
+        expr: expr.to_string(),
+        relation,
+        variable: None,
+        value: None,
+    }
+}
+
+#[test]
+fn integral_of_step_with_recognized_erf_form_passes() {
+    let steps = vec![
+        step("integrand", "\\exp(-x^2)", Relation::Equals),
+        step(
+            "antiderivative",
+            "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)",
+            Relation::IntegralOf,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(
+        result.verdict,
+        Verdict::Pass,
+        "erf integral_of step should pass, got step reports: {:?}",
+        result
+            .steps
+            .iter()
+            .map(|s| (&s.mechanism, s.verdict))
+            .collect::<Vec<_>>()
+    );
+    // √π is outside the ℚ fragment: agreement is sampling evidence, and the
+    // simplify fold that made the derivative evaluable must be named.
+    assert!(
+        matches!(result.status.status, ResultStatus::Verified { .. }),
+        "transcendental agreement caps at verified, got {:?}",
+        result.status.status
+    );
+    assert!(
+        result.steps[1].mechanism.contains("simplify"),
+        "the simplify assist must be auditable in the mechanism, got: {}",
+        result.steps[1].mechanism
+    );
+}
+
+#[test]
+fn derivative_of_step_producing_erf_free_form_passes() {
+    let steps = vec![
+        step(
+            "antiderivative",
+            "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)",
+            Relation::Equals,
+        ),
+        step("derivative", "\\exp(-x^2)", Relation::DerivativeOf),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(
+        result.verdict,
+        Verdict::Pass,
+        "d/dx[(√π/2)·erf(x)] = e^{{-x²}} should pass, got: {:?}",
+        result
+            .steps
+            .iter()
+            .map(|s| (&s.mechanism, s.verdict))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn integral_of_step_with_wrong_erf_constant_is_not_certified() {
+    // erf(x) alone (missing the √π/2 factor) is NOT an antiderivative of
+    // e^{−x²}. The simplify-assisted retry must not certify a refutation
+    // through an unverified transform: the honest report is a non-pass.
+    let steps = vec![
+        step("integrand", "\\exp(-x^2)", Relation::Equals),
+        step("wrong", "\\erf(x)", Relation::IntegralOf),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_ne!(
+        result.verdict,
+        Verdict::Pass,
+        "a wrong constant must never pass"
+    );
+}

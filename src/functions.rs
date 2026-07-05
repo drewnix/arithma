@@ -123,6 +123,14 @@ lazy_static! {
         registry.register_function("lg", Box::new(LgFunction));
         registry.register_function("exp", Box::new(ExpFunction));
 
+        // Special functions (non-elementary antiderivatives): erf, Ei, li.
+        // Symbolic-only for now: they parse, print, and differentiate exactly;
+        // numeric evaluation is not yet implemented and says so rather than
+        // approximating silently.
+        registry.register_function("erf", Box::new(ErfFunction));
+        registry.register_function("Ei", Box::new(EiFunction));
+        registry.register_function("li", Box::new(LiFunction));
+
         registry.register_function("frac", Box::new(FracFunction));
         registry.register_function("sqrt", Box::new(SqrtFunction));
         registry.register_function("min", Box::new(MinFunction));
@@ -734,6 +742,53 @@ impl FunctionHandler for LgFunction {
             return Err("\\lg requires exactly one argument.".to_string());
         }
         Ok(args[0].log2())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+/// The error function erf(x) = (2/√π)∫₀ˣ e^{-t²} dt (DLMF 7.2.1).
+/// Kept symbolic: no f64 approximation is offered until one with a stated
+/// error bound lands; an honest refusal beats a silent approximation.
+pub struct ErfFunction;
+impl FunctionHandler for ErfFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\erf requires exactly one argument.".to_string());
+        }
+        Err("Numeric evaluation of erf is not implemented; the value is kept symbolic.".to_string())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+/// The exponential integral Ei(x) = −∫_{−x}^∞ e^{−t}/t dt (DLMF 6.2.5).
+pub struct EiFunction;
+impl FunctionHandler for EiFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\Ei requires exactly one argument.".to_string());
+        }
+        Err("Numeric evaluation of Ei is not implemented; the value is kept symbolic.".to_string())
+    }
+
+    fn get_arg_count(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+/// The logarithmic integral li(x) = ∫₀ˣ dt/ln(t) (DLMF 6.2.8).
+pub struct LiFunction;
+impl FunctionHandler for LiFunction {
+    fn call(&self, args: Vec<f64>) -> Result<f64, String> {
+        if args.len() != 1 {
+            return Err("\\li requires exactly one argument.".to_string());
+        }
+        Err("Numeric evaluation of li is not implemented; the value is kept symbolic.".to_string())
     }
 
     fn get_arg_count(&self) -> Option<usize> {

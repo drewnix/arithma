@@ -873,6 +873,72 @@ pub fn differentiate(expr: &Node, var_name: &str) -> Result<Node, String> {
                         Box::new(operand_derivative),
                     ))
                 }
+                // --- Special functions (non-elementary antiderivatives) ---
+                "erf" => {
+                    if args.len() != 1 {
+                        return Err("erf function requires exactly one argument".to_string());
+                    }
+
+                    // d/dx(erf(f)) = (2/√π)·exp(−f²) · df/dx  (DLMF 7.2.1)
+                    let operand = &args[0];
+                    let operand_derivative = differentiate(operand, var_name)?;
+
+                    // Node::Sqrt, not Function("sqrt"): the latter displays
+                    // as `\sqrt(π)`, which is not valid LaTeX.
+                    let sqrt_pi = Node::Sqrt(Box::new(Node::Variable("π".to_string())));
+                    let coefficient =
+                        Node::Divide(Box::new(Node::Num(ExactNum::two())), Box::new(sqrt_pi));
+                    let gaussian = Node::Function(
+                        "exp".to_string(),
+                        vec![Node::Negate(Box::new(Node::Power(
+                            Box::new(operand.clone()),
+                            Box::new(Node::Num(ExactNum::two())),
+                        )))],
+                    );
+
+                    Ok(Node::Multiply(
+                        Box::new(Node::Multiply(Box::new(coefficient), Box::new(gaussian))),
+                        Box::new(operand_derivative),
+                    ))
+                }
+                "Ei" => {
+                    if args.len() != 1 {
+                        return Err("Ei function requires exactly one argument".to_string());
+                    }
+
+                    // d/dx(Ei(f)) = (exp(f)/f) · df/dx  (DLMF 6.2.5)
+                    let operand = &args[0];
+                    let operand_derivative = differentiate(operand, var_name)?;
+
+                    let coefficient = Node::Divide(
+                        Box::new(Node::Function("exp".to_string(), vec![operand.clone()])),
+                        Box::new(operand.clone()),
+                    );
+
+                    Ok(Node::Multiply(
+                        Box::new(coefficient),
+                        Box::new(operand_derivative),
+                    ))
+                }
+                "li" => {
+                    if args.len() != 1 {
+                        return Err("li function requires exactly one argument".to_string());
+                    }
+
+                    // d/dx(li(f)) = (1/ln(f)) · df/dx  (DLMF 6.2.8)
+                    let operand = &args[0];
+                    let operand_derivative = differentiate(operand, var_name)?;
+
+                    let coefficient = Node::Divide(
+                        Box::new(Node::Num(ExactNum::one())),
+                        Box::new(Node::Function("ln".to_string(), vec![operand.clone()])),
+                    );
+
+                    Ok(Node::Multiply(
+                        Box::new(coefficient),
+                        Box::new(operand_derivative),
+                    ))
+                }
                 "abs" => {
                     if args.len() != 1 {
                         return Err("abs function requires exactly one argument".to_string());
