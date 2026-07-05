@@ -350,7 +350,7 @@ fn chain_status_is_minimum_across_steps() {
 }
 
 // ---------------------------------------------------------------------------
-// Carl's adversarial pass on PR #67 (Session 44) — regression suite.
+// Adversarial-review regression suite (PR #67, round 1).
 // Each test names the finding it pins down.
 // ---------------------------------------------------------------------------
 
@@ -568,7 +568,8 @@ fn r6c_display_coincidence_is_not_syntactic_identity() {
 
 #[test]
 fn p3_zero_over_nonzero_simplifies_so_fragment_identities_stay_exact() {
-    // Carl's P3: a Lean-blessed in-fragment identity fell to numeric
+    // An in-fragment identity (independently machine-checked in a proof
+    // assistant) fell to numeric
     // sampling because the simplifier lacked 0/u → 0 and the difference
     // stalled at \frac{0}{...}. The evidence ladder must decide such
     // identities exactly — by canonical form or by the difference rule.
@@ -585,7 +586,7 @@ fn p3_zero_over_nonzero_simplifies_so_fragment_identities_stay_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// Carl's retest residuals (Session 44, MSG-01KWRBEG) — none blocking, all
+// Adversarial-review residuals (PR #67, round 2) — none blocking, all
 // fixed before merge anyway.
 // ---------------------------------------------------------------------------
 
@@ -662,7 +663,7 @@ fn design_capture_refusal_is_step_level_and_preserves_the_chain() {
 
 #[test]
 fn p3_zero_over_fraction_node_simplifies_to_zero() {
-    // Carl's minimal case: the zero-numerator reduction fired only for
+    // Minimal case: the zero-numerator reduction fired only for
     // polynomial denominators; \frac{0}{\frac{x}{y}} stalled.
     use arithma::simplify::Simplifiable;
     let node = arithma::parse_latex_raw("\\frac{0}{\\frac{x}{y}}").unwrap();
@@ -672,7 +673,8 @@ fn p3_zero_over_fraction_node_simplifies_to_zero() {
 
 #[test]
 fn p3_correction_ratio_chain_lands_exact() {
-    // Carl's real P3 pair from his Part-1 workflow (Lean: correction_ratio_3).
+    // A rational-function identity from a real research workflow,
+    // independently proved in Lean; the chain verifier must agree exactly.
     let steps = vec![
         eq_step(
             "excess-ratio",
@@ -689,7 +691,7 @@ fn p3_correction_ratio_chain_lands_exact() {
 }
 
 // ---------------------------------------------------------------------------
-// Probe-harness findings (Session 44, round 3): gaps in the round-2 fixes
+// Probe-harness findings (PR #67, round 3): gaps in the round-2 fixes
 // themselves, surfaced by adversarial probes against the fixed branch.
 // ---------------------------------------------------------------------------
 
@@ -740,13 +742,14 @@ fn probe_implies_capture_is_step_level() {
 }
 
 #[test]
-fn probe_one_sided_undefinedness_is_caveated_not_silent() {
-    // √(x²) and (√x)² agree wherever both are defined but differ in
-    // domain (x < 0). Skipping those points was the R5c fix; skipping
-    // them SILENTLY hides a real difference. The status must say so.
+fn probe_one_sided_undefinedness_is_a_domain_refutation() {
+    // √(x²) and (√x)² differ on the entire negative axis: one side is
+    // defined there, the other is not. One-sided undefinedness is a
+    // DOMAIN counterexample — a refutation, not a skippable point.
+    // (Skipping points where BOTH sides are undefined remains correct.)
     let steps = vec![eq_step("a", "\\sqrt{x^2}"), eq_step("b", "(\\sqrt{x})^2")];
     let result = verify_chain(&steps, &Environment::new()).unwrap();
-    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.verdict, Verdict::Fail);
     assert!(
         result.steps[1]
             .status
@@ -755,5 +758,138 @@ fn probe_one_sided_undefinedness_is_caveated_not_silent() {
             .any(|c| c.contains("domain")),
         "expected a domain caveat, got: {:?}",
         result.steps[1].status.caveats
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Code-review findings (PR #67 review, round 4). Findings 1-3 were
+// merge-blockers: a certified false refutation from variable-scope
+// erasure, and two constructible false-PASS classes inside the fragment.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn finding1_shadowed_binder_does_not_erase_free_variable() {
+    // d/dy (y + Σ_{y=1}^{3} y) = 1: the outer y is free, the Σ index y is
+    // bound. Post-hoc removal of the index from a shared accumulator
+    // erased the FREE y, inference fell back to x, and a true step was
+    // refuted with certificate-grade language.
+    use arithma::status::free_variables;
+    let node = arithma::parse_latex_raw("y + \\sum_{y=1}^{3} y").unwrap();
+    assert_eq!(free_variables(&[&node]), vec!["y".to_string()]);
+
+    let steps = vec![
+        eq_step("f", "y + \\sum_{y=1}^{3} y"),
+        rel_step("f'", "1", Relation::DerivativeOf, None, None),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+}
+
+#[test]
+fn finding2_equation_shaped_equals_cannot_escape_to_tolerance() {
+    // x = 2 vs x = 2 + 10⁻¹⁵: equation-shaped steps must not slip out of
+    // the exact fragment into f64 tolerance — that is the R1 false-PASS
+    // class wrapped in one node constructor.
+    let steps = vec![
+        eq_step("a", "x = 2"),
+        eq_step("b", "x = 2 + \\frac{1}{1000000000000000}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn finding3_interpolation_through_the_sample_grid_is_caught() {
+    // The 12 sample points are deterministic; a polynomial vanishing at
+    // exactly those points defeats fixed-count sampling. Degree-aware
+    // sampling (deg+1 points is the polynomial identity theorem) closes
+    // the hole.
+    let spoof = "x + (x-\\frac{1}{2})(x+\\frac{2}{5})(x-\\frac{17}{10})(x+\\frac{6}{5})(x-\\frac{7}{10})(x+\\frac{1}{5})(x-\\frac{27}{10})(x-\\frac{4}{5})(x+\\frac{3}{2})(x-\\frac{39}{10})(x-\\frac{9}{5})(x-\\frac{28}{5})";
+    let steps = vec![eq_step("honest", "x"), eq_step("spoof", spoof)];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn finding3_degree_aware_agreement_earns_exact_for_univariate_identities() {
+    // With degree counting, agreement at deg+1 points IS the polynomial
+    // identity theorem: in-fragment univariate identities that canonical
+    // forms fail to decide are now decided, not sampled.
+    let steps = vec![
+        eq_step("a", "(x + 1)^3 - x^3 - 3x^2 - 3x"),
+        eq_step("b", "1"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert_eq!(result.status.status, ResultStatus::Exact);
+}
+
+#[test]
+fn finding5_equation_equals_means_same_solution_set() {
+    // Dividing both sides by 2 is valid algebra: 2x = 4 and x = 2 have
+    // the same solution set. Residual (pointwise) comparison refuted it.
+    let steps = vec![
+        eq_step("scaled", "2 \\cdot x = 4"),
+        eq_step("solved", "x = 2"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+
+    // Additive rearrangement passes likewise.
+    let steps = vec![eq_step("a", "x + 3 = 7"), eq_step("b", "x = 4")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+
+    // And a genuine solution-set difference is refuted: x² = 4 has the
+    // extra solution x = −2.
+    let steps = vec![eq_step("a", "x^2 = 4"), eq_step("b", "x = 2")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn finding6_large_degree_comparison_returns_within_budget() {
+    // Degree 120 is a Tuesday, not an adversary: the exact path must
+    // answer (or honestly downgrade), never hang.
+    let big = "\\frac{x^{120} - 1}{x - 1}";
+    let steps = vec![
+        eq_step("a", big),
+        eq_step(
+            "b",
+            "\\frac{x^{120} - 1}{x - 1} + \\frac{1}{1000000000000000}",
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn finding7_float_valued_solution_of_does_not_claim_membership() {
+    // 1.4142135623 is provably not a root of x² = 2. Numeric agreement
+    // within tolerance may pass as evidence, but the membership sentence
+    // is reserved for exact verification.
+    let steps = vec![
+        eq_step("eq", "x^2 = 2"),
+        rel_step(
+            "near-root",
+            "x = 1.4142135623",
+            Relation::SolutionOf,
+            None,
+            None,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    let caveats = &result.steps[1].status.caveats;
+    assert!(
+        !caveats.iter().any(|c| c.contains("membership verified")),
+        "float near-root must not earn the membership sentence: {:?}",
+        caveats
+    );
+    assert!(
+        caveats
+            .iter()
+            .any(|c| c.contains("approximate") || c.contains("floating-point")),
+        "expected an approximate-membership caveat, got: {:?}",
+        caveats
     );
 }

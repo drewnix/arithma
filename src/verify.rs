@@ -9,7 +9,7 @@ const TEST_POINTS: &[f64] = &[
 ];
 
 const TOLERANCE: f64 = 1e-8;
-const MIN_POINTS_FOR_PASS: usize = 3;
+pub(crate) const MIN_POINTS_FOR_PASS: usize = 3;
 
 pub struct VerifyResult {
     pub passed: bool,
@@ -37,7 +37,7 @@ pub fn verify_identity(
 ) -> VerifyResult {
     let normalized: Vec<String> = variables.iter().map(|v| normalize_var(v)).collect();
     let mut points_tested = 0;
-    let mut domain_mismatches = 0;
+    let domain_mismatches = 0;
 
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
@@ -67,17 +67,27 @@ pub fn verify_identity(
             Err(_) => continue,
         };
 
-        // NaN means the point tests domain membership, not values (Carl
-        // R5c): shared undefinedness is not numeric agreement (skip,
-        // uncounted); one-sided undefinedness witnesses a DOMAIN
-        // difference — excluded from the numeric evidence but counted, so
-        // callers can caveat it instead of hiding it.
+        // Shared undefinedness is not numeric agreement: a point where
+        // BOTH sides are NaN tests domain membership, not values — skip,
+        // uncounted. One-sided undefinedness is a DOMAIN VIOLATION: one
+        // expression exists where the other does not, which refutes the
+        // identity as stated. That is a counterexample (serialized with an
+        // explicit "undefined", never a bare null), not a skippable point.
         if lhs_val.is_nan() && rhs_val.is_nan() {
             continue;
         }
         if lhs_val.is_nan() || rhs_val.is_nan() {
-            domain_mismatches += 1;
-            continue;
+            return VerifyResult {
+                passed: false,
+                points_tested,
+                counterexample: Some(Counterexample {
+                    point: point_values,
+                    lhs_value: lhs_val,
+                    rhs_value: rhs_val,
+                }),
+                insufficient_points: false,
+                domain_mismatches: domain_mismatches + 1,
+            };
         }
 
         points_tested += 1;

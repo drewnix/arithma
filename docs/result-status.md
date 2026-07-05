@@ -150,7 +150,8 @@ declares a relation to its predecessor. How each relation earns its status:
 
 | Relation | Mechanism | Can earn `exact`? |
 |---|---|---|
-| `equals` | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: exact rational evaluation at sample points, no floating-point tolerance anywhere** → outside the fragment: assumption-aware f64 sampling | Yes, inside the fragment. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated. Transcendental agreement caps at `verified` — structural agreement after simplification is only as trustworthy as the simplifier's rewrite rules, which is precisely what a chain verifier must not assume. |
+| `equals` (expressions) | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: degree-aware exact rational evaluation.** Within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem — a decision, mechanism `interpolation_identity_Q`. Over budget or starved of valid points: bounded exact sampling (still zero tolerance), `verified` with the shortfall named. Outside the fragment: assumption-aware f64 sampling. | Yes, inside the fragment — including by interpolation, which is a proof, not a sample. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated; a polynomial constructed to vanish exactly on a fixed sample grid is caught by the degree count. Transcendental agreement caps at `verified`. |
+| `equals` (equations) | Two equation-shaped steps are compared by **solution set** (mechanism `solution_set_comparison`): both sides solved, sets compared exactly. This is the semantics under which dividing both sides by 2 is an identity step — residual (pointwise) comparison would refute valid algebra. A solution of one equation missing from the other refutes the step and is the witness. Mixing an equation with an expression is refused with guidance. | **No — capped at `verified`:** the comparison inherits the solver's completeness, which is not proven. |
 | `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result | Yes |
 | `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. | Yes — the round-trip is algebraic. |
 | `substitution` | Capture-avoiding substitution, then the `equals` ladder (follows variable-set changes) | Yes |
@@ -174,7 +175,7 @@ differ from `first_failure`; consumers explaining a failure should follow
 function field ℚ(x₁,…,xₙ) — the standard CAS convention, in which removable
 domain differences do not exist (`0·(1/x) = 0`, and `(x²−1)/(x−1) = x+1`).
 Pointwise equality of partial functions is a different notion; declaring
-and reconciling the two across tools is `ar-equality-notion` (Carl F4).
+and reconciling the two across tools is tracked as follow-up work.
 
 Sampling notes: the built-in constants `e` and `π` are never treated as
 free variables (a "counterexample" that rebinds Euler's constant is a lie);

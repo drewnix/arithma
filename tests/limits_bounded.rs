@@ -1,4 +1,4 @@
-// Bounded-oscillation limits (Carl's C1, Session 43).
+// Bounded-oscillation limits.
 // lim x·sin(1/x) at 0 and lim sin(x) at ∞ previously HUNG (unbounded
 // series-by-differentiation of sin(1/x)); after budgeting, the fallback
 // cascade answered +∞ for lim sin(x) — a wrong value for a limit that

@@ -1,5 +1,5 @@
 //! MCP-layer tests for the verify_chain tool and the machine-readable
-//! `verdict` field (Carl F1: an agent must never have to parse prose to
+//! `verdict` field (an agent must never have to parse prose to
 //! learn whether a check passed).
 
 use serde_json::{json, Value};

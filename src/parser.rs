@@ -157,6 +157,12 @@ fn build_expression_tree_inner(
         tokens.splice(pos..end, [placeholder]);
     }
 
+    // Argument-separator commas have done their tokenizer-side job
+    // (opening a unary-minus context so \max(2, -1) keeps its sign); the
+    // expression builder separates arguments by operand adjacency, so the
+    // separator itself is dropped here.
+    let tokens: Vec<String> = tokens.into_iter().filter(|t| t != ",").collect();
+
     let rpn = shunting_yard(tokens)?;
 
     let mut stack: Vec<Node> = Vec::new();

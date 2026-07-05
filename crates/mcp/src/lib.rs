@@ -432,7 +432,7 @@ fn tools_schema() -> Value {
                                 },
                                 "variable": {
                                     "type": "string",
-                                    "description": "Variable for derivative_of / integral_of / substitution / implies. Default: x."
+                                    "description": "Variable for derivative_of / integral_of / substitution / implies / equation comparison. If omitted, it is inferred when the relevant expression has exactly one free variable; ambiguity is an error, never a silent default."
                                 },
                                 "value": {
                                     "type": "string",
@@ -760,7 +760,7 @@ fn tool_solve(args: &Value) -> ToolResult {
     // Quadratics come from genuinely symbolic formulas (exact); cubic and
     // quartic paths can degrade to f64 root-finding. Exact arithmetic never
     // prints a decimal point — condition the status on the code path taken,
-    // not on the tool name (Carl, Session 43). A back-substitution
+    // not on the tool name. A back-substitution
     // self-audit is a planned follow-up.
     if parts.is_empty() {
         Ok(("No solutions found".to_string(), StatusReport::exact()))
@@ -1077,7 +1077,7 @@ fn tool_matrix(args: &Value) -> ToolResult {
         }
     };
     // The exact claim must be conditioned on the code path actually taken,
-    // not on the tool name (Carl, Session 43). Exact arithmetic never
+    // not on the tool name. Exact arithmetic never
     // prints a decimal point; a '.' in the output means a floating-point
     // routine ran (numeric eigenvalue root-finding, float entries).
     let status = if text.contains('.') {

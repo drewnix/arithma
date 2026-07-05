@@ -859,7 +859,7 @@ mod integration_tests {
         assert!(result.contains("ln"), "Should produce ln term: {}", result);
     }
 
-    // ── Exact irrational coefficients (Carl's Bug #6) ─────────
+    // ── Exact irrational coefficients ─────────
 
     #[test]
     fn test_exact_irrational_x3_minus_1() {
@@ -1096,7 +1096,7 @@ mod integration_tests {
     }
 }
 
-// ── disc = 0 quadratic denominators (Carl B2, Session 43) ─────
+// ── disc = 0 quadratic denominators  ─────
 // ∫dx/x², ∫dx/(x²+2x+1) returned literal NaN·arctan(2x/0): the
 // parametric quadratic route divides by √(4ac−b²) with no guard.
 // With a repeated root r = −b/2a the antiderivative is rational:

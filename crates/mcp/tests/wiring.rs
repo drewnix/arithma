@@ -185,7 +185,7 @@ fn limit_numeric_claim_is_verified() {
 
 #[test]
 fn matrix_numeric_eigenvalues_are_not_exact() {
-    // Carl's A1: the eigenvalue routine is numeric root-finding; its floats
+    // The eigenvalue routine is numeric root-finding; its floats
     // must not wear the exact badge. (Companion matrix of x³−x−1.)
     let resp = call(
         "matrix",
@@ -212,7 +212,7 @@ fn matrix_exact_operations_stay_exact() {
 
 #[test]
 fn solve_numeric_cubic_roots_are_not_exact() {
-    // Carl's A5: x³−x−1 solves via numeric root-finding (f64), and the
+    // x³−x−1 solves via numeric root-finding (f64), and the
     // float must not wear the exact badge. x²=2 stays symbolic → exact.
     let resp = call("solve", json!({"equation": "x^3 - x - 1 = 0"}));
     assert_ne!(
@@ -226,7 +226,7 @@ fn solve_numeric_cubic_roots_are_not_exact() {
 
 #[test]
 fn definite_integral_over_pole_is_refused() {
-    // Carl's A4: ∫₋₁² dx/x diverges (non-integrable pole at 0); the FTC
+    // ∫₋₁² dx/x diverges (non-integrable pole at 0); the FTC
     // path must not hand out ln(2) as exact.
     let resp = call(
         "integrate",

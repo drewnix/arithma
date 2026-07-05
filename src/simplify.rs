@@ -755,7 +755,7 @@ impl Simplifiable for Node {
                 // rule fires only where that justification applies: u in
                 // the poly/rational fragment and not the literal zero.
                 // Covers Fraction-node denominators, where the polynomial
-                // path stalled (\frac{0}{\frac{x}{y}} — Carl, Session 44).
+                // path stalled (\frac{0}{\frac{x}{y}}).
                 // Transcendental denominators are excluded: they can be
                 // identically zero without reducing to 0, and 0/0 is not 0.
                 if let Node::Num(ref l) = left_simplified {

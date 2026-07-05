@@ -49,7 +49,7 @@ pub enum ResultStatus {
 /// (verify, equivalent, verify_chain). Orthogonal to the evidence class:
 /// "not equal, counterexample attached" is a `fail` verdict carried by
 /// well-earned `verified` evidence. Uniform vocabulary across tools so a
-/// consumer switches on one enum, never parses prose (Carl F1).
+/// consumer switches on one enum, never parses prose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
     Pass,
@@ -128,15 +128,24 @@ impl StatusReport {
     }
 
     pub fn with_counterexample(mut self, cx: &crate::verify::Counterexample) -> Self {
+        // NaN would serialize as a bare null; an undefined side is a
+        // meaningful verdict (domain violation) and says so explicitly.
+        let render = |v: f64| -> Value {
+            if v.is_nan() {
+                json!("undefined")
+            } else {
+                json!(v)
+            }
+        };
         let point: serde_json::Map<String, Value> = cx
             .point
             .iter()
-            .map(|(var, val)| (var.clone(), json!(val)))
+            .map(|(var, val)| (var.clone(), render(*val)))
             .collect();
         self.counterexample = Some(json!({
             "point": point,
-            "lhs": cx.lhs_value,
-            "rhs": cx.rhs_value,
+            "lhs": render(cx.lhs_value),
+            "rhs": render(cx.rhs_value),
         }));
         self
     }
@@ -147,7 +156,7 @@ impl StatusReport {
 
     /// Attach an already-serialized counterexample (used when propagating a
     /// counterexample from an inner check, e.g. implies re-reporting the
-    /// consequent check's witness — Carl R5b).
+    /// consequent check's witness).
     pub fn with_counterexample_value(mut self, cx: Value) -> Self {
         self.counterexample = Some(cx);
         self
@@ -222,8 +231,8 @@ impl StatusReport {
 /// conservatively: the classifier may under-claim, never over-claim.
 /// Names the evaluator treats as built-in transcendental constants, not
 /// free variables. They must be excluded from sampling (binding e := 0.5
-/// shadows Euler's constant and manufactures false counterexamples — Carl
-/// R2) and from the ℚ-exact fragment (they are not rational atoms).
+/// shadows Euler's constant and manufactures false counterexamples)
+/// and from the ℚ-exact fragment (they are not rational atoms).
 pub fn is_builtin_constant(name: &str) -> bool {
     matches!(name, "e" | "π")
 }
@@ -252,10 +261,16 @@ fn is_integer_exponent(node: &Node) -> bool {
     }
 }
 
-fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
+/// `bound` is the stack of binder-scoped names currently in force. Scoping
+/// must be tracked on the way DOWN, not undone on the way up: removing a
+/// binder's name from the shared accumulator after recursion also erases
+/// same-named FREE occurrences collected from sibling subtrees
+/// (`y + Σ_{y=1}^{3} y` has a free y), which turns variable inference —
+/// and everything downstream of it — silently wrong.
+fn collect_variables(node: &Node, vars: &mut BTreeSet<String>, bound: &mut Vec<String>) {
     match node {
         Node::Variable(v) => {
-            if !is_builtin_constant(v) {
+            if !is_builtin_constant(v) && !bound.iter().any(|b| b == v) {
                 vars.insert(v.clone());
             }
         }
@@ -271,8 +286,8 @@ fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
         | Node::LessEqual(l, r)
         | Node::Equal(l, r)
         | Node::Equation(l, r) => {
-            collect_variables(l, vars);
-            collect_variables(r, vars);
+            collect_variables(l, vars, bound);
+            collect_variables(r, vars, bound);
         }
         Node::Sqrt(inner)
         | Node::Abs(inner)
@@ -281,33 +296,37 @@ fn collect_variables(node: &Node, vars: &mut BTreeSet<String>) {
         | Node::Round(inner)
         | Node::Trunc(inner)
         | Node::Negate(inner)
-        | Node::Factorial(inner) => collect_variables(inner, vars),
+        | Node::Factorial(inner) => collect_variables(inner, vars, bound),
         Node::Piecewise(arms) => {
             for (expr, cond) in arms {
-                collect_variables(expr, vars);
-                collect_variables(cond, vars);
+                collect_variables(expr, vars, bound);
+                collect_variables(cond, vars, bound);
             }
         }
         Node::Summation(idx, start, end, body) | Node::Product(idx, start, end, body) => {
-            collect_variables(start, vars);
-            collect_variables(end, vars);
-            collect_variables(body, vars);
-            vars.remove(idx); // bound, not free
+            // The index is bound in the body only; the bounds are outside
+            // the binder's scope.
+            collect_variables(start, vars, bound);
+            collect_variables(end, vars, bound);
+            bound.push(idx.clone());
+            collect_variables(body, vars, bound);
+            bound.pop();
         }
         Node::Function(_, args) => {
             for a in args {
-                collect_variables(a, vars);
+                collect_variables(a, vars, bound);
             }
         }
     }
 }
 
 /// Free variables across a set of expressions, sorted. Summation and
-/// product index variables are bound, not free.
+/// product index variables are bound in their bodies, not free.
 pub fn free_variables(nodes: &[&Node]) -> Vec<String> {
     let mut vars = BTreeSet::new();
+    let mut bound = Vec::new();
     for n in nodes {
-        collect_variables(n, &mut vars);
+        collect_variables(n, &mut vars, &mut bound);
     }
     vars.into_iter().collect()
 }

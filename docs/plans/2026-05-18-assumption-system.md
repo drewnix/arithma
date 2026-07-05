@@ -1,6 +1,6 @@
 # Phase 8: Assumption System
 
-*2026-05-18 — Knuth*
+*2026-05-18*
 
 ## Summary
 
