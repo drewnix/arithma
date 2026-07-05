@@ -180,7 +180,9 @@ and reconciling the two across tools is tracked as follow-up work.
 Sampling notes: the built-in constants `e` and `π` are never treated as
 free variables (a "counterexample" that rebinds Euler's constant is a lie);
 sample points where both sides are undefined test domain agreement, not
-values, and carry no evidence; a substitution that would capture a bound
+values, and carry no evidence, while a point where exactly one side is
+undefined is a domain violation — a counterexample serialized with an
+explicit `"undefined"`, never a null; a substitution that would capture a bound
 summation/product index is a *step-level* `inconclusive` naming the capture
 — the rest of the chain still reports (audit trail over abort); exact-
 arithmetic counterexamples carry `lhs_exact`/`rhs_exact` strings alongside
