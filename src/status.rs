@@ -302,6 +302,12 @@ impl StatusReport {
         match &self.status {
             ResultStatus::Exact => None,
             ResultStatus::Verified { points_tested } => {
+                // Verdict-shaped tools (verify, equivalent, verify_chain)
+                // already carry their tier in-band in the sentence text —
+                // suppress the generic marker to avoid double-marking.
+                if self.verdict.is_some() {
+                    return None;
+                }
                 let detail = if self.caveats.is_empty() {
                     format!("numeric evidence, {} points — not proof", points_tested)
                 } else {
