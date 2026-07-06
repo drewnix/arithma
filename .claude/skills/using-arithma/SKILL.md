@@ -19,8 +19,8 @@ Arithma is an exact CAS built for agents: every answer carries the *kind of evid
 
 | status | meaning | you may say |
 |---|---|---|
-| `exact` | decision procedure ran | proven |
-| `verified` | agreed at n points | evidence at n points — **never** "proven" |
+| `exact` | decision procedure ran | proven — as a *rational-function identity* (removable points excepted; see Boundaries) |
+| `verified` | agreed at n points | evidence at n points — **never** "proven"; if the reported symbolic `Difference` is nonzero while points agree, the two sides differ below f64 tolerance — treat as open and cite the difference |
 | `heuristic` | believed sound, unchecked | needs an independent check before building on it |
 | `unable_to_compute` | honest refusal, reason given | say so; try another route |
 | `provably_impossible` | theorem, with certificate | report as the answer |
@@ -42,4 +42,4 @@ No amount of point-agreement upgrades to `exact`. Verdict-shaped tools also retu
 
 ## Boundaries (route around)
 
-No complex numbers, no relational assumptions (x < y), improper integrals refused. In derivative cascades, substitute early — pin variables as soon as sound — since intermediate expressions grow geometrically and very large ones stall. Equality is rational-function equality: `(x²−1)/(x−1) = x+1`; removable points don't count.
+No complex numbers, no relational assumptions (x < y), improper integrals refused. In derivative cascades, substitute early — pin variables as soon as sound — since intermediate expressions grow geometrically and very large ones stall. A call that does not return promptly is stalled, not thinking: kill it, reorder the cascade, split the step, and report `unable_to_compute` with the reason. Equality is rational-function equality: `(x²−1)/(x−1) = x+1`; removable points don't count.
