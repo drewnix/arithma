@@ -12,19 +12,22 @@ agent-facing CAS exists to prevent.
 
 | Status | Meaning | Evidence carried |
 |---|---|---|
-| `exact` | The result follows from a decision procedure or a complete, sound algebraic algorithm. Canonical-form equality over ℚ, derivative rules, exact rational arithmetic, Berlekamp–Zassenhaus factorization, Gaussian elimination over ℚ. | — |
+| `exact` | The result follows from a decision procedure or a complete, sound algebraic algorithm, backed by a checked `certificate`. The certificate proves the result by naming the check (replay or decision procedure) and recording that it passed. At the tool boundary, exact without a checked certificate is downgraded to heuristic. | `certificate` — `{kind, witness, checked}` |
 | `verified` | The result was independently checked numerically. Not a proof: agreement at *n* points. | `points_tested`, optionally `counterexample` (when the *verdict itself* is "not equal" and the counterexample is the evidence) |
 | `heuristic` | A transformation was applied that is believed sound, but the result was not independently verified (e.g. too few valid test points in the domain). | `caveats` explain why |
 | `unable_to_compute` | The tool understood the request but could not produce an answer. This is an honest "I don't know," distinct from a protocol error. | `reason` |
 | `provably_impossible` | The tool *proved* no answer exists in the requested class (e.g. Risch/Liouville non-elementarity). This is a theorem, not a failure. | `certificate` — the reason, human-readable |
 
-Two design rules inherited from the verify_chain design work:
+Three design rules:
 
 1. **Numeric evidence never masquerades as proof.** A status can be *downgraded*
    by the pipeline (an exact step followed by an unverified rewrite is at best
    `heuristic`) but never upgraded: no amount of point-testing produces `exact`.
 2. **The counterexample is the diagnosis.** When a check fails, the response
    carries the specific point and both values. No generative repair.
+3. **No certificate, no exact.** The tool boundary grants `exact` only after a
+   certificate proves it. An empty certificate slot cannot be defaulted into
+   anything — the refusal-becomes-default disease dies by construction.
 
 ## JSON payload
 
@@ -35,7 +38,12 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
 {
   "content": [{ "type": "text", "text": "\\frac{x^3}{3}" }],
   "result_status": {
-    "status": "exact"
+    "status": "exact",
+    "certificate": {
+      "kind": "differentiation_round_trip",
+      "witness": "d/dx of antiderivative matches integrand structurally",
+      "checked": true
+    }
   }
 }
 ```
@@ -80,6 +88,37 @@ guessed name.
   }
 }
 ```
+
+## Certificate kinds
+
+The `exact` status carries a `certificate` object proving the result. Two
+families:
+
+**Replay certificates** — the result was independently verified by replaying a
+cheap check in exact arithmetic. Finding is hard, checking is easy.
+
+| Kind | Replay check | Used by |
+|---|---|---|
+| `factor_multiply_back` | Multiply all factors back, compare to input polynomial | `factor` |
+| `substitution_check` | Substitute each root into the equation, verify residual zero | `solve` |
+| `differentiation_round_trip` | Differentiate the antiderivative, compare to integrand | `integrate`, `verify_chain` (integral_of) |
+| `system_substitution_check` | Substitute solution vector into each equation, verify zero | `solve_system` |
+| `inverse_multiply_check` | Multiply A × A⁻¹, compare to identity matrix | `matrix` (inverse) |
+| `partial_fractions_multiply_back` | Multiply partial fractions by denominator, compare to numerator | `partial_fractions` |
+| `interpolation_identity_Q` | Exact evaluation on a grid exceeding the degree bound (polynomial identity theorem) | `verify_chain` (equals) |
+| `exact_rational_sample` | Disagreement in exact rational arithmetic — a disproof | `verify_chain` (equals) |
+
+**Construction certificates** — the algorithm is a decision procedure or
+provably complete and sound. The computation IS the proof; no separate replay.
+
+| Kind | Algorithm | Used by |
+|---|---|---|
+| `decision_procedure` | Canonical-form comparison, sign analysis, syntactic identity, unit-normal-form, etc. | `simplify`, `equivalent`, `verify_chain`, `evaluate`, `solve` (inequality), `taylor_series`, `matrix`, `solve_ode`, etc. |
+
+At the tool boundary, `to_json()` enforces invariant 3: if the status is
+`exact` and the certificate is missing or `checked: false`, the output
+downgrades to `heuristic` with a caveat. This makes classifier over-claims
+structurally impossible.
 
 **The `verdict` field.** Tools whose result *is* a yes/no claim (`verify`,
 `equivalent`, `verify_chain`) additionally carry a machine-readable
