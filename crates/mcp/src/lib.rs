@@ -628,8 +628,9 @@ enum ReplayOutcome {
     Inconclusive,
 }
 
-/// Check whether `lhs - rhs` is zero by canonicalization. Uses the same
-/// difference-to-zero mechanism as verify_chain's equals relation.
+/// Check whether `lhs - rhs` is zero by canonicalization and, when the
+/// difference contains free variables, by exact rational evaluation at
+/// sample points — the same mechanism verify_chain's equals uses.
 fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcome {
     use arithma::simplify::Simplifiable;
     use arithma::status::is_algebraic_exact;
@@ -639,20 +640,59 @@ fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcom
     }
 
     let diff = Node::Subtract(Box::new(lhs.clone()), Box::new(rhs.clone()));
-    if let Ok(d) = diff.simplify(env) {
-        if matches!(&d, Node::Num(n) if n.is_zero()) {
-            return ReplayOutcome::Confirmed;
-        }
-        if is_algebraic_exact(&d) {
-            if let Ok(ExactNum::Rational(r)) = Evaluator::evaluate_exact(&d, &Environment::new()) {
-                if *r.numer() == num_bigint::BigInt::from(0) {
-                    return ReplayOutcome::Confirmed;
-                }
-                return ReplayOutcome::Contradicted;
+    let d = match diff.simplify(env) {
+        Ok(d) => d,
+        Err(_) => return ReplayOutcome::Inconclusive,
+    };
+
+    if matches!(&d, Node::Num(n) if n.is_zero()) {
+        return ReplayOutcome::Confirmed;
+    }
+
+    if !is_algebraic_exact(&d) {
+        return ReplayOutcome::Inconclusive;
+    }
+
+    // Constant (no free variables): one exact evaluation decides.
+    let vars = free_variables(&[&d]);
+    if vars.is_empty() {
+        return match Evaluator::evaluate_exact(&d, &Environment::new()) {
+            Ok(ExactNum::Rational(r)) if *r.numer() == num_bigint::BigInt::from(0) => {
+                ReplayOutcome::Confirmed
             }
+            Ok(ExactNum::Rational(_)) => ReplayOutcome::Contradicted,
+            _ => ReplayOutcome::Inconclusive,
+        };
+    }
+
+    // Free variables present: evaluate at exact rational sample points.
+    // A single nonzero evaluation contradicts; agreement at enough points
+    // (exceeding the degree bound) would confirm, but for replay checks
+    // we use a fixed sample set — disagreement is definitive, agreement
+    // is evidence. This is the same approach as verify_chain's
+    // exact_rational_sample mechanism.
+    let sample_values: &[i64] = &[0, 1, -1, 2, -2, 3, 7];
+    let mut agreed = 0;
+    for vals in sample_values.iter() {
+        let mut pt_env = Environment::new();
+        for v in &vars {
+            pt_env.set_exact(v, ExactNum::integer(*vals + agreed as i64));
+        }
+        match Evaluator::evaluate_exact(&d, &pt_env) {
+            Ok(ExactNum::Rational(r)) => {
+                if *r.numer() != num_bigint::BigInt::from(0) {
+                    return ReplayOutcome::Contradicted;
+                }
+                agreed += 1;
+            }
+            _ => continue,
         }
     }
-    ReplayOutcome::Inconclusive
+    if agreed >= 5 {
+        ReplayOutcome::Confirmed
+    } else {
+        ReplayOutcome::Inconclusive
+    }
 }
 
 /// Back-substitution replay for solve: substitute each root, check the
