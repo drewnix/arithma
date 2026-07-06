@@ -1122,9 +1122,16 @@ fn tool_equivalent(args: &Value) -> ToolResult {
     let a_form = format!("{}", a_simplified);
     let b_form = format!("{}", b_simplified);
 
+    // For the is-this-proven tools (equivalent, verify) the evidence tier IS
+    // the answer, so it travels in-band in the text: many MCP hosts deliver
+    // only content.text to the agent, and a quiet tier there turns "checked
+    // at 12 points" and "decision procedure" into the same sentence —
+    // exactly the numeric-check-as-proof conflation this tool exists to
+    // prevent. A deliberate, documented exception to the quiet-status
+    // byte-identity rule (docs/result-status.md).
     if a_form == b_form {
         return Ok((
-            format!("Equivalent: true\nBoth simplify to: {}", a_form),
+            format!("Equivalent: true [exact]\nBoth simplify to: {}", a_form),
             StatusReport::exact().with_verdict(Verdict::Pass),
         ));
     }
@@ -1139,7 +1146,7 @@ fn tool_equivalent(args: &Value) -> ToolResult {
     if diff_form == "0" {
         return Ok((
             format!(
-                "Equivalent: true\nSimplified forms differ but difference is zero.\nA simplifies to: {}\nB simplifies to: {}",
+                "Equivalent: true [exact]\nSimplified forms differ but difference is zero.\nA simplifies to: {}\nB simplifies to: {}",
                 a_form, b_form
             ),
             StatusReport::exact().with_verdict(Verdict::Pass),
@@ -1180,8 +1187,12 @@ fn tool_equivalent(args: &Value) -> ToolResult {
         )
     } else {
         format!(
-            "Equivalent: likely true (symbolic forms differ but agree numerically)\nA simplifies to: {}\nB simplifies to: {}\nDifference: {}",
-            a_form, b_form, diff_form
+            "Equivalent: likely true [verified at {} point{} — numeric agreement, not proof]\nA simplifies to: {}\nB simplifies to: {}\nDifference: {}",
+            result.points_tested,
+            if result.points_tested == 1 { "" } else { "s" },
+            a_form,
+            b_form,
+            diff_form
         )
     };
     Ok((text, status))

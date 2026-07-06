@@ -321,6 +321,13 @@ fn check_derivative_of(
 /// refute the transform rather than the step, and a false refutation is the
 /// worst report a verifier can make. Such a disagreement stays inconclusive,
 /// with the witness preserved as a caveat.
+///
+/// Note (adversarial review, PR #69 round): with constant factors now
+/// differentiating to literal zeros, no known input reaches the Fail arm —
+/// raw-starving cases that disagree fail RAW instead. The arm is
+/// belt-and-suspenders against future derivative shapes; it is covered by
+/// unit tests only, and its caveat rendering is exercised via
+/// `StatusReport::marker`/`describe_status` tests.
 fn compare_constructed_derivative(
     derivative: &Node,
     claimed: &Node,

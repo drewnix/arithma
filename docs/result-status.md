@@ -110,9 +110,18 @@ announced in advance (`approximate` — for single-point floating-point evaluati
 
 This feature is strictly additive. Specifically:
 
-- **Happy-path text is byte-identical.** For `exact` and `verified` results, the
-  `content[0].text` an MCP client sees does not change. The status object is a
-  new sibling field, which JSON-RPC clients ignore if unknown.
+- **Happy-path text is byte-identical** — with one deliberate, documented
+  exception. For `exact` and `verified` results, the `content[0].text` an MCP
+  client sees does not change; the status object is a new sibling field, which
+  JSON-RPC clients ignore if unknown. The exception is the is-this-proven
+  tools: **`equivalent` carries its evidence tier in-band in the text**
+  (`Equivalent: true [exact]`, `Equivalent: likely true [verified at 12
+  points — numeric agreement, not proof]`), and `verify` carries its point
+  count. Rationale: many MCP hosts deliver only `content.text` to the agent —
+  the `result_status` sidecar never arrives — and for these tools the tier
+  *is* the answer. A quiet tier turns "decision procedure" and "agreed at 12
+  points" into the same sentence, which is precisely the
+  numeric-check-as-proof conflation the taxonomy exists to prevent.
 - **Loud cases get a text marker.** When status is `heuristic`,
   `unable_to_compute`, or `provably_impossible`, the text gains a marker line
   (e.g. `[provably impossible] <certificate>`). This is a deliberate repair, not
