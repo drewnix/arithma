@@ -293,12 +293,22 @@ impl StatusReport {
         obj
     }
 
-    /// Text marker for loud statuses. Quiet statuses (`exact`, `verified`)
-    /// return `None` so happy-path output stays byte-identical for existing
-    /// consumers.
+    /// Text marker for non-exact statuses. `exact` is quiet (unmarked
+    /// means proof). Everything else is loud — the marker tells the
+    /// consumer what kind of evidence backs the result. This is the
+    /// delivery surface: most MCP hosts strip the result_status sidecar,
+    /// so the marker is the only tier signal that reaches the agent.
     pub fn marker(&self) -> Option<String> {
         match &self.status {
-            ResultStatus::Exact | ResultStatus::Verified { .. } => None,
+            ResultStatus::Exact => None,
+            ResultStatus::Verified { points_tested } => {
+                let detail = if self.caveats.is_empty() {
+                    format!("numeric evidence, {} points — not proof", points_tested)
+                } else {
+                    format!("{} points — {}", points_tested, self.caveats.join("; "))
+                };
+                Some(format!("[verified] {}", detail))
+            }
             ResultStatus::Heuristic => {
                 let detail = if self.caveats.is_empty() {
                     "result not independently verified".to_string()

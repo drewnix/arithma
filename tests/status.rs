@@ -71,11 +71,31 @@ fn caveats_serialize_when_present() {
 // byte-identical); loud statuses produce a bracketed marker line.
 
 #[test]
-fn quiet_statuses_have_no_marker() {
+fn exact_has_no_marker() {
     assert!(StatusReport::exact(Certificate::by_construction("test"))
         .marker()
         .is_none());
-    assert!(StatusReport::verified(12).marker().is_none());
+}
+
+#[test]
+fn verified_marker_carries_point_count() {
+    let m = StatusReport::verified(12).marker().unwrap();
+    assert!(m.starts_with("[verified]"), "got: {}", m);
+    assert!(m.contains("12"), "should name point count, got: {}", m);
+}
+
+#[test]
+fn verified_marker_includes_caveats_when_present() {
+    let m = StatusReport::verified(1)
+        .with_caveat("floating-point evaluation (f64)")
+        .marker()
+        .unwrap();
+    assert!(m.contains("[verified]"), "got: {}", m);
+    assert!(
+        m.contains("floating-point"),
+        "caveat should appear in marker, got: {}",
+        m
+    );
 }
 
 #[test]
