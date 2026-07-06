@@ -612,6 +612,92 @@ fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<Stri
     parse_latex(expr_str, env).map(|node| format!("{node}"))
 }
 
+/// Three-way replay outcome (Carl F1): a replay check that conflates
+/// "couldn't confirm" with "actively refuted" is decorative. The fix is
+/// to canonicalize the *difference* to zero — the same decision procedure
+/// verify_chain's equals already uses.
+enum ReplayOutcome {
+    /// The replay confirmed the result (difference canonicalizes to zero).
+    Confirmed,
+    /// The replay contradicted the result (difference canonicalizes to a
+    /// provably nonzero value). The result should NOT be certified exact.
+    Contradicted,
+    /// The replay was inconclusive (difference didn't simplify cleanly).
+    /// Fall through to by_construction only if the algorithm is independently
+    /// a certified decision procedure.
+    Inconclusive,
+}
+
+/// Check whether `lhs - rhs` is zero by canonicalization. Uses the same
+/// difference-to-zero mechanism as verify_chain's equals relation.
+fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcome {
+    use arithma::simplify::Simplifiable;
+    use arithma::status::is_algebraic_exact;
+
+    if format!("{lhs}") == format!("{rhs}") {
+        return ReplayOutcome::Confirmed;
+    }
+
+    let diff = Node::Subtract(Box::new(lhs.clone()), Box::new(rhs.clone()));
+    if let Ok(d) = diff.simplify(env) {
+        if matches!(&d, Node::Num(n) if n.is_zero()) {
+            return ReplayOutcome::Confirmed;
+        }
+        if is_algebraic_exact(&d) {
+            if let Ok(ExactNum::Rational(r)) = Evaluator::evaluate_exact(&d, &Environment::new()) {
+                if *r.numer() == num_bigint::BigInt::from(0) {
+                    return ReplayOutcome::Confirmed;
+                }
+                return ReplayOutcome::Contradicted;
+            }
+        }
+    }
+    ReplayOutcome::Inconclusive
+}
+
+/// Back-substitution replay for solve: substitute each root, check the
+/// residual via difference-to-zero. Three outcomes per Carl F1.
+fn replay_solve_check(
+    expr: &Node,
+    var: &str,
+    solutions: &[Node],
+    env: &Environment,
+) -> StatusReport {
+    for root in solutions {
+        let substituted = arithma::substitute::substitute_variable(expr, var, root)
+            .unwrap_or_else(|_| expr.clone());
+        let outcome = match &substituted {
+            Node::Equation(l, r) => {
+                let ls = l.simplify(env).unwrap_or_else(|_| *l.clone());
+                let rs = r.simplify(env).unwrap_or_else(|_| *r.clone());
+                difference_is_zero(&ls, &rs, env)
+            }
+            other => {
+                let zero = Node::Num(ExactNum::integer(0));
+                let residual = other.simplify(env).unwrap_or_else(|_| other.clone());
+                difference_is_zero(&residual, &zero, env)
+            }
+        };
+        match outcome {
+            ReplayOutcome::Confirmed => continue,
+            ReplayOutcome::Contradicted => {
+                return StatusReport::heuristic().with_caveat(
+                    "back-substitution check CONTRADICTED: residual is provably nonzero after substituting root",
+                );
+            }
+            ReplayOutcome::Inconclusive => {
+                return StatusReport::exact(Certificate::by_construction(
+                    "symbolic_root_formula — exact algebraic solver (replay inconclusive)",
+                ));
+            }
+        }
+    }
+    StatusReport::exact(Certificate::replay(
+        "substitution_check",
+        "each root substituted into the equation yields residual zero",
+    ))
+}
+
 /// Classify a `raw → simplified` step where the raw form is a LaTeX string
 /// produced by our own machinery (derivative output, substitution output).
 /// Falls back to a quiet heuristic if the raw form will not re-parse, which
@@ -806,37 +892,10 @@ fn tool_solve(args: &Value) -> ToolResult {
         } else {
             // Back-substitution check: substitute each root into the
             // equation and verify the residual simplifies to zero.
+            // Three outcomes (Carl F1): confirmed → exact(replay),
+            // contradicted → heuristic, inconclusive → exact(by_construction).
             let env = Environment::new();
-            let mut all_checked = true;
-            for root in &result.solutions {
-                let substituted = arithma::substitute::substitute_variable(&expr, &var, root)
-                    .unwrap_or_else(|_| expr.clone());
-                let is_zero = match &substituted {
-                    Node::Equation(l, r) => {
-                        let ls = l.simplify(&env).unwrap_or_else(|_| *l.clone());
-                        let rs = r.simplify(&env).unwrap_or_else(|_| *r.clone());
-                        format!("{ls}") == format!("{rs}")
-                    }
-                    other => {
-                        let residual = other.simplify(&env).unwrap_or_else(|_| other.clone());
-                        matches!(&residual, Node::Num(n) if n.is_zero())
-                    }
-                };
-                if !is_zero {
-                    all_checked = false;
-                    break;
-                }
-            }
-            let status = if all_checked {
-                StatusReport::exact(Certificate::replay(
-                    "substitution_check",
-                    "each root substituted into the equation yields residual zero",
-                ))
-            } else {
-                StatusReport::exact(Certificate::by_construction(
-                    "symbolic_root_formula — exact algebraic solver",
-                ))
-            };
+            let status = replay_solve_check(&expr, &var, &result.solutions, &env);
             Ok((text, status))
         }
     }
@@ -918,22 +977,39 @@ fn tool_solve_system(args: &Value) -> ToolResult {
                 .iter()
                 .map(|(v, n)| (v.clone(), n.clone()))
                 .collect();
-            let all_zero = equations.iter().all(|eq| {
+            let mut confirmed_all = true;
+            for eq in &equations {
                 let substituted =
                     arithma::substitute::substitute(eq, &subs).unwrap_or_else(|_| eq.clone());
-                match &substituted {
+                let outcome = match &substituted {
                     Node::Equation(l, r) => {
                         let ls = l.simplify(&env).unwrap_or_else(|_| *l.clone());
                         let rs = r.simplify(&env).unwrap_or_else(|_| *r.clone());
-                        format!("{ls}") == format!("{rs}")
+                        difference_is_zero(&ls, &rs, &env)
                     }
                     other => {
+                        let zero = Node::Num(ExactNum::integer(0));
                         let residual = other.simplify(&env).unwrap_or_else(|_| other.clone());
-                        matches!(&residual, Node::Num(n) if n.is_zero())
+                        difference_is_zero(&residual, &zero, &env)
+                    }
+                };
+                match outcome {
+                    ReplayOutcome::Confirmed => continue,
+                    ReplayOutcome::Contradicted => {
+                        return Ok((
+                            text,
+                            StatusReport::heuristic().with_caveat(
+                                "back-substitution check CONTRADICTED: residual provably nonzero",
+                            ),
+                        ));
+                    }
+                    ReplayOutcome::Inconclusive => {
+                        confirmed_all = false;
+                        break;
                     }
                 }
-            });
-            if all_zero {
+            }
+            if confirmed_all {
                 StatusReport::exact(Certificate::replay(
                     "system_substitution_check",
                     "solution vector substituted into each equation yields zero",
@@ -995,8 +1071,8 @@ fn tool_factor(args: &Value) -> ToolResult {
         }
     }
 
-    // Replay check: multiply all factors back as Node trees, simplify,
-    // and compare to the input. O(product) — cheaper than Berlekamp–Zassenhaus.
+    // Replay check: multiply factors back, take the difference with the
+    // input, canonicalize to zero. Three outcomes per Carl F1.
     let env = Environment::new();
     let mut product_node: Node = Node::Num(ExactNum::rational(
         content.numer().try_into().unwrap_or(1),
@@ -1007,13 +1083,21 @@ fn tool_factor(args: &Value) -> ToolResult {
     }
     let product_expanded = product_node.simplify(&env).unwrap_or(product_node);
     let input_expanded = node.simplify(&env).unwrap_or_else(|_| node.clone());
-    let cert = if format!("{}", product_expanded) == format!("{}", input_expanded) {
-        Certificate::replay(
+    let cert = match difference_is_zero(&product_expanded, &input_expanded, &env) {
+        ReplayOutcome::Confirmed => Certificate::replay(
             "factor_multiply_back",
             "product of factors equals input polynomial",
-        )
-    } else {
-        Certificate::by_construction("berlekamp_zassenhaus — exact factorization over Q")
+        ),
+        ReplayOutcome::Contradicted => {
+            return Ok((
+                parts.join(" \\cdot "),
+                StatusReport::heuristic()
+                    .with_caveat("factor multiply-back CONTRADICTED: product differs from input"),
+            ));
+        }
+        ReplayOutcome::Inconclusive => {
+            Certificate::by_construction("berlekamp_zassenhaus — exact factorization over Q")
+        }
     };
 
     if parts.is_empty() {
@@ -1042,18 +1126,28 @@ fn tool_partial_fractions(args: &Value) -> ToolResult {
         parse_latex(den, &env),
     ) {
         (Ok(pf), Ok(num_node), Ok(den_node)) => {
+            // Carl F4: compare via difference-to-zero, not Display strings.
+            // simplify(pf·den − num) reduces to 0 via canonical_form_Q even
+            // when the two Display forms differ structurally.
             let reconstructed = Node::Multiply(Box::new(pf), Box::new(den_node));
             let reconstructed_s = reconstructed.simplify(&env).unwrap_or(reconstructed);
             let num_s = num_node.simplify(&env).unwrap_or(num_node);
-            if format!("{}", reconstructed_s) == format!("{}", num_s) {
-                Certificate::replay(
+            match difference_is_zero(&reconstructed_s, &num_s, &env) {
+                ReplayOutcome::Confirmed => Certificate::replay(
                     "partial_fractions_multiply_back",
                     "partial fractions times denominator equals numerator",
-                )
-            } else {
-                Certificate::by_construction(
+                ),
+                ReplayOutcome::Contradicted => {
+                    return Ok((
+                        result,
+                        StatusReport::heuristic().with_caveat(
+                            "partial-fractions multiply-back CONTRADICTED: product differs from numerator",
+                        ),
+                    ));
+                }
+                ReplayOutcome::Inconclusive => Certificate::by_construction(
                     "exact_rational_arithmetic — partial fraction decomposition",
-                )
+                ),
             }
         }
         _ => Certificate::by_construction(
@@ -1244,20 +1338,23 @@ fn tool_matrix(args: &Value) -> ToolResult {
         s
     } else if op == "inverse" {
         // Replay check: multiply A × A⁻¹ and verify the result is I.
+        // Three outcomes per Carl F1.
         match a.inverse(&env) {
             Ok(inv) => match a.multiply(&inv, &env) {
                 Ok(product) => {
                     let identity = arithma::matrix::Matrix::identity(a.rows);
-                    let is_identity = product.to_latex() == identity.to_latex();
-                    if is_identity {
+                    let product_latex = product.to_latex();
+                    let identity_latex = identity.to_latex();
+                    if product_latex == identity_latex {
                         StatusReport::exact(Certificate::replay(
                             "inverse_multiply_check",
                             "A × A⁻¹ equals the identity matrix",
                         ))
                     } else {
-                        StatusReport::exact(Certificate::by_construction(
-                            "exact_rational_arithmetic — matrix operations over Q",
-                        ))
+                        // For matrices, a non-identity product after exact
+                        // arithmetic means the inverse is wrong — downgrade.
+                        StatusReport::heuristic()
+                            .with_caveat("inverse multiply-back CONTRADICTED: A × A⁻¹ ≠ I")
                     }
                 }
                 Err(_) => StatusReport::exact(Certificate::by_construction(
