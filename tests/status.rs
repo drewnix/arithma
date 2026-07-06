@@ -4,15 +4,32 @@
 // clients and, next sprint, by verify_chain. Changing a shape is a
 // contract change; add fields instead.
 
-use arithma::status::{classify_integral, classify_simplify, is_algebraic_exact, StatusReport};
+use arithma::status::{
+    classify_integral, classify_simplify, is_algebraic_exact, Certificate, ResultStatus,
+    StatusReport,
+};
 use arithma::{parse_latex, parse_latex_raw, Environment};
 
 #[test]
-fn exact_report_serializes_with_status_only() {
-    let json = StatusReport::exact().to_json();
+fn exact_report_serializes_with_certificate() {
+    let cert = Certificate::by_construction("test_algorithm");
+    let json = StatusReport::exact(cert).to_json();
     assert_eq!(json["status"], "exact");
     assert!(json.get("points_tested").is_none());
-    assert!(json.get("caveats").is_none());
+    assert!(json.get("certificate").is_some());
+    assert_eq!(json["certificate"]["kind"], "decision_procedure");
+    assert_eq!(json["certificate"]["witness"], "test_algorithm");
+    assert_eq!(json["certificate"]["checked"], true);
+}
+
+#[test]
+fn exact_replay_certificate_serializes() {
+    let cert = Certificate::replay("factor_multiply_back", "product equals input");
+    let json = StatusReport::exact(cert).to_json();
+    assert_eq!(json["status"], "exact");
+    assert_eq!(json["certificate"]["kind"], "factor_multiply_back");
+    assert_eq!(json["certificate"]["witness"], "product equals input");
+    assert_eq!(json["certificate"]["checked"], true);
 }
 
 #[test]
@@ -54,9 +71,31 @@ fn caveats_serialize_when_present() {
 // byte-identical); loud statuses produce a bracketed marker line.
 
 #[test]
-fn quiet_statuses_have_no_marker() {
-    assert!(StatusReport::exact().marker().is_none());
-    assert!(StatusReport::verified(12).marker().is_none());
+fn exact_has_no_marker() {
+    assert!(StatusReport::exact(Certificate::by_construction("test"))
+        .marker()
+        .is_none());
+}
+
+#[test]
+fn verified_marker_carries_point_count() {
+    let m = StatusReport::verified(12).marker().unwrap();
+    assert!(m.starts_with("[verified]"), "got: {}", m);
+    assert!(m.contains("12"), "should name point count, got: {}", m);
+}
+
+#[test]
+fn verified_marker_includes_caveats_when_present() {
+    let m = StatusReport::verified(1)
+        .with_caveat("floating-point evaluation (f64)")
+        .marker()
+        .unwrap();
+    assert!(m.contains("[verified]"), "got: {}", m);
+    assert!(
+        m.contains("floating-point"),
+        "caveat should appear in marker, got: {}",
+        m
+    );
 }
 
 #[test]
@@ -112,9 +151,9 @@ fn unable_to_compute_marker_includes_reason() {
 
 #[test]
 fn unable_to_compute_marker_includes_caveats() {
-    // Carl's F3 (PR #68 attack): a witness attached as a caveat was
-    // computed, stored, and then dropped by every renderer — "preserved as
-    // a caveat" must be true on the wire, not just in the data structure.
+    // A witness attached as a caveat must reach the wire, not just live
+    // in the data structure — "preserved as a caveat" is only true if the
+    // marker renderer includes it.
     let m = StatusReport::unable_to_compute("only 0 valid test points")
         .with_caveat("the simplified derivative disagreed at {\"x\": 0.5}")
         .marker()
@@ -203,7 +242,15 @@ fn simplify_polynomial_classifies_exact() {
     let input = parse_latex_raw("x^2 + 2x + 1 - x^2").unwrap();
     let output = parse_latex("x^2 + 2x + 1 - x^2", &env).unwrap();
     let report = classify_simplify(&input, &output, &env);
-    assert_eq!(report, StatusReport::exact());
+    assert_eq!(report.status, ResultStatus::Exact);
+    assert!(
+        report.certificate().is_some(),
+        "exact must carry a certificate"
+    );
+    assert!(
+        report.certificate().unwrap().checked,
+        "certificate must be checked"
+    );
 }
 
 #[test]
@@ -231,7 +278,8 @@ fn simplify_identity_transformation_is_exact_even_for_transcendental() {
     let env = Environment::new();
     let node = parse_latex_raw("\\operatorname{atan}(x) + 1").unwrap();
     let report = classify_simplify(&node, &node, &env);
-    assert_eq!(report, StatusReport::exact());
+    assert_eq!(report.status, ResultStatus::Exact);
+    assert!(report.certificate().is_some());
 }
 
 #[test]
@@ -257,7 +305,10 @@ fn integral_round_trip_structural_match_is_exact() {
     let integrand = parse_latex("x^2", &env).unwrap();
     let antiderivative = parse_latex("\\frac{x^3}{3}", &env).unwrap();
     let report = classify_integral(&integrand, &antiderivative, "x", &env);
-    assert_eq!(report, StatusReport::exact());
+    assert_eq!(report.status, ResultStatus::Exact);
+    let cert = report.certificate().expect("exact must carry certificate");
+    assert_eq!(cert.kind, "differentiation_round_trip");
+    assert!(cert.checked);
 }
 
 #[test]

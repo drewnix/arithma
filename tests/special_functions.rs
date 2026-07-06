@@ -168,7 +168,7 @@ mod special_recognition_tests {
         expect_special("\\frac{\\exp(x)}{x}", "Ei", &[0.5, 1.3, 2.9]);
     }
 
-    // Carl's F1 (PR #68 attack): the stated coverage is c·e^{bx}/x and
+    // The stated coverage is c·e^{bx}/x and
     // c/ln(x), but the constant-peeler had no arm for a free factor in the
     // numerator of a Divide whose denominator carries the variable — and
     // simplify normalizes every alternative spelling into exactly that

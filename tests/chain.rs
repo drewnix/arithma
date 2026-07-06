@@ -1035,7 +1035,7 @@ fn integral_of_step_with_wrong_erf_constant_is_not_certified() {
     );
 }
 
-// Carl's F2 (PR #68 attack): refutability must not depend on a constant
+// Refutability must not depend on a constant
 // factor. Bare wrong claims (erf(x) for ∫e^{−x²}) were refutable because
 // their raw derivative mentions no special function; c·erf(x) claims were
 // unrefutable because the product rule emitted erf(x)·d(c) with d(c) an
@@ -1116,7 +1116,7 @@ fn true_scaled_erf_claim_passes_through_the_raw_path() {
 
 #[test]
 fn retry_that_also_starves_is_audited_as_simplify_assisted() {
-    // Carl's F3, second part: when the raw comparison is inconclusive AND
+    // When the raw comparison is inconclusive AND
     // the simplify retry also comes back inconclusive, the mechanism must
     // say the retry ran (simplify+ prefix) — an auditor must be able to
     // distinguish "no retry possible" from "retry ran, also inconclusive".

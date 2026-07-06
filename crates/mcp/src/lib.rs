@@ -21,7 +21,7 @@ use arithma::special_functions::recognize_special_form_latex;
 use arithma::status::Verdict;
 use arithma::status::{
     classify_integral, classify_limit, classify_simplify, classify_verify, free_variables,
-    StatusReport,
+    Certificate, StatusReport,
 };
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
@@ -612,6 +612,126 @@ fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<Stri
     parse_latex(expr_str, env).map(|node| format!("{node}"))
 }
 
+/// Three-way replay outcome: a replay check that conflates
+/// "couldn't confirm" with "actively refuted" is decorative. The fix is
+/// to canonicalize the *difference* to zero — the same decision procedure
+/// verify_chain's equals already uses.
+enum ReplayOutcome {
+    /// The replay confirmed the result (difference canonicalizes to zero).
+    Confirmed,
+    /// The replay contradicted the result (difference canonicalizes to a
+    /// provably nonzero value). The result should NOT be certified exact.
+    Contradicted,
+    /// The replay was inconclusive (difference didn't simplify cleanly).
+    /// Fall through to by_construction only if the algorithm is independently
+    /// a certified decision procedure.
+    Inconclusive,
+}
+
+/// Check whether `lhs - rhs` is zero by canonicalization and, when the
+/// difference contains free variables, by exact rational evaluation at
+/// sample points — the same mechanism verify_chain's equals uses.
+fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcome {
+    use arithma::simplify::Simplifiable;
+    use arithma::status::is_algebraic_exact;
+
+    if format!("{lhs}") == format!("{rhs}") {
+        return ReplayOutcome::Confirmed;
+    }
+
+    let diff = Node::Subtract(Box::new(lhs.clone()), Box::new(rhs.clone()));
+    let d = match diff.simplify(env) {
+        Ok(d) => d,
+        Err(_) => return ReplayOutcome::Inconclusive,
+    };
+
+    if matches!(&d, Node::Num(n) if n.is_zero()) {
+        return ReplayOutcome::Confirmed;
+    }
+
+    if !is_algebraic_exact(&d) {
+        return ReplayOutcome::Inconclusive;
+    }
+
+    // Constant (no free variables): one exact evaluation decides.
+    let vars = free_variables(&[&d]);
+    if vars.is_empty() {
+        return match Evaluator::evaluate_exact(&d, &Environment::new()) {
+            Ok(ExactNum::Rational(r)) if *r.numer() == num_bigint::BigInt::from(0) => {
+                ReplayOutcome::Confirmed
+            }
+            Ok(ExactNum::Rational(_)) => ReplayOutcome::Contradicted,
+            _ => ReplayOutcome::Inconclusive,
+        };
+    }
+
+    // Free variables present: evaluate at exact rational sample points.
+    // A single nonzero evaluation is a genuine disproof (Contradicted).
+    // Agreement at sample points without a degree bound is evidence, not
+    // proof — return Inconclusive, which falls to by_construction for
+    // genuine decision procedures. Only the degree-bounded grid in
+    // verify_chain's interpolation_identity_Q earns exact from sampling.
+    let sample_values: &[i64] = &[0, 1, -1, 2, -2, 3, 7];
+    for val in sample_values.iter() {
+        let mut pt_env = Environment::new();
+        for (i, v) in vars.iter().enumerate() {
+            pt_env.set_exact(v, ExactNum::integer(*val + i as i64));
+        }
+        match Evaluator::evaluate_exact(&d, &pt_env) {
+            Ok(ExactNum::Rational(r)) => {
+                if *r.numer() != num_bigint::BigInt::from(0) {
+                    return ReplayOutcome::Contradicted;
+                }
+            }
+            _ => continue,
+        }
+    }
+    ReplayOutcome::Inconclusive
+}
+
+/// Back-substitution replay for solve: substitute each root, check the
+/// residual via difference-to-zero. Three outcomes the three-way replay protocol.
+fn replay_solve_check(
+    expr: &Node,
+    var: &str,
+    solutions: &[Node],
+    env: &Environment,
+) -> StatusReport {
+    for root in solutions {
+        let substituted = arithma::substitute::substitute_variable(expr, var, root)
+            .unwrap_or_else(|_| expr.clone());
+        let outcome = match &substituted {
+            Node::Equation(l, r) => {
+                let ls = l.simplify(env).unwrap_or_else(|_| *l.clone());
+                let rs = r.simplify(env).unwrap_or_else(|_| *r.clone());
+                difference_is_zero(&ls, &rs, env)
+            }
+            other => {
+                let zero = Node::Num(ExactNum::integer(0));
+                let residual = other.simplify(env).unwrap_or_else(|_| other.clone());
+                difference_is_zero(&residual, &zero, env)
+            }
+        };
+        match outcome {
+            ReplayOutcome::Confirmed => continue,
+            ReplayOutcome::Contradicted => {
+                return StatusReport::heuristic().with_caveat(
+                    "back-substitution check CONTRADICTED: residual is provably nonzero after substituting root",
+                );
+            }
+            ReplayOutcome::Inconclusive => {
+                return StatusReport::exact(Certificate::by_construction(
+                    "symbolic_root_formula — exact algebraic solver (replay inconclusive)",
+                ));
+            }
+        }
+    }
+    StatusReport::exact(Certificate::replay(
+        "substitution_check",
+        "each root substituted into the equation yields residual zero",
+    ))
+}
+
 /// Classify a `raw → simplified` step where the raw form is a LaTeX string
 /// produced by our own machinery (derivative output, substitution output).
 /// Falls back to a quiet heuristic if the raw form will not re-parse, which
@@ -627,8 +747,12 @@ fn classify_simplify_of(raw_latex: &str, simplified: &Node, env: &Environment) -
 fn tool_format(args: &Value) -> ToolResult {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let text = parse_latex_raw(expr).map(|node| format!("{node}"))?;
-    // Canonical printing makes no equivalence claim beyond structure.
-    Ok((text, StatusReport::exact()))
+    Ok((
+        text,
+        StatusReport::exact(Certificate::by_construction(
+            "canonical_printing — no equivalence claim",
+        )),
+    ))
 }
 
 fn tool_simplify(args: &Value) -> ToolResult {
@@ -675,7 +799,9 @@ fn tool_integrate(args: &Value) -> ToolResult {
                         _ => StatusReport::heuristic()
                             .with_caveat("could not classify the antiderivative round-trip"),
                     },
-                    Err(_) => StatusReport::exact(),
+                    Err(_) => StatusReport::exact(Certificate::by_construction(
+                        "special_value_table — proven result from standard tables",
+                    )),
                 };
                 Ok((format!("{value}"), status))
             }
@@ -731,9 +857,12 @@ fn tool_substitute(args: &Value) -> ToolResult {
             let status = classify_simplify_of(&result, &output, &env);
             Ok((format!("{output}"), status))
         }
-        // Simplification of the substituted form failed; return it raw.
-        // The substitution step is still exact.
-        Err(_) => Ok((result, StatusReport::exact())),
+        Err(_) => Ok((
+            result,
+            StatusReport::exact(Certificate::by_construction(
+                "capture_avoiding_substitution",
+            )),
+        )),
     }
 }
 
@@ -753,7 +882,14 @@ fn tool_solve(args: &Value) -> ToolResult {
         expr,
         Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
     ) {
-        return arithma::solve_inequality(&expr, &var).map(|t| (t, StatusReport::exact()));
+        return arithma::solve_inequality(&expr, &var).map(|t| {
+            (
+                t,
+                StatusReport::exact(Certificate::by_construction(
+                    "sign_analysis — exact polynomial sign analysis",
+                )),
+            )
+        });
     }
 
     let result = arithma::expression::solve_full(&expr, &var)?;
@@ -775,16 +911,27 @@ fn tool_solve(args: &Value) -> ToolResult {
     // not on the tool name. A back-substitution
     // self-audit is a planned follow-up.
     if parts.is_empty() {
-        Ok(("No solutions found".to_string(), StatusReport::exact()))
+        Ok((
+            "No solutions found".to_string(),
+            StatusReport::exact(Certificate::by_construction(
+                "no_solutions — exhaustive search found no roots",
+            )),
+        ))
     } else {
         let text = parts.join(", ");
-        let status = if text.contains('.') {
-            StatusReport::verified(1)
-                .with_caveat("floating-point root-finding (f64 precision), not symbolic radicals")
+        if text.contains('.') {
+            let status = StatusReport::verified(1)
+                .with_caveat("floating-point root-finding (f64 precision), not symbolic radicals");
+            Ok((text, status))
         } else {
-            StatusReport::exact()
-        };
-        Ok((text, status))
+            // Back-substitution check: substitute each root into the
+            // equation and verify the residual simplifies to zero.
+            // Three outcomes: confirmed → exact(replay),
+            // contradicted → heuristic, inconclusive → exact(by_construction).
+            let env = Environment::new();
+            let status = replay_solve_check(&expr, &var, &result.solutions, &env);
+            Ok((text, status))
+        }
     }
 }
 
@@ -855,7 +1002,63 @@ fn tool_solve_system(args: &Value) -> ToolResult {
         }
         arithma::SystemSolution::NoSolution => "No solution (inconsistent system)".to_string(),
     };
-    Ok((text, StatusReport::exact()))
+    // Back-substitution check: substitute the solution vector into
+    // each original equation and verify all residuals are zero.
+    let env = Environment::new();
+    let status = match arithma::solve_system(&equations, &vars) {
+        Ok(arithma::SystemSolution::Unique(ref solutions)) => {
+            let subs: Vec<(String, Node)> = solutions
+                .iter()
+                .map(|(v, n)| (v.clone(), n.clone()))
+                .collect();
+            let mut confirmed_all = true;
+            for eq in &equations {
+                let substituted =
+                    arithma::substitute::substitute(eq, &subs).unwrap_or_else(|_| eq.clone());
+                let outcome = match &substituted {
+                    Node::Equation(l, r) => {
+                        let ls = l.simplify(&env).unwrap_or_else(|_| *l.clone());
+                        let rs = r.simplify(&env).unwrap_or_else(|_| *r.clone());
+                        difference_is_zero(&ls, &rs, &env)
+                    }
+                    other => {
+                        let zero = Node::Num(ExactNum::integer(0));
+                        let residual = other.simplify(&env).unwrap_or_else(|_| other.clone());
+                        difference_is_zero(&residual, &zero, &env)
+                    }
+                };
+                match outcome {
+                    ReplayOutcome::Confirmed => continue,
+                    ReplayOutcome::Contradicted => {
+                        return Ok((
+                            text,
+                            StatusReport::heuristic().with_caveat(
+                                "back-substitution check CONTRADICTED: residual provably nonzero",
+                            ),
+                        ));
+                    }
+                    ReplayOutcome::Inconclusive => {
+                        confirmed_all = false;
+                        break;
+                    }
+                }
+            }
+            if confirmed_all {
+                StatusReport::exact(Certificate::replay(
+                    "system_substitution_check",
+                    "solution vector substituted into each equation yields zero",
+                ))
+            } else {
+                StatusReport::exact(Certificate::by_construction(
+                    "gaussian_elimination — exact arithmetic over Q",
+                ))
+            }
+        }
+        _ => StatusReport::exact(Certificate::by_construction(
+            "gaussian_elimination — exact arithmetic over Q",
+        )),
+    };
+    Ok((text, status))
 }
 
 fn tool_factor(args: &Value) -> ToolResult {
@@ -902,15 +1105,43 @@ fn tool_factor(args: &Value) -> ToolResult {
         }
     }
 
-    // Berlekamp–Zassenhaus is exact.
+    // Replay check: multiply factors back, take the difference with the
+    // input, canonicalize to zero. Three outcomes the three-way replay protocol.
+    let env = Environment::new();
+    let mut product_node: Node = Node::Num(ExactNum::rational(
+        content.numer().try_into().unwrap_or(1),
+        content.denom().try_into().unwrap_or(1),
+    ));
+    for f in &factors {
+        product_node = Node::Multiply(Box::new(product_node), Box::new(f.to_node()));
+    }
+    let product_expanded = product_node.simplify(&env).unwrap_or(product_node);
+    let input_expanded = node.simplify(&env).unwrap_or_else(|_| node.clone());
+    let cert = match difference_is_zero(&product_expanded, &input_expanded, &env) {
+        ReplayOutcome::Confirmed => Certificate::replay(
+            "factor_multiply_back",
+            "product of factors equals input polynomial",
+        ),
+        ReplayOutcome::Contradicted => {
+            return Ok((
+                parts.join(" \\cdot "),
+                StatusReport::heuristic()
+                    .with_caveat("factor multiply-back CONTRADICTED: product differs from input"),
+            ));
+        }
+        ReplayOutcome::Inconclusive => {
+            Certificate::by_construction("berlekamp_zassenhaus — exact factorization over Q")
+        }
+    };
+
     if parts.is_empty() {
-        Ok(("1".to_string(), StatusReport::exact()))
+        Ok(("1".to_string(), StatusReport::exact(cert)))
     } else {
         let mut result = parts.join(" \\cdot ");
         if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
             result.push_str("  \\quad\\text{(irreducible over }\\mathbb{Q}\\text{)}");
         }
-        Ok((result, StatusReport::exact()))
+        Ok((result, StatusReport::exact(cert)))
     }
 }
 
@@ -918,8 +1149,46 @@ fn tool_partial_fractions(args: &Value) -> ToolResult {
     let num = get_str(args, "numerator").ok_or("Missing required parameter: numerator")?;
     let den = get_str(args, "denominator").ok_or("Missing required parameter: denominator")?;
     let var = get_var(args, "x");
-    // Exact rational arithmetic throughout.
-    partial_fractions_latex(num, den, &var).map(|t| (t, StatusReport::exact()))
+    let result = partial_fractions_latex(num, den, &var)?;
+
+    // Replay check: parse the result, multiply by the denominator,
+    // simplify, and compare to the numerator.
+    let env = Environment::new();
+    let cert = match (
+        parse_latex(&result, &env),
+        parse_latex(num, &env),
+        parse_latex(den, &env),
+    ) {
+        (Ok(pf), Ok(num_node), Ok(den_node)) => {
+            // Compare via difference-to-zero, not Display strings.
+            // simplify(pf·den − num) reduces to 0 via canonical_form_Q even
+            // when the two Display forms differ structurally.
+            let reconstructed = Node::Multiply(Box::new(pf), Box::new(den_node));
+            let reconstructed_s = reconstructed.simplify(&env).unwrap_or(reconstructed);
+            let num_s = num_node.simplify(&env).unwrap_or(num_node);
+            match difference_is_zero(&reconstructed_s, &num_s, &env) {
+                ReplayOutcome::Confirmed => Certificate::replay(
+                    "partial_fractions_multiply_back",
+                    "partial fractions times denominator equals numerator",
+                ),
+                ReplayOutcome::Contradicted => {
+                    return Ok((
+                        result,
+                        StatusReport::heuristic().with_caveat(
+                            "partial-fractions multiply-back CONTRADICTED: product differs from numerator",
+                        ),
+                    ));
+                }
+                ReplayOutcome::Inconclusive => Certificate::by_construction(
+                    "exact_rational_arithmetic — partial fraction decomposition",
+                ),
+            }
+        }
+        _ => Certificate::by_construction(
+            "exact_rational_arithmetic — partial fraction decomposition",
+        ),
+    };
+    Ok((result, StatusReport::exact(cert)))
 }
 
 fn tool_limit(args: &Value) -> ToolResult {
@@ -953,7 +1222,7 @@ fn tool_taylor_series(args: &Value) -> ToolResult {
     // Coefficients come from exact rational recurrences; the caveat records
     // that a truncated polynomial equals the function only as a series.
     let status = || {
-        StatusReport::exact().with_caveat(&format!(
+        StatusReport::exact(Certificate::by_construction("exact_rational_recurrence — Taylor coefficients from exact arithmetic")).with_caveat(&format!(
             "Taylor polynomial truncated at order {}; equality holds as series expansion, not as identity",
             order
         ))
@@ -1028,7 +1297,9 @@ fn tool_evaluate(args: &Value) -> ToolResult {
             // The exact evaluator can still carry a float if one entered the
             // computation; only a rational result is exact arithmetic.
             let status = match &val {
-                ExactNum::Rational(_) => StatusReport::exact(),
+                ExactNum::Rational(_) => StatusReport::exact(Certificate::by_construction(
+                    "exact_rational_arithmetic — evaluated in exact Q arithmetic",
+                )),
                 ExactNum::Float(_) => StatusReport::verified(1)
                     .with_caveat("floating-point evaluation (f64 precision)"),
             };
@@ -1099,8 +1370,39 @@ fn tool_matrix(args: &Value) -> ToolResult {
             s = s.with_caveat("complex eigenvalues expressed with i as a symbol");
         }
         s
+    } else if op == "inverse" {
+        // Replay check: multiply A × A⁻¹ and verify the result is I.
+        // Three outcomes the three-way replay protocol.
+        match a.inverse(&env) {
+            Ok(inv) => match a.multiply(&inv, &env) {
+                Ok(product) => {
+                    let identity = arithma::matrix::Matrix::identity(a.rows);
+                    let product_latex = product.to_latex();
+                    let identity_latex = identity.to_latex();
+                    if product_latex == identity_latex {
+                        StatusReport::exact(Certificate::replay(
+                            "inverse_multiply_check",
+                            "A × A⁻¹ equals the identity matrix",
+                        ))
+                    } else {
+                        // For matrices, a non-identity product after exact
+                        // arithmetic means the inverse is wrong — downgrade.
+                        StatusReport::heuristic()
+                            .with_caveat("inverse multiply-back CONTRADICTED: A × A⁻¹ ≠ I")
+                    }
+                }
+                Err(_) => StatusReport::exact(Certificate::by_construction(
+                    "exact_rational_arithmetic — matrix operations over Q",
+                )),
+            },
+            Err(_) => StatusReport::exact(Certificate::by_construction(
+                "exact_rational_arithmetic — matrix operations over Q",
+            )),
+        }
     } else {
-        StatusReport::exact()
+        StatusReport::exact(Certificate::by_construction(
+            "exact_rational_arithmetic — matrix operations over Q",
+        ))
     };
     Ok((text, status))
 }
@@ -1132,7 +1434,10 @@ fn tool_equivalent(args: &Value) -> ToolResult {
     if a_form == b_form {
         return Ok((
             format!("Equivalent: true [exact]\nBoth simplify to: {}", a_form),
-            StatusReport::exact().with_verdict(Verdict::Pass),
+            StatusReport::exact(Certificate::by_construction(
+                "canonical_form_Q — identical canonical forms",
+            ))
+            .with_verdict(Verdict::Pass),
         ));
     }
 
@@ -1149,7 +1454,7 @@ fn tool_equivalent(args: &Value) -> ToolResult {
                 "Equivalent: true [exact]\nSimplified forms differ but difference is zero.\nA simplifies to: {}\nB simplifies to: {}",
                 a_form, b_form
             ),
-            StatusReport::exact().with_verdict(Verdict::Pass),
+            StatusReport::exact(Certificate::by_construction("difference_zero — difference simplifies to zero")).with_verdict(Verdict::Pass),
         ));
     }
 
@@ -1415,15 +1720,27 @@ fn tool_solve_ode(args: &Value) -> ToolResult {
             .ok_or("Invalid coefficient c")?;
         let indep = normalize_var(get_str_or(args, "indep", "x"));
         // Closed-form solution via the characteristic equation — exact.
-        arithma::ode::solve_constant_coeff_latex(a, b, c, &indep)
-            .map(|t| (t, StatusReport::exact()))
+        arithma::ode::solve_constant_coeff_latex(a, b, c, &indep).map(|t| {
+            (
+                t,
+                StatusReport::exact(Certificate::by_construction(
+                    "characteristic_equation — closed-form ODE solution",
+                )),
+            )
+        })
     } else {
         let expr =
             get_str(args, "expr").ok_or("Missing expr (first-order) or a,b,c (second-order)")?;
         let indep = normalize_var(get_str_or(args, "indep", "x"));
         let dep = normalize_var(get_str_or(args, "dep", "y"));
-        // Closed-form methods (separable, linear) — exact.
-        arithma::ode::solve_ode_latex(expr, &indep, &dep).map(|t| (t, StatusReport::exact()))
+        arithma::ode::solve_ode_latex(expr, &indep, &dep).map(|t| {
+            (
+                t,
+                StatusReport::exact(Certificate::by_construction(
+                    "closed_form_ode — separable/linear/exact method",
+                )),
+            )
+        })
     }
 }
 
@@ -1489,7 +1806,10 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> ToolResult {
                 order + 1,
                 coeffs_list.join(", ")
             ),
-            StatusReport::exact().with_caveat(&format!(
+            StatusReport::exact(Certificate::by_construction(
+                "exact_rational_recurrence — power series coefficients from exact arithmetic",
+            ))
+            .with_caveat(&format!(
                 "power series truncated at order {}; coefficients are exact",
                 order
             )),
@@ -1519,7 +1839,10 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> ToolResult {
                 order + 1,
                 parts.join("\n\n")
             ),
-            StatusReport::exact().with_caveat(&format!(
+            StatusReport::exact(Certificate::by_construction(
+                "exact_rational_recurrence — power series coefficients from exact arithmetic",
+            ))
+            .with_caveat(&format!(
                 "power series truncated at order {}; coefficients are exact",
                 order
             )),

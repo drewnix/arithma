@@ -21,7 +21,7 @@ use crate::environment::Environment;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
 pub use crate::status::Verdict;
-use crate::status::{free_variables, is_algebraic_exact, ResultStatus, StatusReport};
+use crate::status::{free_variables, is_algebraic_exact, Certificate, ResultStatus, StatusReport};
 use crate::verify::verify_identity;
 
 /// The relation a step declares to its predecessor.
@@ -159,7 +159,7 @@ pub fn verify_chain(steps: &[ChainStepInput], env: &Environment) -> Result<Chain
         label: step_label(&steps[0], 0),
         relation: None,
         verdict: Verdict::Pass,
-        status: StatusReport::exact(),
+        status: StatusReport::exact(Certificate::by_construction("anchor — no claim to check")),
         mechanism: "anchor".to_string(),
     });
 
@@ -200,8 +200,10 @@ pub fn verify_chain(steps: &[ChainStepInput], env: &Environment) -> Result<Chain
     let status = match (first_failure, weakest_step) {
         (Some(i), _) => results[i].status.clone(),
         (None, Some(i)) => results[i].status.clone(),
-        (None, None) => StatusReport::exact()
-            .with_caveat("anchor only; a one-step chain contains no relations to verify"),
+        (None, None) => {
+            StatusReport::exact(Certificate::by_construction("anchor — no claim to check"))
+                .with_caveat("anchor only; a one-step chain contains no relations to verify")
+        }
     };
 
     Ok(ChainResult {
@@ -789,7 +791,9 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
     if prev == current {
         return CheckedStep {
             verdict: Verdict::Pass,
-            status: StatusReport::exact(),
+            status: StatusReport::exact(Certificate::by_construction(
+                "syntactic_identity — structural tree equality",
+            )),
             mechanism: "syntactic_identity".to_string(),
         };
     }
@@ -801,7 +805,9 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
     if unit_normal_form(prev) == unit_normal_form(current) {
         return CheckedStep {
             verdict: Verdict::Pass,
-            status: StatusReport::exact(),
+            status: StatusReport::exact(Certificate::by_construction(
+                "unit_normal_form — identity under u·1, u+0, u^1, −(−u)",
+            )),
             mechanism: "unit_normal_form".to_string(),
         };
     }
@@ -836,7 +842,9 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
         if prev_s == current_s {
             return CheckedStep {
                 verdict: Verdict::Pass,
-                status: StatusReport::exact(),
+                status: StatusReport::exact(Certificate::by_construction(
+                    "canonical_form_Q — rational-function canonicalization is a decision procedure",
+                )),
                 mechanism: "canonical_form_Q".to_string(),
             };
         }
@@ -845,7 +853,9 @@ fn check_equals(prev: &Node, current: &Node, env: &Environment) -> CheckedStep {
             if matches!(&d, Node::Num(n) if n.is_zero()) {
                 return CheckedStep {
                     verdict: Verdict::Pass,
-                    status: StatusReport::exact(),
+                    status: StatusReport::exact(Certificate::by_construction(
+                        "difference_zero_Q — difference canonicalizes to zero",
+                    )),
                     mechanism: "difference_zero_Q".to_string(),
                 };
             }
@@ -995,15 +1005,19 @@ fn exact_rational_check(
             if a == b {
                 return CheckedStep {
                     verdict: Verdict::Pass,
-                    status: StatusReport::exact(),
+                    status: StatusReport::exact(Certificate::by_construction(
+                        "exact_constant_eval — exact rational arithmetic on constants",
+                    )),
                     mechanism,
                 };
             }
             return CheckedStep {
                 verdict: Verdict::Fail,
-                status: StatusReport::exact()
-                    .with_caveat("constants differ in exact rational arithmetic")
-                    .with_counterexample_value(exact_counterexample_json(&[], &a, &b)),
+                status: StatusReport::exact(Certificate::by_construction(
+                    "exact_constant_eval — constants differ in exact rational arithmetic",
+                ))
+                .with_caveat("constants differ in exact rational arithmetic")
+                .with_counterexample_value(exact_counterexample_json(&[], &a, &b)),
                 mechanism,
             };
         }
@@ -1074,7 +1088,10 @@ fn exact_rational_check(
                         if a != b {
                             return CheckedStep {
                                 verdict: Verdict::Fail,
-                                status: StatusReport::exact()
+                                status: StatusReport::exact(Certificate::replay(
+                                        "exact_rational_sample",
+                                        "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
+                                    ))
                                     .with_caveat(
                                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                                     )
@@ -1112,7 +1129,10 @@ fn exact_rational_check(
                 // equality in ℚ(x₁,…,xₙ), not a sample.
                 return CheckedStep {
                     verdict: Verdict::Pass,
-                    status: StatusReport::exact().with_caveat(
+                    status: StatusReport::exact(Certificate::replay(
+                        "interpolation_identity_Q",
+                        "exact evaluation on a grid exceeding the degree bound (polynomial identity theorem)",
+                    )).with_caveat(
                         "equality in the rational function field, decided by exact evaluation on a grid exceeding the degree bound of the difference (polynomial identity theorem)",
                     ),
                     mechanism: "interpolation_identity_Q".to_string(),
@@ -1164,7 +1184,10 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
         if a != b {
             return CheckedStep {
                 verdict: Verdict::Fail,
-                status: StatusReport::exact()
+                status: StatusReport::exact(Certificate::replay(
+                        "exact_rational_sample",
+                        "disagreement established in exact rational arithmetic — a disproof",
+                    ))
                     .with_caveat(
                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                     )

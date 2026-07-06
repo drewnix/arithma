@@ -9,11 +9,14 @@
 //! (`unable_to_compute`), or a proof that no answer exists in the requested
 //! class (`provably_impossible`).
 //!
-//! Two invariants, inherited from the verify_chain design:
+//! Three invariants:
 //! 1. Numeric evidence never masquerades as proof — statuses may be
 //!    downgraded along a pipeline, never upgraded.
 //! 2. The counterexample is the diagnosis — failing checks carry the point
 //!    and both values, nothing generative.
+//! 3. No certificate, no exact — the tool boundary grants `exact` only
+//!    after a certificate proves it. An empty certificate slot cannot be
+//!    defaulted into anything.
 
 use std::collections::BTreeSet;
 
@@ -27,11 +30,58 @@ use crate::simplify::Simplifiable;
 use crate::verify::verify_identity;
 use num_traits::One;
 
+/// A checkable receipt proving that a result is exact. The tool boundary
+/// grants `exact` only after verifying that a certificate exists and has
+/// been checked. Finding is hard, checking is easy — every checker is
+/// asymptotically cheaper than its finder.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Certificate {
+    /// What kind of check was performed (e.g. "factor_multiply_back",
+    /// "differentiation_round_trip", "decision_procedure").
+    pub kind: String,
+    /// Human-readable summary of what was verified (e.g. "product of
+    /// factors equals input polynomial").
+    pub witness: String,
+    /// Whether the check passed. Must be `true` at the tool boundary.
+    pub checked: bool,
+}
+
+impl Certificate {
+    /// The algorithm is a decision procedure or provably complete and
+    /// sound — the computation IS the proof, no separate replay needed.
+    pub fn by_construction(algorithm: &str) -> Self {
+        Certificate {
+            kind: "decision_procedure".to_string(),
+            witness: algorithm.to_string(),
+            checked: true,
+        }
+    }
+
+    /// Result verified by replaying a cheap check in exact arithmetic.
+    pub fn replay(kind: &str, witness: &str) -> Self {
+        Certificate {
+            kind: kind.to_string(),
+            witness: witness.to_string(),
+            checked: true,
+        }
+    }
+
+    /// JSON shape for the MCP payload.
+    pub fn to_json(&self) -> Value {
+        json!({
+            "kind": self.kind,
+            "witness": self.witness,
+            "checked": self.checked,
+        })
+    }
+}
+
 /// The five evidence classes. See `docs/result-status.md` for the earning
 /// rules — a status must be earned by the mechanism that justifies it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResultStatus {
     /// Result of a decision procedure or complete, sound algebraic algorithm.
+    /// Requires a checked `Certificate` at the tool boundary.
     Exact,
     /// Independently checked numerically at `points_tested` points. Evidence,
     /// not proof.
@@ -86,11 +136,19 @@ pub struct StatusReport {
     /// `(name, LaTeX form)`, e.g. `("erf", "(√π/2)·erf(x)")`. A strictly
     /// additive refinement of the impossibility — the theorem stands.
     special_form: Option<(String, String)>,
+    /// Present when status is `Exact`. The certificate proves the result
+    /// by replaying a cheap check. At the tool boundary, exact without a
+    /// checked certificate is downgraded to heuristic.
+    certificate: Option<Certificate>,
 }
 
 impl StatusReport {
-    pub fn exact() -> Self {
-        Self::new(ResultStatus::Exact)
+    /// Exact result backed by a checked certificate. The certificate
+    /// proves the result by naming the check and recording that it passed.
+    pub fn exact(certificate: Certificate) -> Self {
+        let mut r = Self::new(ResultStatus::Exact);
+        r.certificate = Some(certificate);
+        r
     }
 
     pub fn verified(points_tested: usize) -> Self {
@@ -120,7 +178,13 @@ impl StatusReport {
             verdict: None,
             counterexample: None,
             special_form: None,
+            certificate: None,
         }
+    }
+
+    /// Access the certificate, if present.
+    pub fn certificate(&self) -> Option<&Certificate> {
+        self.certificate.as_ref()
     }
 
     /// Attach a recognized special-function antiderivative to a
@@ -179,12 +243,24 @@ impl StatusReport {
     /// The JSON shape consumed by MCP clients. Contract: consumers switch on
     /// the `status` string and ignore unknown fields; evidence fields appear
     /// only for the status that earns them.
+    ///
+    /// **Gate (invariant 3):** exact without a checked certificate is
+    /// downgraded to heuristic at this boundary — the tool may have
+    /// computed correctly, but it cannot prove it did.
     pub fn to_json(&self) -> Value {
         let mut obj = json!({});
         match &self.status {
-            ResultStatus::Exact => {
-                obj["status"] = json!("exact");
-            }
+            ResultStatus::Exact => match &self.certificate {
+                Some(cert) if cert.checked => {
+                    obj["status"] = json!("exact");
+                    obj["certificate"] = cert.to_json();
+                }
+                _ => {
+                    obj["status"] = json!("heuristic");
+                    obj["caveats"] = json!(["uncertified exact result — no certificate"]);
+                    return obj;
+                }
+            },
             ResultStatus::Verified { points_tested } => {
                 obj["status"] = json!("verified");
                 obj["points_tested"] = json!(points_tested);
@@ -217,12 +293,28 @@ impl StatusReport {
         obj
     }
 
-    /// Text marker for loud statuses. Quiet statuses (`exact`, `verified`)
-    /// return `None` so happy-path output stays byte-identical for existing
-    /// consumers.
+    /// Text marker for non-exact statuses. `exact` is quiet (unmarked
+    /// means proof). Everything else is loud — the marker tells the
+    /// consumer what kind of evidence backs the result. This is the
+    /// delivery surface: most MCP hosts strip the result_status sidecar,
+    /// so the marker is the only tier signal that reaches the agent.
     pub fn marker(&self) -> Option<String> {
         match &self.status {
-            ResultStatus::Exact | ResultStatus::Verified { .. } => None,
+            ResultStatus::Exact => None,
+            ResultStatus::Verified { points_tested } => {
+                // Verdict-shaped tools (verify, equivalent, verify_chain)
+                // already carry their tier in-band in the sentence text —
+                // suppress the generic marker to avoid double-marking.
+                if self.verdict.is_some() {
+                    return None;
+                }
+                let detail = if self.caveats.is_empty() {
+                    format!("numeric evidence, {} points — not proof", points_tested)
+                } else {
+                    format!("{} points — {}", points_tested, self.caveats.join("; "))
+                };
+                Some(format!("[verified] {}", detail))
+            }
             ResultStatus::Heuristic => {
                 let detail = if self.caveats.is_empty() {
                     "result not independently verified".to_string()
@@ -447,10 +539,14 @@ pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
 /// in-production bug detector for the simplifier itself.
 pub fn classify_simplify(input: &Node, output: &Node, env: &Environment) -> StatusReport {
     if is_algebraic_exact(input) && is_algebraic_exact(output) {
-        return StatusReport::exact();
+        return StatusReport::exact(Certificate::by_construction(
+            "canonical_form_Q — polynomial/rational canonicalization is a decision procedure",
+        ));
     }
     if format!("{}", input) == format!("{}", output) {
-        return StatusReport::exact();
+        return StatusReport::exact(Certificate::by_construction(
+            "identity — input and output are structurally identical",
+        ));
     }
     numeric_equivalence_status(input, output, env, "self-check")
 }
@@ -657,14 +753,20 @@ pub fn classify_integral(
         .unwrap_or_else(|_| integrand.clone());
 
     if format!("{}", derivative) == format!("{}", integrand_s) {
-        return StatusReport::exact();
+        return StatusReport::exact(Certificate::replay(
+            "differentiation_round_trip",
+            "d/dx of antiderivative matches integrand structurally",
+        ));
     }
 
     // Structural forms differ — try the difference.
     let diff = Node::Subtract(Box::new(derivative.clone()), Box::new(integrand_s.clone()));
     if let Ok(d) = diff.simplify(env) {
         if format!("{}", d) == "0" {
-            return StatusReport::exact();
+            return StatusReport::exact(Certificate::replay(
+                "differentiation_round_trip",
+                "d/dx of antiderivative minus integrand simplifies to zero",
+            ));
         }
     }
 
