@@ -103,7 +103,7 @@ fn peel_constant_factor(expr: &Node, var: &str) -> (Option<Node>, Node) {
         // c/den → c · (1/den), and (c·f)/den → c · (f/den). Simplify
         // normalizes every product spelling into this Divide shape before
         // recognition runs, so without this arm no spelling of 3/ln(x) or
-        // 3e^{2x}/x could ever be named (Carl's F1, PR #68 attack).
+        // 3e^{2x}/x could ever be named.
         Node::Divide(a, b) if !is_free_of_var(b, var) => {
             if is_free_of_var(a, var) {
                 let core = Node::Divide(

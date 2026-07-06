@@ -612,7 +612,7 @@ fn parse_and_simplify_with_env(expr_str: &str, env: &Environment) -> Result<Stri
     parse_latex(expr_str, env).map(|node| format!("{node}"))
 }
 
-/// Three-way replay outcome (Carl F1): a replay check that conflates
+/// Three-way replay outcome: a replay check that conflates
 /// "couldn't confirm" with "actively refuted" is decorative. The fix is
 /// to canonicalize the *difference* to zero — the same decision procedure
 /// verify_chain's equals already uses.
@@ -696,7 +696,7 @@ fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcom
 }
 
 /// Back-substitution replay for solve: substitute each root, check the
-/// residual via difference-to-zero. Three outcomes per Carl F1.
+/// residual via difference-to-zero. Three outcomes the three-way replay protocol.
 fn replay_solve_check(
     expr: &Node,
     var: &str,
@@ -932,7 +932,7 @@ fn tool_solve(args: &Value) -> ToolResult {
         } else {
             // Back-substitution check: substitute each root into the
             // equation and verify the residual simplifies to zero.
-            // Three outcomes (Carl F1): confirmed → exact(replay),
+            // Three outcomes: confirmed → exact(replay),
             // contradicted → heuristic, inconclusive → exact(by_construction).
             let env = Environment::new();
             let status = replay_solve_check(&expr, &var, &result.solutions, &env);
@@ -1112,7 +1112,7 @@ fn tool_factor(args: &Value) -> ToolResult {
     }
 
     // Replay check: multiply factors back, take the difference with the
-    // input, canonicalize to zero. Three outcomes per Carl F1.
+    // input, canonicalize to zero. Three outcomes the three-way replay protocol.
     let env = Environment::new();
     let mut product_node: Node = Node::Num(ExactNum::rational(
         content.numer().try_into().unwrap_or(1),
@@ -1166,7 +1166,7 @@ fn tool_partial_fractions(args: &Value) -> ToolResult {
         parse_latex(den, &env),
     ) {
         (Ok(pf), Ok(num_node), Ok(den_node)) => {
-            // Carl F4: compare via difference-to-zero, not Display strings.
+            // Compare via difference-to-zero, not Display strings.
             // simplify(pf·den − num) reduces to 0 via canonical_form_Q even
             // when the two Display forms differ structurally.
             let reconstructed = Node::Multiply(Box::new(pf), Box::new(den_node));
@@ -1378,7 +1378,7 @@ fn tool_matrix(args: &Value) -> ToolResult {
         s
     } else if op == "inverse" {
         // Replay check: multiply A × A⁻¹ and verify the result is I.
-        // Three outcomes per Carl F1.
+        // Three outcomes the three-way replay protocol.
         match a.inverse(&env) {
             Ok(inv) => match a.multiply(&inv, &env) {
                 Ok(product) => {

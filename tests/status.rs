@@ -131,9 +131,9 @@ fn unable_to_compute_marker_includes_reason() {
 
 #[test]
 fn unable_to_compute_marker_includes_caveats() {
-    // Carl's F3 (PR #68 attack): a witness attached as a caveat was
-    // computed, stored, and then dropped by every renderer — "preserved as
-    // a caveat" must be true on the wire, not just in the data structure.
+    // A witness attached as a caveat must reach the wire, not just live
+    // in the data structure — "preserved as a caveat" is only true if the
+    // marker renderer includes it.
     let m = StatusReport::unable_to_compute("only 0 valid test points")
         .with_caveat("the simplified derivative disagreed at {\"x\": 0.5}")
         .marker()
