@@ -52,7 +52,7 @@ the mechanism appropriate to its relation. The chain's status is the
 `verified`, never `exact`. A failing step carries the specific
 counterexample that refutes it. The counterexample is the diagnosis.
 
-**1688 tests, zero failures.** Every algorithm is verified against known results.
+**1722 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -73,7 +73,7 @@ The simplifier has a verified idempotency contract:
 | Exact trig values | $\sin\!\left(\frac{\pi}{6}\right) \to \frac{1}{2}$, $\sin\!\left(\frac{\pi}{12}\right) \to \frac{\sqrt{6}-\sqrt{2}}{4}$ |
 | Symbolic trig | $\sin(2)$ stays symbolic — no closed form exists |
 | Inverse trig values | $\arcsin\!\left(\frac{\sqrt{2}}{2}\right) \to \frac{\pi}{4}$ |
-| Hyperbolic values | $\sinh(\ln 2) \to \frac{3}{4}$, $\text{arccosh}(3) \to \ln(2+\sqrt{3})$ |
+| Hyperbolic values | $\sinh(\ln 2) \to \frac{3}{4}$, $\text{arccosh}(3) \to \ln(3+2\sqrt{2})$ |
 | Log rules | $\ln(ab) \to \ln a + \ln b$, $\ln(12) \to 2\ln 2 + \ln 3$ |
 | Exp/log folding | $\exp(2\ln 3) \to 9$, $\exp(\ln x) \to x$ |
 | Partial fractions | Full decomposition via factoring |
@@ -82,6 +82,14 @@ The simplifier has a verified idempotency contract:
 | Repeating decimals | $0.\overline{3} \to \frac{1}{3}$ |
 | Factorial & binomial | $n!$, $\binom{n}{k}$ with exact evaluation |
 | GCD / LCM | $\gcd(24, 36) \to 12$ |
+
+Simplification rewrites are identities in the standard CAS sense — equality
+in the field of rational functions / at generic points — so $\frac{3x}{x} \to 3$
+and $\exp(\ln x) \to x$ without carrying pointwise domain caveats
+($x \neq 0$, $x > 0$). Domain-sensitive rewrites that genuinely change
+answers (like $\sqrt{x^2}$) are gated on declared assumptions instead. The
+equality notion and its boundaries are documented in
+[docs/result-status.md](docs/result-status.md).
 
 ### Calculus
 
@@ -92,8 +100,8 @@ The simplifier has a verified idempotency contract:
 | 8 integration methods | polynomial, parts, u-sub, trig, partial fractions, ... |
 | Risch algorithm | proves non-elementarity with certificate |
 | Special function recognition | $\int e^{-x^2} \to \tfrac{\sqrt{\pi}}{2}\mathrm{erf}(x)$, $\int \tfrac{e^x}{x} \to \mathrm{Ei}(x)$, $\int \tfrac{dx}{\ln x} \to \mathrm{li}(x)$ — named alongside the impossibility proof |
-| Multi-extension towers | $\int(\!e^x\ln x + \frac{e^x}{x})\,dx = e^x\ln x$ |
-| Parametric integration | $\int\frac{dx}{x^2+a} = \frac{1}{\sqrt{a}}\arctan\!\frac{x}{\sqrt{a}}$ |
+| Multi-extension towers | $\int(\!e^x\ln x + \frac{e^x}{x})\,dx = e^x\ln x + C$ |
+| Parametric integration | $\int\frac{dx}{x^2+a} = \frac{1}{\sqrt{a}}\arctan\!\frac{x}{\sqrt{a}} + C$ |
 | Exact definite integrals | $\int_0^1\frac{dx}{x^2+1} = \frac{\pi}{4}$ |
 | Taylor series | exact rational coefficients, symbolic center |
 | Limits | L'Hôpital, series expansion, one-sided, at infinity |
@@ -288,6 +296,11 @@ All 13 subcommands: `format`, `simplify`, `differentiate` (`diff`), `integrate`,
 `solve`, `factor`, `prime-factorize` (`factorint`), `partial-fractions` (`pf`),
 `evaluate` (`eval`), `limit`, `taylor`, `substitute` (`sub`), `ode`.
 
+The CLI and MCP surfaces differ deliberately: the verification tools
+(`verify`, `equivalent`, `verify_chain`), `matrix`, and `solve_system` are
+MCP-only — they exist for agents consuming structured results — while
+`prime-factorize` is CLI-only. Neither list is a subset of the other.
+
 ---
 
 ## Building
@@ -298,7 +311,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1688 tests
+cargo test --workspace                    # run all 1722 tests
 ```
 
 ---
