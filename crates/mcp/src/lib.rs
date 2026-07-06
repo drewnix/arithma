@@ -666,33 +666,27 @@ fn difference_is_zero(lhs: &Node, rhs: &Node, env: &Environment) -> ReplayOutcom
     }
 
     // Free variables present: evaluate at exact rational sample points.
-    // A single nonzero evaluation contradicts; agreement at enough points
-    // (exceeding the degree bound) would confirm, but for replay checks
-    // we use a fixed sample set — disagreement is definitive, agreement
-    // is evidence. This is the same approach as verify_chain's
-    // exact_rational_sample mechanism.
+    // A single nonzero evaluation is a genuine disproof (Contradicted).
+    // Agreement at sample points without a degree bound is evidence, not
+    // proof — return Inconclusive, which falls to by_construction for
+    // genuine decision procedures. Only the degree-bounded grid in
+    // verify_chain's interpolation_identity_Q earns exact from sampling.
     let sample_values: &[i64] = &[0, 1, -1, 2, -2, 3, 7];
-    let mut agreed = 0;
-    for vals in sample_values.iter() {
+    for val in sample_values.iter() {
         let mut pt_env = Environment::new();
-        for v in &vars {
-            pt_env.set_exact(v, ExactNum::integer(*vals + agreed as i64));
+        for (i, v) in vars.iter().enumerate() {
+            pt_env.set_exact(v, ExactNum::integer(*val + i as i64));
         }
         match Evaluator::evaluate_exact(&d, &pt_env) {
             Ok(ExactNum::Rational(r)) => {
                 if *r.numer() != num_bigint::BigInt::from(0) {
                     return ReplayOutcome::Contradicted;
                 }
-                agreed += 1;
             }
             _ => continue,
         }
     }
-    if agreed >= 5 {
-        ReplayOutcome::Confirmed
-    } else {
-        ReplayOutcome::Inconclusive
-    }
+    ReplayOutcome::Inconclusive
 }
 
 /// Back-substitution replay for solve: substitute each root, check the
