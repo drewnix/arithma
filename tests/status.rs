@@ -5,8 +5,8 @@
 // contract change; add fields instead.
 
 use arithma::status::{
-    classify_integral, classify_simplify, is_algebraic_exact, Certificate, ResultStatus,
-    StatusReport,
+    classify_integral, classify_simplify, is_algebraic_exact, Certificate, ProofCertificate,
+    ResultStatus, StatusReport,
 };
 use arithma::{parse_latex, parse_latex_raw, Environment};
 
@@ -53,10 +53,23 @@ fn unable_to_compute_carries_reason() {
 }
 
 #[test]
-fn provably_impossible_carries_certificate() {
-    let json = StatusReport::provably_impossible("no elementary antiderivative").to_json();
+fn provably_impossible_carries_structured_proof_certificate() {
+    let proof = ProofCertificate::new(
+        "risch-de",
+        "The DE q' + f·q = g has no rational solution",
+        "No elementary antiderivative exists.",
+    );
+    let json = StatusReport::provably_impossible(proof).to_json();
     assert_eq!(json["status"], "provably_impossible");
-    assert_eq!(json["certificate"], "no elementary antiderivative");
+    assert_eq!(json["proof_certificate"]["method"], "risch-de");
+    assert_eq!(
+        json["proof_certificate"]["reason"],
+        "The DE q' + f·q = g has no rational solution"
+    );
+    assert_eq!(
+        json["proof_certificate"]["explanation"],
+        "No elementary antiderivative exists."
+    );
 }
 
 #[test]
@@ -99,39 +112,44 @@ fn verified_marker_includes_caveats_when_present() {
 }
 
 #[test]
-fn provably_impossible_marker_includes_certificate() {
-    let m = StatusReport::provably_impossible("Risch: no solution")
-        .marker()
-        .unwrap();
+fn provably_impossible_marker_includes_explanation() {
+    let proof = ProofCertificate::new("risch", "formal reason", "Risch: no solution");
+    let m = StatusReport::provably_impossible(proof).marker().unwrap();
     assert_eq!(m, "[provably impossible] Risch: no solution");
 }
 
 #[test]
 fn special_form_serializes_on_provably_impossible() {
-    // Recognition of a non-elementary antiderivative as a named special
-    // function rides as evidence fields on provably_impossible: the theorem
-    // ("no elementary antiderivative") is unchanged; the name is a strictly
-    // additive refinement (extensibility contract: consumers ignore unknown
-    // fields).
-    let json = StatusReport::provably_impossible("no elementary antiderivative")
+    let proof = ProofCertificate::new(
+        "risch",
+        "no elementary antiderivative",
+        "No elementary antiderivative exists.",
+    );
+    let json = StatusReport::provably_impossible(proof)
         .with_special_form("erf", "\\frac{\\sqrt{\\pi}}{2}\\erf(x)")
         .to_json();
     assert_eq!(json["status"], "provably_impossible");
-    assert_eq!(json["certificate"], "no elementary antiderivative");
+    assert_eq!(json["proof_certificate"]["method"], "risch");
     assert_eq!(json["special_function"], "erf");
     assert_eq!(json["special_form"], "\\frac{\\sqrt{\\pi}}{2}\\erf(x)");
 }
 
 #[test]
 fn special_form_absent_when_not_attached() {
-    let json = StatusReport::provably_impossible("no elementary antiderivative").to_json();
+    let proof = ProofCertificate::new("risch", "reason", "explanation");
+    let json = StatusReport::provably_impossible(proof).to_json();
     assert!(json.get("special_function").is_none());
     assert!(json.get("special_form").is_none());
 }
 
 #[test]
 fn provably_impossible_marker_names_special_form_when_present() {
-    let m = StatusReport::provably_impossible("no elementary antiderivative exists")
+    let proof = ProofCertificate::new(
+        "risch",
+        "formal reason",
+        "no elementary antiderivative exists",
+    );
+    let m = StatusReport::provably_impossible(proof)
         .with_special_form("erf", "\\frac{\\sqrt{\\pi}}{2}\\erf(x)")
         .marker()
         .unwrap();

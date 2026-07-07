@@ -16,7 +16,7 @@ agent-facing CAS exists to prevent.
 | `verified` | The result was independently checked numerically. Not a proof: agreement at *n* points. | `points_tested`, optionally `counterexample` (when the *verdict itself* is "not equal" and the counterexample is the evidence) |
 | `heuristic` | A transformation was applied that is believed sound, but the result was not independently verified (e.g. too few valid test points in the domain). | `caveats` explain why |
 | `unable_to_compute` | The tool understood the request but could not produce an answer. This is an honest "I don't know," distinct from a protocol error. | `reason` |
-| `provably_impossible` | The tool *proved* no answer exists in the requested class (e.g. Risch/Liouville non-elementarity). This is a theorem, not a failure. | `certificate` — the reason, human-readable |
+| `provably_impossible` | The tool *proved* no answer exists in the requested class (e.g. Risch non-elementarity, negative discriminant, Abel-Ruffini). This is a theorem, not a failure. | `proof_certificate` — structured: `{method, reason, explanation}` |
 
 Three design rules:
 
@@ -62,10 +62,25 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
 {
   "result_status": {
     "status": "provably_impossible",
-    "certificate": "e^{x^2} has no elementary antiderivative (Risch: no solution to the Risch differential equation)"
+    "proof_certificate": {
+      "method": "risch-de",
+      "reason": "No elementary antiderivative exists. The differential equation q' + (2x)·q = 1 has no rational solution.",
+      "explanation": "This integral has no formula using elementary functions (polynomials, exponentials, logarithms, trigonometric). This is a theorem, not a limitation of the tool."
+    }
   }
 }
 ```
+
+**Proof certificate methods.** The `method` field classifies the impossibility proof:
+
+| Method | Proof type | Used by |
+|---|---|---|
+| `risch-de` | Risch differential equation has no rational solution | `integrate` |
+| `rothstein-trager` | Rothstein-Trager resultant has no rational roots | `integrate` |
+| `risch` | Generic Risch non-elementarity proof | `integrate` |
+| `negative-discriminant` | Quadratic discriminant is negative — no real roots | `solve` |
+| `all-roots-complex` | All polynomial roots are complex | `solve` |
+| `contradiction` | Equation reduces to nonzero = 0 | `solve` |
 
 **Special-function recognition fields.** When a `provably_impossible`
 integration result's antiderivative is a recognized special function (erf,
@@ -82,7 +97,11 @@ guessed name.
 {
   "result_status": {
     "status": "provably_impossible",
-    "certificate": "No elementary antiderivative exists. The differential equation q' + (-2x)·q = 1 has no rational solution.",
+    "proof_certificate": {
+      "method": "risch-de",
+      "reason": "No elementary antiderivative exists. The differential equation q' + (-2x)·q = 1 has no rational solution.",
+      "explanation": "This integral has no formula using elementary functions. This is a theorem, not a limitation of the tool."
+    },
     "special_function": "erf",
     "special_form": "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)"
   }
@@ -188,7 +207,7 @@ justifies it, never asserted by optimism.
 | `integrate` (indefinite) | Differentiation round-trip: d/dx of the antiderivative, compare to integrand. Structural match after simplification → `exact` (the round-trip is algebraic — this is why `integral_of` can reach `exact` where `implies` cannot). Numeric-only agreement → `verified`. Risch non-elementarity → `provably_impossible` with certificate; when the antiderivative is a recognized special function (erf, Ei, li), the status also carries `special_function`/`special_form` — recognition guarded by a differentiation round-trip, never guessed. |
 | `integrate` (definite) | The FTC path first checks the integrand for singularities inside [a, b] (exact roots for polynomial denominators, sign-change/magnitude scan otherwise) and refuses improper integrals. It then inherits the antiderivative's round-trip status; special-value evaluations are `exact`. |
 | `substitute` | Capture-avoiding substitution is algebraic → `exact`. |
-| `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat — the status conditions on the code path taken, not the tool name. Inequalities via sign analysis → `exact`. (Back-substitution self-audit is a planned follow-up.) |
+| `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat. All roots complex (negative discriminant for quadratics, exhaustive for degree ≤ 4) → `provably_impossible` with method `negative-discriminant` / `all-roots-complex`. Contradiction (nonzero = 0) → `provably_impossible` with method `contradiction`. Irreducible degree-≥5 factors → `unable_to_compute` (degree ≥ 5 irreducibility does not prove Abel-Ruffini without Galois group computation; x⁵−2 has radical root ⁵√2). Inequalities via sign analysis → `exact`. |
 | `solve_system` | Exact Gaussian elimination / substitution over ℚ → `exact`. |
 | `factor` | Berlekamp–Zassenhaus is exact → `exact`. |
 | `partial_fractions` | Exact rational arithmetic → `exact`. |
