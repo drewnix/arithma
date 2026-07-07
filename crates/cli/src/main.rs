@@ -158,29 +158,9 @@ fn cmd_differentiate(cmd: &str, args: &[String]) {
 /// When the antiderivative is a recognized special function (erf, Ei, li),
 /// the marker also names the form — strictly more information than the
 /// impossibility alone.
-fn classify_risch_method(reason: &str) -> &'static str {
-    if reason.contains("Rothstein-Trager") {
-        "rothstein-trager"
-    } else if reason.contains("differential equation")
-        || reason.contains("Risch DE")
-        || reason.contains("Cannot integrate the degree-")
-    {
-        "risch-de"
-    } else {
-        "risch"
-    }
-}
-
 fn non_elementary_marker(e: &str, integrand_latex: &str, var: &str) -> String {
     let reason = e.replacen("NON_ELEMENTARY: ", "", 1);
-    let method = classify_risch_method(&reason);
-    let proof = ProofCertificate::new(
-        method,
-        &reason,
-        "This integral has no formula using elementary functions \
-         (polynomials, exponentials, logarithms, trigonometric). \
-         This is a theorem, not a limitation of the tool.",
-    );
+    let proof = ProofCertificate::non_elementary(&reason);
     let status = StatusReport::provably_impossible(proof);
     let status =
         match arithma::special_functions::recognize_special_form_latex(integrand_latex, var) {
