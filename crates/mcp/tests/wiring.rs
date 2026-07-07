@@ -193,6 +193,23 @@ fn solve_quartic_all_complex_is_provably_impossible() {
 }
 
 #[test]
+fn solve_quintic_irreducible_is_unable_to_compute_not_impossible() {
+    // x^5 - 2 = 0 has real root ⁵√2 — the solver can't express it, but
+    // that is NOT a proof of impossibility (Abel-Ruffini requires a
+    // non-solvable Galois group, not just degree ≥ 5).
+    let resp = call("solve", json!({"equation": "x^5 - 2 = 0"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(
+        status["status"], "unable_to_compute",
+        "irreducible quintic must NOT be provably_impossible — x^5-2 has root ⁵√2"
+    );
+    assert!(
+        status.get("proof_certificate").is_none(),
+        "unable_to_compute must not carry a proof_certificate"
+    );
+}
+
+#[test]
 fn simplify_polynomial_is_exact_with_bare_text() {
     let resp = call("simplify", json!({"expr": "\\frac{x^2 - 1}{x - 1}"}));
     assert_eq!(resp["result"]["result_status"]["status"], "exact");

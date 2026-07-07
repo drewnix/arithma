@@ -932,32 +932,36 @@ fn tool_solve(args: &Value) -> ToolResult {
         Err(e) => return Err(e),
     };
 
-    // No expressible solutions: classify the impossibility.
+    // No expressible solutions: classify why.
     if result.solutions.is_empty() && result.complex_omitted > 0 {
         let degree = result.complex_omitted;
 
-        // Abel-Ruffini: irreducible factors of degree ≥ 5 have no
-        // closed-form radical solution. Roots may exist (even real ones),
-        // but cannot be expressed using radicals.
-        if let Some(reason_str) = &result.impossibility_reason {
-            let proof = ProofCertificate::new(
-                "abel-ruffini",
-                reason_str,
-                "This polynomial has irreducible factors of degree 5 or higher. \
-                 By the Abel-Ruffini theorem, their roots cannot be expressed \
-                 using radicals (nth roots, addition, multiplication). The roots \
-                 exist as real or complex numbers but have no closed-form formula. \
-                 This is a theorem, not a limitation of the tool.",
-            );
+        // Irreducible factors of degree ≥ 5: the solver cannot express the
+        // roots, but that does NOT prove they are inexpressible. Degree ≥ 5
+        // irreducibility is not the Abel-Ruffini condition (which requires a
+        // non-solvable Galois group). x⁵−2 is irreducible over Q but its
+        // root is ⁵√2 — a radical. Without Galois group computation, this
+        // is unable_to_compute, never provably_impossible.
+        if result.impossibility_reason.is_some() {
             return Ok((
                 format!(
-                    "No closed-form solution ({degree} root{} not expressible in radicals)",
+                    "No closed-form solution found \
+                     ({degree} root{} of degree-5+ irreducible factor{} not expressible)",
+                    if degree == 1 { "" } else { "s" },
                     if degree == 1 { "" } else { "s" }
                 ),
-                StatusReport::provably_impossible(proof),
+                StatusReport::unable_to_compute(
+                    "polynomial has irreducible factors of degree ≥ 5 — \
+                     roots may exist (including real roots) but cannot be expressed \
+                     in the current radical formula repertoire",
+                ),
             ));
         }
 
+        // The solver's root-finding is exhaustive for degree ≤ 4 (quadratic
+        // formula, Cardano, Ferrari). Only claim "all roots are complex" when
+        // the analysis is complete — for degree ≤ 4, no real roots means all
+        // roots are genuinely complex.
         let (method, reason, explanation) = if degree == 2 {
             (
                 "negative-discriminant",

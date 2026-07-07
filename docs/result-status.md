@@ -80,7 +80,6 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
 | `risch` | Generic Risch non-elementarity proof | `integrate` |
 | `negative-discriminant` | Quadratic discriminant is negative — no real roots | `solve` |
 | `all-roots-complex` | All polynomial roots are complex | `solve` |
-| `abel-ruffini` | Irreducible factors of degree ≥ 5 — no radical closed form | `solve` |
 | `contradiction` | Equation reduces to nonzero = 0 | `solve` |
 
 **Special-function recognition fields.** When a `provably_impossible`
@@ -208,7 +207,7 @@ justifies it, never asserted by optimism.
 | `integrate` (indefinite) | Differentiation round-trip: d/dx of the antiderivative, compare to integrand. Structural match after simplification → `exact` (the round-trip is algebraic — this is why `integral_of` can reach `exact` where `implies` cannot). Numeric-only agreement → `verified`. Risch non-elementarity → `provably_impossible` with certificate; when the antiderivative is a recognized special function (erf, Ei, li), the status also carries `special_function`/`special_form` — recognition guarded by a differentiation round-trip, never guessed. |
 | `integrate` (definite) | The FTC path first checks the integrand for singularities inside [a, b] (exact roots for polynomial denominators, sign-change/magnitude scan otherwise) and refuses improper integrals. It then inherits the antiderivative's round-trip status; special-value evaluations are `exact`. |
 | `substitute` | Capture-avoiding substitution is algebraic → `exact`. |
-| `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat. All roots complex (negative discriminant for quadratics, exhaustive for higher degrees) → `provably_impossible` with method `negative-discriminant` / `all-roots-complex`. Irreducible degree-≥5 factors → `provably_impossible` with method `abel-ruffini`. Contradiction (nonzero = 0) → `provably_impossible` with method `contradiction`. Inequalities via sign analysis → `exact`. |
+| `solve` | Symbolic root formulas (rational-root, quadratic) → `exact`. Cubic/quartic paths that degrade to f64 root-finding → `verified` with an f64 caveat. All roots complex (negative discriminant for quadratics, exhaustive for degree ≤ 4) → `provably_impossible` with method `negative-discriminant` / `all-roots-complex`. Contradiction (nonzero = 0) → `provably_impossible` with method `contradiction`. Irreducible degree-≥5 factors → `unable_to_compute` (degree ≥ 5 irreducibility does not prove Abel-Ruffini without Galois group computation; x⁵−2 has radical root ⁵√2). Inequalities via sign analysis → `exact`. |
 | `solve_system` | Exact Gaussian elimination / substitution over ℚ → `exact`. |
 | `factor` | Berlekamp–Zassenhaus is exact → `exact`. |
 | `partial_fractions` | Exact rational arithmetic → `exact`. |
