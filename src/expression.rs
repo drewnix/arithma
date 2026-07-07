@@ -62,7 +62,12 @@ pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> 
         let (solutions, impossibility_reason) = match solve_polynomial_nodes(expr, target_var) {
             Ok(s) => (s, None),
             Err(e) if e.contains("irreducible factors of degree > 4") => (Vec::new(), Some(e)),
-            Err(_) => (Vec::new(), None),
+            // "No real solutions" from degree-≤4 formulas is genuine proof
+            // that all roots are complex. Any other error is unexpected —
+            // propagate it rather than swallowing into empty solutions,
+            // which downstream reads as "all roots complex."
+            Err(e) if e == "No real solutions" => (Vec::new(), None),
+            Err(e) => return Err(e),
         };
         let complex_omitted = degree.saturating_sub(solutions.len());
 

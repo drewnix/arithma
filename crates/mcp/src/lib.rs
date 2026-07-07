@@ -829,34 +829,13 @@ fn tool_integrate(args: &Value) -> ToolResult {
     }
 }
 
-/// Classify a Risch non-elementarity reason into a proof method.
-fn classify_risch_method(reason: &str) -> &'static str {
-    if reason.contains("Rothstein-Trager") {
-        "rothstein-trager"
-    } else if reason.contains("differential equation")
-        || reason.contains("Risch DE")
-        || reason.contains("Cannot integrate the degree-")
-    {
-        "risch-de"
-    } else {
-        "risch"
-    }
-}
-
 /// Build the provably_impossible status for a NON_ELEMENTARY error and, when
 /// the integrand's antiderivative is a recognized special function (erf, Ei,
 /// li), attach the named form — strictly more information than the
 /// impossibility alone. Unrecognized integrands keep the bare certificate.
 fn non_elementary_status(error: &str, integrand_latex: &str, var: &str) -> StatusReport {
     let reason = error.replacen("NON_ELEMENTARY: ", "", 1);
-    let method = classify_risch_method(&reason);
-    let proof = ProofCertificate::new(
-        method,
-        &reason,
-        "This integral has no formula using elementary functions \
-         (polynomials, exponentials, logarithms, trigonometric). \
-         This is a theorem, not a limitation of the tool.",
-    );
+    let proof = ProofCertificate::non_elementary(&reason);
     let status = StatusReport::provably_impossible(proof);
     match recognize_special_form_latex(integrand_latex, var) {
         Some((name, form)) => status.with_special_form(&name, &form),

@@ -105,6 +105,30 @@ impl ProofCertificate {
         }
     }
 
+    /// Build a non-elementarity certificate from a Risch error string.
+    /// Classifies the proof method from the diagnostic content: the method
+    /// lives here (not in each tool boundary) so rewording a diagnostic
+    /// cannot silently misclassify in one copy while the other stays correct.
+    pub fn non_elementary(reason: &str) -> Self {
+        let method = if reason.contains("Rothstein-Trager") {
+            "rothstein-trager"
+        } else if reason.contains("differential equation")
+            || reason.contains("Risch DE")
+            || reason.contains("Cannot integrate the degree-")
+        {
+            "risch-de"
+        } else {
+            "risch"
+        };
+        ProofCertificate::new(
+            method,
+            reason,
+            "This integral has no formula using elementary functions \
+             (polynomials, exponentials, logarithms, trigonometric). \
+             This is a theorem, not a limitation of the tool.",
+        )
+    }
+
     pub fn to_json(&self) -> Value {
         json!({
             "method": self.method,
