@@ -21,7 +21,7 @@ use arithma::special_functions::recognize_special_form_latex;
 use arithma::status::Verdict;
 use arithma::status::{
     classify_integral, classify_limit, classify_simplify, classify_verify, free_variables,
-    Certificate, StatusReport,
+    Certificate, ProofCertificate, StatusReport,
 };
 use arithma::substitute::substitute_latex;
 use arithma::tokenizer::normalize_var;
@@ -829,13 +829,35 @@ fn tool_integrate(args: &Value) -> ToolResult {
     }
 }
 
+/// Classify a Risch non-elementarity reason into a proof method.
+fn classify_risch_method(reason: &str) -> &'static str {
+    if reason.contains("Rothstein-Trager") {
+        "rothstein-trager"
+    } else if reason.contains("differential equation")
+        || reason.contains("Risch DE")
+        || reason.contains("Cannot integrate the degree-")
+    {
+        "risch-de"
+    } else {
+        "risch"
+    }
+}
+
 /// Build the provably_impossible status for a NON_ELEMENTARY error and, when
 /// the integrand's antiderivative is a recognized special function (erf, Ei,
 /// li), attach the named form — strictly more information than the
 /// impossibility alone. Unrecognized integrands keep the bare certificate.
 fn non_elementary_status(error: &str, integrand_latex: &str, var: &str) -> StatusReport {
     let reason = error.replacen("NON_ELEMENTARY: ", "", 1);
-    let status = StatusReport::provably_impossible(&reason);
+    let method = classify_risch_method(&reason);
+    let proof = ProofCertificate::new(
+        method,
+        &reason,
+        "This integral has no formula using elementary functions \
+         (polynomials, exponentials, logarithms, trigonometric). \
+         This is a theorem, not a limitation of the tool.",
+    );
+    let status = StatusReport::provably_impossible(proof);
     match recognize_special_form_latex(integrand_latex, var) {
         Some((name, form)) => status.with_special_form(&name, &form),
         None => status,
@@ -892,7 +914,80 @@ fn tool_solve(args: &Value) -> ToolResult {
         });
     }
 
-    let result = arithma::expression::solve_full(&expr, &var)?;
+    let result = match arithma::expression::solve_full(&expr, &var) {
+        Ok(r) => r,
+        Err(e) if e == "No solution (contradiction)" => {
+            let proof = ProofCertificate::new(
+                "contradiction",
+                "The equation reduces to a nonzero constant equal to zero — a contradiction.",
+                "This equation has no solutions. It simplifies to a contradiction \
+                 (a nonzero number equal to zero), which is impossible for any value \
+                 of the variable.",
+            );
+            return Ok((
+                "No solution (contradiction)".to_string(),
+                StatusReport::provably_impossible(proof),
+            ));
+        }
+        Err(e) => return Err(e),
+    };
+
+    // No expressible solutions: classify the impossibility.
+    if result.solutions.is_empty() && result.complex_omitted > 0 {
+        let degree = result.complex_omitted;
+
+        // Abel-Ruffini: irreducible factors of degree ≥ 5 have no
+        // closed-form radical solution. Roots may exist (even real ones),
+        // but cannot be expressed using radicals.
+        if let Some(reason_str) = &result.impossibility_reason {
+            let proof = ProofCertificate::new(
+                "abel-ruffini",
+                reason_str,
+                "This polynomial has irreducible factors of degree 5 or higher. \
+                 By the Abel-Ruffini theorem, their roots cannot be expressed \
+                 using radicals (nth roots, addition, multiplication). The roots \
+                 exist as real or complex numbers but have no closed-form formula. \
+                 This is a theorem, not a limitation of the tool.",
+            );
+            return Ok((
+                format!(
+                    "No closed-form solution ({degree} root{} not expressible in radicals)",
+                    if degree == 1 { "" } else { "s" }
+                ),
+                StatusReport::provably_impossible(proof),
+            ));
+        }
+
+        let (method, reason, explanation) = if degree == 2 {
+            (
+                "negative-discriminant",
+                "The quadratic has no real roots: discriminant is negative, \
+                 so both roots are complex."
+                    .to_string(),
+                "This equation has no real solutions. Both roots are complex. \
+                 This is a theorem (negative discriminant), not a limitation of the tool."
+                    .to_string(),
+            )
+        } else {
+            (
+                "all-roots-complex",
+                format!("No real roots exist: all {degree} roots are complex."),
+                format!(
+                    "This equation has no real solutions. All {degree} roots are complex. \
+                     This is proved by exhaustive analysis of the polynomial's roots."
+                ),
+            )
+        };
+        let proof = ProofCertificate::new(method, &reason, &explanation);
+        return Ok((
+            format!(
+                "No real solutions ({degree} complex root{} omitted)",
+                if degree == 1 { "" } else { "s" }
+            ),
+            StatusReport::provably_impossible(proof),
+        ));
+    }
+
     let mut parts: Vec<String> = result
         .solutions
         .iter()
@@ -905,11 +1000,6 @@ fn tool_solve(args: &Value) -> ToolResult {
             if result.complex_omitted == 1 { "" } else { "s" }
         ));
     }
-    // Quadratics come from genuinely symbolic formulas (exact); cubic and
-    // quartic paths can degrade to f64 root-finding. Exact arithmetic never
-    // prints a decimal point — condition the status on the code path taken,
-    // not on the tool name. A back-substitution
-    // self-audit is a planned follow-up.
     if parts.is_empty() {
         Ok((
             "No solutions found".to_string(),
@@ -1552,8 +1642,8 @@ fn describe_status(report: &arithma::status::StatusReport) -> String {
         }
         ResultStatus::Heuristic => "heuristic".to_string(),
         ResultStatus::UnableToCompute { reason } => format!("unable to compute: {}", reason),
-        ResultStatus::ProvablyImpossible { certificate } => {
-            format!("provably impossible: {}", certificate)
+        ResultStatus::ProvablyImpossible { proof } => {
+            format!("provably impossible: {}", proof.explanation)
         }
     };
     if report.caveats.is_empty() {

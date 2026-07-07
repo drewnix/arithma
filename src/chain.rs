@@ -410,7 +410,7 @@ fn check_substitution(
         .map_err(|e| format!("could not parse substitution value '{}': {}", value, e))?;
     let substituted = match capture_aware_substitute(prev, var, &value_node, "substitute")? {
         SubstOutcome::Node(s) => s,
-        SubstOutcome::Refused(step) => return Ok(step),
+        SubstOutcome::Refused(step) => return Ok(*step),
     };
     let mut checked = check_equals(&substituted, current, env);
     checked.mechanism = format!("substitute+{}", checked.mechanism);
@@ -419,7 +419,7 @@ fn check_substitution(
 
 enum SubstOutcome {
     Node(Node),
-    Refused(CheckedStep),
+    Refused(Box<CheckedStep>),
 }
 
 /// Substitution with the capture-refusal-as-step-outcome policy applied
@@ -436,11 +436,11 @@ fn capture_aware_substitute(
 ) -> Result<SubstOutcome, String> {
     match crate::substitute::substitute_variable(expr, var, value) {
         Ok(n) => Ok(SubstOutcome::Node(n)),
-        Err(e) if e.contains("capture") => Ok(SubstOutcome::Refused(CheckedStep {
+        Err(e) if e.contains("capture") => Ok(SubstOutcome::Refused(Box::new(CheckedStep {
             verdict: Verdict::Inconclusive,
             status: StatusReport::unable_to_compute(&e),
             mechanism: mechanism.to_string(),
-        })),
+        }))),
         Err(e) => Err(format!("substitution failed: {}", e)),
     }
 }
@@ -603,12 +603,12 @@ fn check_solution_of(
     let lhs_sub =
         match capture_aware_substitute(eq_lhs, &sol_var, &sol_value, "solution_substitution")? {
             SubstOutcome::Node(n) => n,
-            SubstOutcome::Refused(step) => return Ok(step),
+            SubstOutcome::Refused(step) => return Ok(*step),
         };
     let rhs_sub =
         match capture_aware_substitute(eq_rhs, &sol_var, &sol_value, "solution_substitution")? {
             SubstOutcome::Node(n) => n,
-            SubstOutcome::Refused(step) => return Ok(step),
+            SubstOutcome::Refused(step) => return Ok(*step),
         };
 
     let mut checked = check_equals(&lhs_sub, &rhs_sub, env);
@@ -696,11 +696,11 @@ fn check_implies(
     for sol in &solved.solutions {
         let lhs_sub = match capture_aware_substitute(con_lhs, &var, sol, &mechanism)? {
             SubstOutcome::Node(n) => n,
-            SubstOutcome::Refused(step) => return Ok(step),
+            SubstOutcome::Refused(step) => return Ok(*step),
         };
         let rhs_sub = match capture_aware_substitute(con_rhs, &var, sol, &mechanism)? {
             SubstOutcome::Node(n) => n,
-            SubstOutcome::Refused(step) => return Ok(step),
+            SubstOutcome::Refused(step) => return Ok(*step),
         };
         let step = check_equals(&lhs_sub, &rhs_sub, env);
         match step.verdict {

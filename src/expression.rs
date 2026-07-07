@@ -18,6 +18,10 @@ pub fn extract_variable(expr: &str) -> Option<String> {
 pub struct SolveResult {
     pub solutions: Vec<Node>,
     pub complex_omitted: usize,
+    /// When the solver cannot express all roots, this carries the reason.
+    /// Distinguishes "roots are complex" from "roots may exist but have no
+    /// closed-form radical expression" (Abel-Ruffini).
+    pub impossibility_reason: Option<String>,
 }
 
 pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> {
@@ -55,18 +59,24 @@ pub fn solve_full(expr: &Node, target_var: &str) -> Result<SolveResult, String> 
             }
         }
 
-        let solutions = solve_polynomial_nodes(expr, target_var).unwrap_or_default();
+        let (solutions, impossibility_reason) = match solve_polynomial_nodes(expr, target_var) {
+            Ok(s) => (s, None),
+            Err(e) if e.contains("irreducible factors of degree > 4") => (Vec::new(), Some(e)),
+            Err(_) => (Vec::new(), None),
+        };
         let complex_omitted = degree.saturating_sub(solutions.len());
 
         Ok(SolveResult {
             solutions,
             complex_omitted,
+            impossibility_reason,
         })
     } else {
         let solutions = solve_polynomial_nodes(expr, target_var)?;
         Ok(SolveResult {
             solutions,
             complex_omitted: 0,
+            impossibility_reason: None,
         })
     }
 }

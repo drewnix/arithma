@@ -81,16 +81,115 @@ fn integrate_nonelementary_is_provably_impossible_and_loud() {
         resp["result"]["result_status"]["status"],
         "provably_impossible"
     );
-    assert!(!resp["result"]["result_status"]["certificate"]
-        .as_str()
-        .unwrap()
-        .is_empty());
+    assert!(resp["result"]["result_status"]["proof_certificate"]
+        .as_object()
+        .is_some());
+    assert!(
+        !resp["result"]["result_status"]["proof_certificate"]["method"]
+            .as_str()
+            .unwrap()
+            .is_empty()
+    );
     let text = resp["result"]["content"][0]["text"].as_str().unwrap();
     assert!(
         text.starts_with("[provably impossible]"),
         "text must carry the marker: {}",
         text
     );
+}
+
+// ── Impossibility proof tests ──────────────────────────────────────────
+// Each exercises the full pipeline: tool call → structured ProofCertificate
+// with method, reason, and explanation fields.
+
+#[test]
+fn integrate_exp_x2_risch_de_certificate() {
+    let resp = call("integrate", json!({"expr": "e^{x^2}"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    let cert = &status["proof_certificate"];
+    assert_eq!(cert["method"], "risch-de");
+    assert!(!cert["reason"].as_str().unwrap().is_empty());
+    assert!(
+        cert["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("elementary functions"),
+        "explanation should mention elementary functions"
+    );
+}
+
+#[test]
+fn integrate_exp_x_over_x_rothstein_trager_certificate() {
+    let resp = call("integrate", json!({"expr": "\\frac{e^x}{x}"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    let cert = &status["proof_certificate"];
+    assert!(
+        cert["method"] == "rothstein-trager" || cert["method"] == "risch-de",
+        "method should be rothstein-trager or risch-de, got: {}",
+        cert["method"]
+    );
+    assert!(
+        status.get("special_function").is_some(),
+        "should recognize Ei"
+    );
+}
+
+#[test]
+fn integrate_exp_neg_x2_erf_special_form() {
+    let resp = call("integrate", json!({"expr": "e^{-x^2}"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    assert!(status["proof_certificate"].as_object().is_some());
+    assert_eq!(status["special_function"], "erf");
+    assert!(!status["special_form"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn solve_negative_discriminant_is_provably_impossible() {
+    let resp = call("solve", json!({"equation": "x^2 + 1 = 0"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    let cert = &status["proof_certificate"];
+    assert_eq!(cert["method"], "negative-discriminant");
+    assert!(
+        cert["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("no real solutions"),
+        "explanation should state no real solutions"
+    );
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("No real solutions"), "text: {}", text);
+}
+
+#[test]
+fn solve_contradiction_is_provably_impossible() {
+    // 0 = 1 has no solutions.
+    let resp = call("solve", json!({"equation": "0 = 1"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    let cert = &status["proof_certificate"];
+    assert_eq!(cert["method"], "contradiction");
+    assert!(
+        cert["explanation"]
+            .as_str()
+            .unwrap()
+            .contains("contradiction"),
+        "explanation should mention contradiction"
+    );
+}
+
+#[test]
+fn solve_quartic_all_complex_is_provably_impossible() {
+    // x^4 + 1 = 0 has no real roots (all 4 roots are complex).
+    let resp = call("solve", json!({"equation": "x^4 + 1 = 0"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "provably_impossible");
+    let cert = &status["proof_certificate"];
+    assert_eq!(cert["method"], "all-roots-complex");
+    assert!(cert["explanation"].as_str().unwrap().contains("4 roots"));
 }
 
 #[test]

@@ -76,6 +76,44 @@ impl Certificate {
     }
 }
 
+/// A structured proof that some mathematical object does not exist in a
+/// requested class. The impossibility is a theorem, not a failure — the
+/// certificate names the method, the formal reason, and a plain-language
+/// explanation. Analogous to `Certificate` for exact results, but with
+/// negative polarity: instead of "here is the answer, proved," it says
+/// "no answer exists, proved."
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProofCertificate {
+    /// The proof method, kebab-case (e.g. "risch-de", "rational-root-theorem",
+    /// "negative-discriminant", "abel-ruffini").
+    pub method: String,
+    /// Formal mathematical reason (e.g. "The differential equation q' + f·q = g
+    /// has no rational solution").
+    pub reason: String,
+    /// Plain-language explanation for non-specialists (e.g. "This integral has
+    /// no formula using elementary functions. This is a theorem, not a
+    /// limitation of the tool.").
+    pub explanation: String,
+}
+
+impl ProofCertificate {
+    pub fn new(method: &str, reason: &str, explanation: &str) -> Self {
+        ProofCertificate {
+            method: method.to_string(),
+            reason: reason.to_string(),
+            explanation: explanation.to_string(),
+        }
+    }
+
+    pub fn to_json(&self) -> Value {
+        json!({
+            "method": self.method,
+            "reason": self.reason,
+            "explanation": self.explanation,
+        })
+    }
+}
+
 /// The five evidence classes. See `docs/result-status.md` for the earning
 /// rules — a status must be earned by the mechanism that justifies it.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,9 +128,10 @@ pub enum ResultStatus {
     Heuristic,
     /// The request was understood but no answer could be produced.
     UnableToCompute { reason: String },
-    /// A proof that no answer exists in the requested class (e.g. Risch
-    /// non-elementarity). A theorem, not a failure.
-    ProvablyImpossible { certificate: String },
+    /// A proof that no answer exists in the requested class. A theorem, not
+    /// a failure. Carries a structured `ProofCertificate` naming the method,
+    /// the formal reason, and a plain-language explanation.
+    ProvablyImpossible { proof: ProofCertificate },
 }
 
 /// Machine-readable verdict for tools whose result *is* a yes/no claim
@@ -165,10 +204,8 @@ impl StatusReport {
         })
     }
 
-    pub fn provably_impossible(certificate: &str) -> Self {
-        Self::new(ResultStatus::ProvablyImpossible {
-            certificate: certificate.to_string(),
-        })
+    pub fn provably_impossible(proof: ProofCertificate) -> Self {
+        Self::new(ResultStatus::ProvablyImpossible { proof })
     }
 
     fn new(status: ResultStatus) -> Self {
@@ -272,9 +309,9 @@ impl StatusReport {
                 obj["status"] = json!("unable_to_compute");
                 obj["reason"] = json!(reason);
             }
-            ResultStatus::ProvablyImpossible { certificate } => {
+            ResultStatus::ProvablyImpossible { proof } => {
                 obj["status"] = json!("provably_impossible");
-                obj["certificate"] = json!(certificate);
+                obj["proof_certificate"] = proof.to_json();
             }
         }
         if let Some(v) = &self.verdict {
@@ -337,12 +374,12 @@ impl StatusReport {
                     ))
                 }
             }
-            ResultStatus::ProvablyImpossible { certificate } => match &self.special_form {
+            ResultStatus::ProvablyImpossible { proof } => match &self.special_form {
                 Some((_, form)) => Some(format!(
                     "[provably impossible] {} — antiderivative in special functions: {}",
-                    certificate, form
+                    proof.explanation, form
                 )),
-                None => Some(format!("[provably impossible] {}", certificate)),
+                None => Some(format!("[provably impossible] {}", proof.explanation)),
             },
         }
     }
