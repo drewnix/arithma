@@ -592,12 +592,16 @@ fn p3_zero_over_nonzero_simplifies_so_fragment_identities_stay_exact() {
 
 #[test]
 fn residual2_exact_counterexample_survives_f64_collapse() {
-    // 1/3 + 1/6 ≠ 1/2 + 10⁻¹⁸, but both render to 0.5 in f64. The
+    // 1/3 + 1/6 ≠ 1/2 + 10⁻³⁰, but both render to 0.5 in f64. The
     // counterexample must carry the exact values so it never asserts a
-    // disagreement its own numbers fail to exhibit.
+    // disagreement its own numbers fail to exhibit. The 30-digit literal
+    // requires bigint parsing (ar-bigint-literals) to stay exact.
     let steps = vec![
         eq_step("a", "\\frac{1}{3} + \\frac{1}{6}"),
-        eq_step("b", "\\frac{1}{2} + \\frac{1}{1000000000000000000}"),
+        eq_step(
+            "b",
+            "\\frac{1}{2} + \\frac{1}{1000000000000000000000000000000}",
+        ),
     ];
     let result = verify_chain(&steps, &Environment::new()).unwrap();
     assert_eq!(result.verdict, Verdict::Fail);
