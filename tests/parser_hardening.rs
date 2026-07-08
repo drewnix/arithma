@@ -520,3 +520,40 @@ fn finding8_unary_minus_after_comma_and_double_equals() {
     assert_eq!(format!("{}", node), "2");
     assert!(arithma::parse_latex_raw("x == -2").is_ok());
 }
+
+#[test]
+fn bigint_literal_preserves_exact_precision() {
+    let env = arithma::Environment::new();
+    // 30-digit integer must stay exact — no f64 transit.
+    let node = arithma::parse_latex("1000000000000000000000000000000", &env).unwrap();
+    match &node {
+        arithma::Node::Num(arithma::exact::ExactNum::Rational(_)) => {}
+        other => panic!("expected exact rational, got: {:?}", other),
+    }
+    // The two spellings of the same number must agree.
+    let power = arithma::parse_latex("10^{30}", &env).unwrap();
+    let simplified_power = arithma::simplify::Simplifiable::simplify(&power, &env).unwrap();
+    assert_eq!(
+        format!("{}", node),
+        format!("{}", simplified_power),
+        "digit-string and power-spelling must produce the same value"
+    );
+}
+
+#[test]
+fn bigint_fraction_stays_exact() {
+    let env = arithma::Environment::new();
+    // 1/2 + 10⁻³⁰ must not collapse to 0.5.
+    let node = arithma::parse_latex(
+        "\\frac{1}{2} + \\frac{1}{1000000000000000000000000000000}",
+        &env,
+    )
+    .unwrap();
+    let simplified = arithma::simplify::Simplifiable::simplify(&node, &env).unwrap();
+    let result = format!("{}", simplified);
+    assert!(
+        result.contains("500000000000000000000000000001"),
+        "numerator must carry all 30 digits, got: {}",
+        result
+    );
+}
