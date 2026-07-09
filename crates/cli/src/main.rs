@@ -1,3 +1,5 @@
+mod unicode;
+
 use arithma::simplify::Simplifiable;
 use arithma::status::{ProofCertificate, StatusReport};
 use arithma::tokenizer::normalize_var;
@@ -6,11 +8,32 @@ use arithma::{
 };
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use std::io::IsTerminal;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static LATEX_OUTPUT: AtomicBool = AtomicBool::new(false);
+
+fn output(s: &str) {
+    if LATEX_OUTPUT.load(Ordering::Relaxed) {
+        println!("{s}");
+    } else {
+        println!("{}", unicode::latex_to_unicode(s));
+    }
+}
 
 fn main() {
     env_logger::init();
 
-    let args: Vec<String> = std::env::args()
+    let raw_args: Vec<String> = std::env::args().collect();
+    let force_unicode = raw_args.iter().any(|a| a == "--unicode");
+    if !force_unicode
+        && (raw_args.iter().any(|a| a == "--latex") || !std::io::stdout().is_terminal())
+    {
+        LATEX_OUTPUT.store(true, Ordering::Relaxed);
+    }
+    let args: Vec<String> = raw_args
+        .into_iter()
+        .filter(|a| a != "--latex" && a != "--unicode")
         .enumerate()
         .map(|(i, a)| if i >= 2 { preprocess_input(&a) } else { a })
         .collect();
@@ -79,20 +102,23 @@ Commands:
   ode <rhs> [indep] [dep]            Solve first-order ODE: dy/dx = rhs
   ode --cc <a> <b> <c> [indep]       Solve ay''+by'+cy=0
 
-All expressions use LaTeX notation. Variable defaults to x where applicable.
+Options:
+  --latex                          Output raw LaTeX (default when piped)
+  --unicode                        Output Unicode (default in terminal)
+
+All expressions accept LaTeX or natural notation (pi, inf, sqrt, sin, etc.).
 
 Examples:
-  arithma format \"\\frac{{2}}{{2+{{\\pi}}}}+.5{{\\pi}}\"
-  arithma simplify \"x^2 + 2x + 1\"
-  arithma diff \"\\\\sin(x^2)\" x
-  arithma integrate \"3x^2\" x
-  arithma solve \"x^2 - 4 = 0\"
-  arithma factor \"x^4 - 1\"
+  arithma simplify 'x^2 + 2x + 1'
+  arithma diff 'sin(x^2)' x
+  arithma integrate '3x^2' x
+  arithma integrate '1/(x^2+1)' x 0 1
+  arithma solve 'x^2 - 4 = 0'
+  arithma factor 'x^4 - 1'
   arithma prime-factorize 720
-  arithma eval \"x^2 + 1\" x=3
-  arithma limit \"\\\\frac{{\\\\sin(x)}}{{x}}\" x 0
-  arithma taylor \"\\\\sin(x)\" x 0 5
-  arithma ode \"x \\\\cdot y\" x y
+  arithma eval 'x^2 + 1' x=3
+  arithma limit 'sin(x)/x' x 0
+  arithma taylor 'sin(x)' x 0 5
   arithma ode --cc 1 0 1"
     );
 }
@@ -121,7 +147,7 @@ fn cmd_format(cmd: &str, args: &[String]) {
     }
     let expr = &args[0];
     match parse_latex_raw(expr).map(|node| format!("{node}")) {
-        Ok(result) => println!("{result}"),
+        Ok(result) => output(&result),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -136,7 +162,7 @@ fn cmd_simplify(cmd: &str, args: &[String]) {
     let expr = &args[0];
     let env = Environment::new();
     match parse_latex(expr, &env).map(|node| format!("{node}")) {
-        Ok(result) => println!("{result}"),
+        Ok(result) => output(&result),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -154,7 +180,7 @@ fn cmd_differentiate(cmd: &str, args: &[String]) {
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".to_string());
     match arithma::derivative::differentiate_latex(expr, &var) {
-        Ok(result) => println!("{}", result),
+        Ok(result) => output(&result),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -195,9 +221,9 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
         let lower = &args[2];
         let upper = &args[3];
         match arithma::integration::definite_integral_exact_latex(expr, &var, lower, upper) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                println!("{}", non_elementary_marker(&e, expr, &var));
+                output(&non_elementary_marker(&e, expr, &var));
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
@@ -208,9 +234,9 @@ fn cmd_integrate(cmd: &str, args: &[String]) {
     }
 
     match arithma::integration::integrate_latex(expr, &var) {
-        Ok(result) => println!("{}", result),
+        Ok(result) => output(&result),
         Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-            println!("{}", non_elementary_marker(&e, expr, &var));
+            output(&non_elementary_marker(&e, expr, &var));
         }
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -262,7 +288,7 @@ fn cmd_solve(cmd: &str, args: &[String]) {
         Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
     ) {
         match arithma::solve_inequality(&expr, &var) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -283,7 +309,7 @@ fn cmd_solve(cmd: &str, args: &[String]) {
                 println!("No solutions found");
             } else {
                 for s in &result.solutions {
-                    println!("{} = {}", var, s);
+                    output(&format!("{var} = {s}"));
                 }
                 if result.complex_omitted > 0 {
                     println!(
@@ -320,7 +346,7 @@ fn cmd_solve_system(equations_str: &str, vars: &[String]) {
     match arithma::solve_system(&equations, vars) {
         Ok(arithma::SystemSolution::Unique(solutions)) => {
             for (var, val) in &solutions {
-                println!("{} = {}", var, val);
+                output(&format!("{var} = {val}"));
             }
         }
         Ok(arithma::SystemSolution::Multiple(sets)) => {
@@ -330,7 +356,7 @@ fn cmd_solve_system(equations_str: &str, vars: &[String]) {
                 }
                 for (var, val) in solutions {
                     let prefix = if sets.len() > 1 { "  " } else { "" };
-                    println!("{}{} = {}", prefix, var, val);
+                    output(&format!("{prefix}{var} = {val}"));
                 }
             }
         }
@@ -344,7 +370,7 @@ fn cmd_solve_system(equations_str: &str, vars: &[String]) {
                 free_vars.join(", ")
             );
             for (var, val) in &solutions {
-                println!("  {} = {}", var, val);
+                output(&format!("  {var} = {val}"));
             }
         }
         Ok(arithma::SystemSolution::NoSolution) => {
@@ -417,12 +443,12 @@ fn cmd_factor(cmd: &str, args: &[String]) {
     }
 
     if parts.is_empty() {
-        println!("1");
+        output("1");
     } else {
         let result = parts.join(" * ");
-        println!("{}", result);
+        output(&result);
         if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
-            println!("(irreducible over \\mathbb{{Q}})");
+            output("(irreducible over \\mathbb{Q})");
         }
     }
 }
@@ -438,7 +464,7 @@ fn cmd_prime_factorize(cmd: &str, args: &[String]) {
             std::process::exit(1);
         }
     };
-    println!("{}", arithma::prime_factorize_latex(n));
+    output(&arithma::prime_factorize_latex(n));
 }
 
 fn cmd_partial_fractions(cmd: &str, args: &[String]) {
@@ -452,7 +478,7 @@ fn cmd_partial_fractions(cmd: &str, args: &[String]) {
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".to_string());
     match arithma::partial_fractions::partial_fractions_latex(num, den, &var) {
-        Ok(result) => println!("{}", result),
+        Ok(result) => output(&result),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -496,10 +522,10 @@ fn cmd_evaluate(cmd: &str, args: &[String]) {
     }
 
     match Evaluator::evaluate_exact(&simplified, &env) {
-        Ok(val) => println!("{}", arithma::Node::Num(val)),
+        Ok(val) => output(&format!("{}", arithma::Node::Num(val))),
         Err(_) => match Evaluator::evaluate(&simplified, &env) {
-            Ok(val) => println!("{}", val),
-            Err(_) => println!("{}", simplified),
+            Ok(val) => output(&format!("{val}")),
+            Err(_) => output(&format!("{simplified}")),
         },
     }
 }
@@ -520,7 +546,7 @@ fn cmd_limit(cmd: &str, args: &[String]) {
         .unwrap_or_else(|| "x".to_string());
     let point_str = args.get(2).map(|s| s.as_str()).unwrap_or("0");
     match arithma::limits::limit_latex_str(expr, &var, point_str) {
-        Ok(result) => println!("{}", result),
+        Ok(result) => output(&result),
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
@@ -546,7 +572,7 @@ fn cmd_taylor(cmd: &str, args: &[String]) {
 
     if let Ok(center_f64) = center_str.parse::<f64>() {
         match arithma::series::taylor_series_latex(expr, &var, center_f64, order) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -555,7 +581,7 @@ fn cmd_taylor(cmd: &str, args: &[String]) {
     } else {
         let center_normalized = normalize_var(center_str);
         match arithma::series::taylor_series_latex_symbolic(expr, &var, &center_normalized, order) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -576,8 +602,8 @@ fn cmd_substitute(cmd: &str, args: &[String]) {
         Ok(result) => {
             let env = Environment::new();
             match parse_latex(&result, &env).map(|node| format!("{node}")) {
-                Ok(simplified) => println!("{simplified}"),
-                Err(_) => println!("{result}"),
+                Ok(simplified) => output(&simplified),
+                Err(_) => output(&result),
             }
         }
         Err(e) => {
@@ -618,7 +644,7 @@ fn cmd_ode(cmd: &str, args: &[String]) {
             .map(|s| normalize_var(s))
             .unwrap_or_else(|| "x".to_string());
         match arithma::ode::solve_constant_coeff_latex(a, b, c, &indep) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -635,7 +661,7 @@ fn cmd_ode(cmd: &str, args: &[String]) {
             .map(|s| normalize_var(s))
             .unwrap_or_else(|| "y".to_string());
         match arithma::ode::solve_ode_latex(rhs, &indep, &dep) {
-            Ok(result) => println!("{}", result),
+            Ok(result) => output(&result),
             Err(e) => {
                 eprintln!("Error: {}", e);
                 std::process::exit(1);
@@ -713,20 +739,21 @@ Commands:
   format <expr>                    Show canonical LaTeX
 
 Or type any expression to simplify and evaluate.
-Constants: pi (= \\pi), inf (= \\infty). LaTeX notation accepted."
+Constants: pi (= π), inf (= ∞). LaTeX notation also accepted.
+Toggle output: 'latex' for raw LaTeX, 'unicode' for readable output."
     );
 }
 
 fn repl_format(rest: &str) {
     match parse_latex_raw(rest).map(|n| format!("{n}")) {
-        Ok(r) => println!("{r}"),
+        Ok(r) => output(&r),
         Err(e) => println!("Error: {e}"),
     }
 }
 
 fn repl_simplify(rest: &str, env: &Environment) {
     match parse_latex(rest, env).map(|n| format!("{n}")) {
-        Ok(r) => println!("{r}"),
+        Ok(r) => output(&r),
         Err(e) => println!("Error: {e}"),
     }
 }
@@ -738,7 +765,7 @@ fn repl_diff(rest: &str) {
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".into());
     match arithma::derivative::differentiate_latex(args[0], &var) {
-        Ok(r) => println!("{r}"),
+        Ok(r) => output(&r),
         Err(e) => println!("Error: {e}"),
     }
 }
@@ -752,17 +779,17 @@ fn repl_integrate(rest: &str) {
         .unwrap_or_else(|| "x".into());
     if args.len() >= 4 {
         match arithma::integration::definite_integral_exact_latex(expr, &var, args[2], args[3]) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                println!("{}", non_elementary_marker(&e, expr, &var));
+                output(&non_elementary_marker(&e, expr, &var));
             }
             Err(e) => println!("Error: {e}"),
         }
     } else {
         match arithma::integration::integrate_latex(expr, &var) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
-                println!("{}", non_elementary_marker(&e, expr, &var));
+                output(&non_elementary_marker(&e, expr, &var));
             }
             Err(e) => println!("Error: {e}"),
         }
@@ -804,7 +831,7 @@ fn repl_solve(rest: &str) {
         Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
     ) {
         match arithma::solve_inequality(&expr, &var) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) => println!("Error: {e}"),
         }
         return;
@@ -822,7 +849,7 @@ fn repl_solve(rest: &str) {
                 println!("No solutions found");
             } else {
                 for s in &result.solutions {
-                    println!("{var} = {s}");
+                    output(&format!("{var} = {s}"));
                 }
                 if result.complex_omitted > 0 {
                     println!(
@@ -854,7 +881,7 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
     match arithma::solve_system(&equations, vars) {
         Ok(arithma::SystemSolution::Unique(solutions)) => {
             for (var, val) in &solutions {
-                println!("{var} = {val}");
+                output(&format!("{var} = {val}"));
             }
         }
         Ok(arithma::SystemSolution::Multiple(sets)) => {
@@ -864,7 +891,7 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
                 }
                 for (var, val) in solutions {
                     let pre = if sets.len() > 1 { "  " } else { "" };
-                    println!("{pre}{var} = {val}");
+                    output(&format!("{pre}{var} = {val}"));
                 }
             }
         }
@@ -874,7 +901,7 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
         }) => {
             println!("Parametric solution (free: {}):", free_vars.join(", "));
             for (var, val) in &solutions {
-                println!("  {var} = {val}");
+                output(&format!("  {var} = {val}"));
             }
         }
         Ok(arithma::SystemSolution::NoSolution) => {
@@ -939,11 +966,11 @@ fn repl_factor(rest: &str) {
     }
 
     if parts.is_empty() {
-        println!("1");
+        output("1");
     } else {
-        println!("{}", parts.join(" * "));
+        output(&parts.join(" * "));
         if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
-            println!("(irreducible over \\mathbb{{Q}})");
+            output("(irreducible over \\mathbb{Q})");
         }
     }
 }
@@ -956,7 +983,7 @@ fn repl_limit(rest: &str) {
         .unwrap_or_else(|| "x".into());
     let point = args.get(2).copied().unwrap_or("0");
     match arithma::limits::limit_latex_str(args[0], &var, point) {
-        Ok(r) => println!("{r}"),
+        Ok(r) => output(&r),
         Err(e) => println!("Error: {e}"),
     }
 }
@@ -975,13 +1002,13 @@ fn repl_taylor(rest: &str) {
 
     if let Ok(center_f64) = center.parse::<f64>() {
         match arithma::series::taylor_series_latex(args[0], &var, center_f64, order) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) => println!("Error: {e}"),
         }
     } else {
         let center_norm = normalize_var(center);
         match arithma::series::taylor_series_latex_symbolic(args[0], &var, &center_norm, order) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) => println!("Error: {e}"),
         }
     }
@@ -1020,10 +1047,10 @@ fn repl_eval(rest: &str) {
     }
 
     match Evaluator::evaluate_exact(&simplified, &env) {
-        Ok(val) => println!("{}", Node::Num(val)),
+        Ok(val) => output(&format!("{}", Node::Num(val))),
         Err(_) => match Evaluator::evaluate(&simplified, &env) {
-            Ok(val) => println!("{val}"),
-            Err(_) => println!("{simplified}"),
+            Ok(val) => output(&format!("{val}")),
+            Err(_) => output(&format!("{simplified}")),
         },
     }
 }
@@ -1038,8 +1065,8 @@ fn repl_sub(rest: &str, env: &Environment) {
     let subs = vec![(var, args[2].to_string())];
     match arithma::substitute::substitute_latex(args[0], &subs) {
         Ok(result) => match parse_latex(&result, env).map(|n| format!("{n}")) {
-            Ok(simplified) => println!("{simplified}"),
-            Err(_) => println!("{result}"),
+            Ok(simplified) => output(&simplified),
+            Err(_) => output(&result),
         },
         Err(e) => println!("Error: {e}"),
     }
@@ -1078,7 +1105,7 @@ fn repl_ode(rest: &str) {
             .map(|s| normalize_var(s))
             .unwrap_or_else(|| "x".into());
         match arithma::ode::solve_constant_coeff_latex(a, b, c, &indep) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) => println!("Error: {e}"),
         }
     } else {
@@ -1091,7 +1118,7 @@ fn repl_ode(rest: &str) {
             .map(|s| normalize_var(s))
             .unwrap_or_else(|| "y".into());
         match arithma::ode::solve_ode_latex(args[0], &indep, &dep) {
-            Ok(r) => println!("{r}"),
+            Ok(r) => output(&r),
             Err(e) => println!("Error: {e}"),
         }
     }
@@ -1099,7 +1126,7 @@ fn repl_ode(rest: &str) {
 
 fn repl_prime_factorize(rest: &str) {
     match rest.trim().parse::<u64>() {
-        Ok(n) => println!("{}", arithma::prime_factorize_latex(n)),
+        Ok(n) => output(&arithma::prime_factorize_latex(n)),
         Err(_) => println!("Error: expected a non-negative integer"),
     }
 }
@@ -1115,7 +1142,7 @@ fn repl_pf(rest: &str) {
         .map(|s| normalize_var(s))
         .unwrap_or_else(|| "x".into());
     match arithma::partial_fractions::partial_fractions_latex(args[0], args[1], &var) {
-        Ok(r) => println!("{r}"),
+        Ok(r) => output(&r),
         Err(e) => println!("Error: {e}"),
     }
 }
@@ -1133,7 +1160,7 @@ fn repl_expr(input: &str, env: &Environment) {
             ) {
                 (Ok(a), Ok(b)) => match a.multiply(&b, env) {
                     Ok(result) => {
-                        println!("{}", result.to_latex());
+                        output(&result.to_latex());
                         return;
                     }
                     Err(e) => {
@@ -1168,10 +1195,10 @@ fn repl_expr(input: &str, env: &Environment) {
     };
 
     match Evaluator::evaluate_exact(&simplified, env) {
-        Ok(val) => println!("{}", Node::Num(val)),
+        Ok(val) => output(&format!("{}", Node::Num(val))),
         Err(_) => match Evaluator::evaluate(&simplified, env) {
-            Ok(val) => println!("{val}"),
-            Err(_) => println!("{simplified}"),
+            Ok(val) => output(&format!("{val}")),
+            Err(_) => output(&format!("{simplified}")),
         },
     }
 }
@@ -1204,6 +1231,17 @@ fn repl() {
                 }
 
                 let _ = rl.add_history_entry(&line);
+
+                if input == "latex" {
+                    LATEX_OUTPUT.store(true, Ordering::Relaxed);
+                    println!("Output: LaTeX");
+                    continue;
+                }
+                if input == "unicode" {
+                    LATEX_OUTPUT.store(false, Ordering::Relaxed);
+                    println!("Output: Unicode");
+                    continue;
+                }
 
                 if input == "help" || input == "--help" {
                     print_repl_help();
