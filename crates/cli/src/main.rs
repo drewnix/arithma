@@ -1176,31 +1176,46 @@ fn repl_expr(input: &str, env: &Environment) {
         }
     }
 
-    let mut tokenizer = Tokenizer::new(input);
-    let tokens = tokenizer.tokenize();
-    let parsed = match build_expression_tree(tokens) {
-        Ok(e) => e,
+    let simplified = match parse_latex(input, env) {
+        Ok(node) => node,
         Err(e) => {
             println!("Error: {e}");
             return;
         }
     };
 
-    let simplified = match parsed.simplify(env) {
-        Ok(e) => e,
-        Err(e) => {
-            println!("Error: {e}");
-            return;
-        }
-    };
-
-    match Evaluator::evaluate_exact(&simplified, env) {
-        Ok(val) => output(&format!("{}", Node::Num(val))),
-        Err(_) => match Evaluator::evaluate(&simplified, env) {
-            Ok(val) => output(&format!("{val}")),
-            Err(_) => output(&format!("{simplified}")),
-        },
+    // Try exact rational evaluation (e.g., 1/3+1/4 → 7/12)
+    if let Ok(arithma::ExactNum::Rational(ref r)) = Evaluator::evaluate_exact(&simplified, env) {
+        let val = arithma::ExactNum::Rational(r.clone());
+        output(&format!("{}", Node::Num(val)));
+        return;
     }
+
+    let simplified_str = format!("{simplified}");
+
+    // If simplification produced a fully-reduced form (no unevaluated
+    // trig/log/etc.), prefer it over a float approximation.
+    // e.g., sin(pi/4) → √2/2 rather than 0.7071...
+    if !has_unevaluated_functions(&simplified_str) {
+        output(&simplified_str);
+        return;
+    }
+
+    // Fall back to float for expressions with unevaluated functions
+    // e.g., sin(1) → 0.8414...
+    match Evaluator::evaluate(&simplified, env) {
+        Ok(val) => output(&format!("{val}")),
+        Err(_) => output(&simplified_str),
+    }
+}
+
+fn has_unevaluated_functions(s: &str) -> bool {
+    [
+        "\\sin", "\\cos", "\\tan", "\\sec", "\\csc", "\\cot", "\\ln", "\\log", "\\exp", "\\arctan",
+        "\\arcsin", "\\arccos", "\\sinh", "\\cosh", "\\tanh", "\\erf", "\\Ei", "\\li", "\\lim",
+    ]
+    .iter()
+    .any(|f| s.contains(f))
 }
 
 fn history_path() -> Option<std::path::PathBuf> {
