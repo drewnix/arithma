@@ -23,6 +23,11 @@ fn main() {
         return;
     }
 
+    if cmd == "--version" || cmd == "-V" {
+        println!("arithma {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     match cmd {
         "format" => cmd_format(cmd, &args[2..]),
         "simplify" => cmd_simplify(cmd, &args[2..]),

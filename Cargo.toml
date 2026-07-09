@@ -1,10 +1,14 @@
 [workspace]
 members = [".", "crates/cli", "crates/mcp"]
 
-[package]
-name = "arithma"
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
+
+[package]
+name = "arithma"
+version.workspace = true
+edition.workspace = true
 
 [lib]
 name = "arithma"
