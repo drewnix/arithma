@@ -4,7 +4,8 @@ use arithma::tokenizer::normalize_var;
 use arithma::{
     build_expression_tree, parse_latex, parse_latex_raw, Environment, Evaluator, Node, Tokenizer,
 };
-use std::io::{self, Write};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 
 fn main() {
     env_logger::init();
@@ -1175,60 +1176,81 @@ fn repl_expr(input: &str, env: &Environment) {
     }
 }
 
+fn history_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| h.join(".arithma_history"))
+}
+
 fn repl() {
     println!("Arithma v{} — interactive mode", env!("CARGO_PKG_VERSION"));
     println!("Commands: simplify, diff, integrate, solve, factor, limit, taylor, eval");
     println!("Type 'help' for details, 'exit' to quit.\n");
 
+    let mut rl = DefaultEditor::new().unwrap();
+    if let Some(ref path) = history_path() {
+        let _ = rl.load_history(path);
+    }
+
     let env = Environment::new();
 
     loop {
-        print!(">> ");
-        io::stdout().flush().unwrap();
+        match rl.readline(">> ") {
+            Ok(line) => {
+                let input = line.trim();
+                if input.is_empty() {
+                    continue;
+                }
+                if input == "exit" || input == "quit" {
+                    break;
+                }
 
-        let mut input = String::new();
-        if io::stdin().read_line(&mut input).unwrap() == 0 {
-            break;
-        }
-        let input = input.trim();
-        if input.is_empty() {
-            continue;
-        }
-        if input == "exit" || input == "quit" {
-            break;
-        }
-        if input == "help" || input == "--help" {
-            print_repl_help();
-            continue;
-        }
+                let _ = rl.add_history_entry(&line);
 
-        let input = preprocess_input(input);
+                if input == "help" || input == "--help" {
+                    print_repl_help();
+                    continue;
+                }
 
-        let (cmd, rest) = match input.find(char::is_whitespace) {
-            Some(pos) => (&input[..pos], input[pos..].trim_start()),
-            None => (input.as_str(), ""),
-        };
+                let input = preprocess_input(input);
 
-        match cmd {
-            "format" if !rest.is_empty() => repl_format(rest),
-            "simplify" if !rest.is_empty() => repl_simplify(rest, &env),
-            "diff" | "differentiate" if !rest.is_empty() => repl_diff(rest),
-            "integrate" if !rest.is_empty() => repl_integrate(rest),
-            "solve" if !rest.is_empty() => repl_solve(rest),
-            "factor" if !rest.is_empty() => repl_factor(rest),
-            "limit" if !rest.is_empty() => repl_limit(rest),
-            "taylor" if !rest.is_empty() => repl_taylor(rest),
-            "eval" | "evaluate" if !rest.is_empty() => repl_eval(rest),
-            "sub" | "substitute" if !rest.is_empty() => repl_sub(rest, &env),
-            "ode" if !rest.is_empty() => repl_ode(rest),
-            "prime-factorize" | "factorint" if !rest.is_empty() => repl_prime_factorize(rest),
-            "pf" | "partial-fractions" if !rest.is_empty() => repl_pf(rest),
-            "format" | "simplify" | "diff" | "differentiate" | "integrate" | "solve" | "factor"
-            | "limit" | "taylor" | "eval" | "evaluate" | "sub" | "substitute" | "ode"
-            | "prime-factorize" | "factorint" | "pf" | "partial-fractions" => {
-                println!("Usage: {cmd} <expr> [args...] — type 'help' for details");
+                let (cmd, rest) = match input.find(char::is_whitespace) {
+                    Some(pos) => (&input[..pos], input[pos..].trim_start()),
+                    None => (input.as_str(), ""),
+                };
+
+                match cmd {
+                    "format" if !rest.is_empty() => repl_format(rest),
+                    "simplify" if !rest.is_empty() => repl_simplify(rest, &env),
+                    "diff" | "differentiate" if !rest.is_empty() => repl_diff(rest),
+                    "integrate" if !rest.is_empty() => repl_integrate(rest),
+                    "solve" if !rest.is_empty() => repl_solve(rest),
+                    "factor" if !rest.is_empty() => repl_factor(rest),
+                    "limit" if !rest.is_empty() => repl_limit(rest),
+                    "taylor" if !rest.is_empty() => repl_taylor(rest),
+                    "eval" | "evaluate" if !rest.is_empty() => repl_eval(rest),
+                    "sub" | "substitute" if !rest.is_empty() => repl_sub(rest, &env),
+                    "ode" if !rest.is_empty() => repl_ode(rest),
+                    "prime-factorize" | "factorint" if !rest.is_empty() => {
+                        repl_prime_factorize(rest)
+                    }
+                    "pf" | "partial-fractions" if !rest.is_empty() => repl_pf(rest),
+                    "format" | "simplify" | "diff" | "differentiate" | "integrate" | "solve"
+                    | "factor" | "limit" | "taylor" | "eval" | "evaluate" | "sub"
+                    | "substitute" | "ode" | "prime-factorize" | "factorint" | "pf"
+                    | "partial-fractions" => {
+                        println!("Usage: {cmd} <expr> [args...] — type 'help' for details");
+                    }
+                    _ => repl_expr(&input, &env),
+                }
             }
-            _ => repl_expr(&input, &env),
+            Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
+            Err(e) => {
+                println!("Error: {e}");
+                break;
+            }
         }
+    }
+
+    if let Some(ref path) = history_path() {
+        let _ = rl.save_history(path);
     }
 }
