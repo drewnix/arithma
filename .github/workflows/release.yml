@@ -16,22 +16,27 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            artifact: arithma-mcp-linux-x86_64
+            suffix: linux-x86_64
           - target: aarch64-apple-darwin
             os: macos-latest
-            artifact: arithma-mcp-macos-aarch64
+            suffix: macos-aarch64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            artifact: arithma-mcp-windows-x86_64.exe
+            suffix: windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --bin arithma-mcp
-      - name: Upload artifact
+      - run: cargo build --release --workspace
+      - name: Upload CLI
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: arithma-${{ matrix.suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          path: target/release/arithma${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+      - name: Upload MCP server
+        uses: actions/upload-artifact@v4
+        with:
+          name: arithma-mcp-${{ matrix.suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           path: target/release/arithma-mcp${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
   release:
