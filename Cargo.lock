@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "arithma"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "lazy_static",
  "log",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "arithma-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arithma",
  "dirs",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "arithma-mcp-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arithma",
  "num-bigint",
