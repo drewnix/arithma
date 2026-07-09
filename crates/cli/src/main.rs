@@ -12,6 +12,19 @@ use std::io::IsTerminal;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static LATEX_OUTPUT: AtomicBool = AtomicBool::new(false);
+static USE_COLOR: AtomicBool = AtomicBool::new(false);
+
+mod ansi {
+    pub const RESET: &str = "\x1b[0m";
+    pub const BOLD: &str = "\x1b[1m";
+    pub const DIM: &str = "\x1b[2m";
+    pub const RED: &str = "\x1b[31m";
+    pub const CYAN: &str = "\x1b[36m";
+}
+
+fn color_enabled() -> bool {
+    USE_COLOR.load(Ordering::Relaxed)
+}
 
 fn output(s: &str) {
     if LATEX_OUTPUT.load(Ordering::Relaxed) {
@@ -21,15 +34,33 @@ fn output(s: &str) {
     }
 }
 
+fn print_error(msg: &str) {
+    if color_enabled() {
+        println!("{}{}{}{}", ansi::RED, ansi::BOLD, msg, ansi::RESET);
+    } else {
+        println!("{msg}");
+    }
+}
+
+fn print_note(msg: &str) {
+    if color_enabled() {
+        println!("{}{}{}", ansi::DIM, msg, ansi::RESET);
+    } else {
+        println!("{msg}");
+    }
+}
+
 fn main() {
     env_logger::init();
 
     let raw_args: Vec<String> = std::env::args().collect();
+    let is_tty = std::io::stdout().is_terminal();
     let force_unicode = raw_args.iter().any(|a| a == "--unicode");
-    if !force_unicode
-        && (raw_args.iter().any(|a| a == "--latex") || !std::io::stdout().is_terminal())
-    {
+    if !force_unicode && (raw_args.iter().any(|a| a == "--latex") || !is_tty) {
         LATEX_OUTPUT.store(true, Ordering::Relaxed);
+    }
+    if is_tty && std::env::var_os("NO_COLOR").is_none() {
+        USE_COLOR.store(true, Ordering::Relaxed);
     }
     let args: Vec<String> = raw_args
         .into_iter()
@@ -306,7 +337,7 @@ fn cmd_solve(cmd: &str, args: &[String]) {
                     if result.complex_omitted == 1 { "" } else { "s" }
                 );
             } else if result.solutions.is_empty() {
-                println!("No solutions found");
+                print_note("No solutions found");
             } else {
                 for s in &result.solutions {
                     output(&format!("{var} = {s}"));
@@ -374,7 +405,7 @@ fn cmd_solve_system(equations_str: &str, vars: &[String]) {
             }
         }
         Ok(arithma::SystemSolution::NoSolution) => {
-            println!("No solution (inconsistent system)");
+            print_note("No solution (inconsistent system)");
         }
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -747,14 +778,14 @@ Toggle output: 'latex' for raw LaTeX, 'unicode' for readable output."
 fn repl_format(rest: &str) {
     match parse_latex_raw(rest).map(|n| format!("{n}")) {
         Ok(r) => output(&r),
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
 fn repl_simplify(rest: &str, env: &Environment) {
     match parse_latex(rest, env).map(|n| format!("{n}")) {
         Ok(r) => output(&r),
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -766,7 +797,7 @@ fn repl_diff(rest: &str) {
         .unwrap_or_else(|| "x".into());
     match arithma::derivative::differentiate_latex(args[0], &var) {
         Ok(r) => output(&r),
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -783,7 +814,7 @@ fn repl_integrate(rest: &str) {
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
                 output(&non_elementary_marker(&e, expr, &var));
             }
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     } else {
         match arithma::integration::integrate_latex(expr, &var) {
@@ -791,7 +822,7 @@ fn repl_integrate(rest: &str) {
             Err(e) if e.starts_with("NON_ELEMENTARY:") => {
                 output(&non_elementary_marker(&e, expr, &var));
             }
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     }
 }
@@ -821,7 +852,7 @@ fn repl_solve(rest: &str) {
     let expr = match build_expression_tree(tokens) {
         Ok(e) => e,
         Err(e) => {
-            println!("Error: {e}");
+            print_error(&format!("Error: {e}"));
             return;
         }
     };
@@ -832,7 +863,7 @@ fn repl_solve(rest: &str) {
     ) {
         match arithma::solve_inequality(&expr, &var) {
             Ok(r) => output(&r),
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
         return;
     }
@@ -840,27 +871,27 @@ fn repl_solve(rest: &str) {
     match arithma::expression::solve_full(&expr, &var) {
         Ok(result) => {
             if result.solutions.is_empty() && result.complex_omitted > 0 {
-                println!(
+                print_note(&format!(
                     "No real solutions ({} complex root{} omitted)",
                     result.complex_omitted,
                     if result.complex_omitted == 1 { "" } else { "s" }
-                );
+                ));
             } else if result.solutions.is_empty() {
-                println!("No solutions found");
+                print_note("No solutions found");
             } else {
                 for s in &result.solutions {
                     output(&format!("{var} = {s}"));
                 }
                 if result.complex_omitted > 0 {
-                    println!(
+                    print_note(&format!(
                         "({} complex root{} omitted)",
                         result.complex_omitted,
                         if result.complex_omitted == 1 { "" } else { "s" }
-                    );
+                    ));
                 }
             }
         }
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -873,7 +904,7 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
         match build_expression_tree(tokens) {
             Ok(e) => equations.push(e),
             Err(e) => {
-                println!("Error parsing '{}': {e}", eq_str.trim());
+                print_error(&format!("Error parsing '{}': {e}", eq_str.trim()));
                 return;
             }
         }
@@ -905,9 +936,9 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
             }
         }
         Ok(arithma::SystemSolution::NoSolution) => {
-            println!("No solution (inconsistent system)");
+            print_note("No solution (inconsistent system)");
         }
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -923,7 +954,7 @@ fn repl_factor(rest: &str) {
     let node = match build_expression_tree(tokens) {
         Ok(n) => n,
         Err(e) => {
-            println!("Error: {e}");
+            print_error(&format!("Error: {e}"));
             return;
         }
     };
@@ -931,7 +962,7 @@ fn repl_factor(rest: &str) {
     let poly = match arithma::polynomial::Polynomial::from_node(&node, &var) {
         Ok(p) => p,
         Err(e) => {
-            println!("Not a polynomial: {e}");
+            print_error(&format!("Not a polynomial: {e}"));
             return;
         }
     };
@@ -984,7 +1015,7 @@ fn repl_limit(rest: &str) {
     let point = args.get(2).copied().unwrap_or("0");
     match arithma::limits::limit_latex_str(args[0], &var, point) {
         Ok(r) => output(&r),
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -1003,13 +1034,13 @@ fn repl_taylor(rest: &str) {
     if let Ok(center_f64) = center.parse::<f64>() {
         match arithma::series::taylor_series_latex(args[0], &var, center_f64, order) {
             Ok(r) => output(&r),
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     } else {
         let center_norm = normalize_var(center);
         match arithma::series::taylor_series_latex_symbolic(args[0], &var, &center_norm, order) {
             Ok(r) => output(&r),
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     }
 }
@@ -1022,7 +1053,7 @@ fn repl_eval(rest: &str) {
     let expr = match build_expression_tree(tokens) {
         Ok(e) => e,
         Err(e) => {
-            println!("Error: {e}");
+            print_error(&format!("Error: {e}"));
             return;
         }
     };
@@ -1040,7 +1071,7 @@ fn repl_eval(rest: &str) {
                     env.set(var, val);
                 }
             } else {
-                println!("Invalid value for {var}: {val_str}");
+                print_error(&format!("Invalid value for {var}: {val_str}"));
                 return;
             }
         }
@@ -1058,7 +1089,7 @@ fn repl_eval(rest: &str) {
 fn repl_sub(rest: &str, env: &Environment) {
     let args: Vec<&str> = rest.split_whitespace().collect();
     if args.len() < 3 {
-        println!("Usage: sub <expr> <var> <value>");
+        print_note("Usage: sub <expr> <var> <value>");
         return;
     }
     let var = normalize_var(args[1]);
@@ -1068,7 +1099,7 @@ fn repl_sub(rest: &str, env: &Environment) {
             Ok(simplified) => output(&simplified),
             Err(_) => output(&result),
         },
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -1076,27 +1107,27 @@ fn repl_ode(rest: &str) {
     let args: Vec<&str> = rest.split_whitespace().collect();
     if args[0] == "--cc" {
         if args.len() < 4 {
-            println!("Usage: ode --cc <a> <b> <c> [indep]");
+            print_note("Usage: ode --cc <a> <b> <c> [indep]");
             return;
         }
         let a: f64 = match args[1].parse() {
             Ok(v) => v,
             Err(_) => {
-                println!("Invalid coefficient: {}", args[1]);
+                print_error(&format!("Invalid coefficient: {}", args[1]));
                 return;
             }
         };
         let b: f64 = match args[2].parse() {
             Ok(v) => v,
             Err(_) => {
-                println!("Invalid coefficient: {}", args[2]);
+                print_error(&format!("Invalid coefficient: {}", args[2]));
                 return;
             }
         };
         let c: f64 = match args[3].parse() {
             Ok(v) => v,
             Err(_) => {
-                println!("Invalid coefficient: {}", args[3]);
+                print_error(&format!("Invalid coefficient: {}", args[3]));
                 return;
             }
         };
@@ -1106,7 +1137,7 @@ fn repl_ode(rest: &str) {
             .unwrap_or_else(|| "x".into());
         match arithma::ode::solve_constant_coeff_latex(a, b, c, &indep) {
             Ok(r) => output(&r),
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     } else {
         let indep = args
@@ -1119,7 +1150,7 @@ fn repl_ode(rest: &str) {
             .unwrap_or_else(|| "y".into());
         match arithma::ode::solve_ode_latex(args[0], &indep, &dep) {
             Ok(r) => output(&r),
-            Err(e) => println!("Error: {e}"),
+            Err(e) => print_error(&format!("Error: {e}")),
         }
     }
 }
@@ -1127,14 +1158,14 @@ fn repl_ode(rest: &str) {
 fn repl_prime_factorize(rest: &str) {
     match rest.trim().parse::<u64>() {
         Ok(n) => output(&arithma::prime_factorize_latex(n)),
-        Err(_) => println!("Error: expected a non-negative integer"),
+        Err(_) => print_error("Error: expected a non-negative integer"),
     }
 }
 
 fn repl_pf(rest: &str) {
     let args: Vec<&str> = rest.split_whitespace().collect();
     if args.len() < 2 {
-        println!("Usage: pf <numerator> <denominator> [var]");
+        print_note("Usage: pf <numerator> <denominator> [var]");
         return;
     }
     let var = args
@@ -1143,7 +1174,7 @@ fn repl_pf(rest: &str) {
         .unwrap_or_else(|| "x".into());
     match arithma::partial_fractions::partial_fractions_latex(args[0], args[1], &var) {
         Ok(r) => output(&r),
-        Err(e) => println!("Error: {e}"),
+        Err(e) => print_error(&format!("Error: {e}")),
     }
 }
 
@@ -1164,12 +1195,12 @@ fn repl_expr(input: &str, env: &Environment) {
                         return;
                     }
                     Err(e) => {
-                        println!("Error: {e}");
+                        print_error(&format!("Error: {e}"));
                         return;
                     }
                 },
                 (Err(e), _) | (_, Err(e)) => {
-                    println!("Error: {e}");
+                    print_error(&format!("Error: {e}"));
                     return;
                 }
             }
@@ -1179,7 +1210,7 @@ fn repl_expr(input: &str, env: &Environment) {
     let simplified = match parse_latex(input, env) {
         Ok(node) => node,
         Err(e) => {
-            println!("Error: {e}");
+            print_error(&format!("Error: {e}"));
             return;
         }
     };
@@ -1223,9 +1254,29 @@ fn history_path() -> Option<std::path::PathBuf> {
 }
 
 fn repl() {
-    println!("Arithma v{} — interactive mode", env!("CARGO_PKG_VERSION"));
-    println!("Commands: simplify, diff, integrate, solve, factor, limit, taylor, eval");
-    println!("Type 'help' for details, 'exit' to quit.\n");
+    let ver = env!("CARGO_PKG_VERSION");
+    if color_enabled() {
+        println!(
+            "{}{}Arithma v{ver}{} — interactive mode",
+            ansi::BOLD,
+            ansi::CYAN,
+            ansi::RESET
+        );
+        println!(
+            "{}Commands: simplify, diff, integrate, solve, factor, limit, taylor, eval{}",
+            ansi::DIM,
+            ansi::RESET
+        );
+        println!(
+            "{}Type 'help' for details, 'exit' to quit.{}\n",
+            ansi::DIM,
+            ansi::RESET
+        );
+    } else {
+        println!("Arithma v{ver} — interactive mode");
+        println!("Commands: simplify, diff, integrate, solve, factor, limit, taylor, eval");
+        println!("Type 'help' for details, 'exit' to quit.\n");
+    }
 
     let mut rl = DefaultEditor::new().unwrap();
     if let Some(ref path) = history_path() {
@@ -1233,9 +1284,19 @@ fn repl() {
     }
 
     let env = Environment::new();
+    let prompt = if color_enabled() {
+        format!(
+            "\x01{}{}\x02>>\x01{}\x02 ",
+            ansi::BOLD,
+            ansi::CYAN,
+            ansi::RESET
+        )
+    } else {
+        ">> ".to_string()
+    };
 
     loop {
-        match rl.readline(">> ") {
+        match rl.readline(&prompt) {
             Ok(line) => {
                 let input = line.trim();
                 if input.is_empty() {
@@ -1249,12 +1310,12 @@ fn repl() {
 
                 if input == "latex" {
                     LATEX_OUTPUT.store(true, Ordering::Relaxed);
-                    println!("Output: LaTeX");
+                    print_note("Output: LaTeX");
                     continue;
                 }
                 if input == "unicode" {
                     LATEX_OUTPUT.store(false, Ordering::Relaxed);
-                    println!("Output: Unicode");
+                    print_note("Output: Unicode");
                     continue;
                 }
 
@@ -1290,14 +1351,16 @@ fn repl() {
                     | "factor" | "limit" | "taylor" | "eval" | "evaluate" | "sub"
                     | "substitute" | "ode" | "prime-factorize" | "factorint" | "pf"
                     | "partial-fractions" => {
-                        println!("Usage: {cmd} <expr> [args...] — type 'help' for details");
+                        print_note(&format!(
+                            "Usage: {cmd} <expr> [args...] — type 'help' for details"
+                        ));
                     }
                     _ => repl_expr(&input, &env),
                 }
             }
             Err(ReadlineError::Interrupted | ReadlineError::Eof) => break,
             Err(e) => {
-                println!("Error: {e}");
+                print_error(&format!("Error: {e}"));
                 break;
             }
         }
