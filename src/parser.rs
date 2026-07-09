@@ -2,6 +2,8 @@ use crate::exact::ExactNum;
 use crate::functions::FUNCTION_REGISTRY;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 
 pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     log::debug!("Starting Shunting Yard with tokens: {:?}", tokens);
@@ -178,7 +180,14 @@ fn build_expression_tree_inner(
                 .ok_or_else(|| "Invalid indexed-notation placeholder".to_string())?;
             stack.push(atom);
         } else if token.starts_with(|c: char| c.is_ascii_digit() || c == '.') {
-            if let Ok(num) = token.parse::<f64>() {
+            if !token.contains('.') {
+                if let Ok(n) = token.parse::<BigInt>() {
+                    log::debug!("Pushing integer: {}", n);
+                    stack.push(Node::Num(ExactNum::Rational(BigRational::from_integer(n))));
+                } else if let Ok(num) = token.parse::<f64>() {
+                    stack.push(Node::Num(ExactNum::from_f64(num)));
+                }
+            } else if let Ok(num) = token.parse::<f64>() {
                 log::debug!("Pushing number: {}", num);
                 stack.push(Node::Num(ExactNum::from_f64(num)));
             }
