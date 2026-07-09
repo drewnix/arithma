@@ -9,7 +9,10 @@ use std::io::{self, Write};
 fn main() {
     env_logger::init();
 
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = std::env::args()
+        .enumerate()
+        .map(|(i, a)| if i >= 2 { preprocess_input(&a) } else { a })
+        .collect();
 
     if args.len() < 2 {
         repl();
@@ -640,8 +643,543 @@ fn cmd_ode(cmd: &str, args: &[String]) {
     }
 }
 
+/// Replace natural math notation with LaTeX equivalents.
+/// Converts standalone `pi` → `\pi`, `inf`/`infinity` → `\infty`.
+fn preprocess_input(input: &str) -> String {
+    let b = input.as_bytes();
+    let len = b.len();
+    let mut out = String::with_capacity(len + 16);
+    let mut i = 0;
+
+    while i < len {
+        let word_start = i == 0 || {
+            let prev = b[i - 1];
+            !(prev.is_ascii_alphabetic() || prev == b'\\' || prev == b'_')
+        };
+
+        if word_start {
+            if i + 8 <= len
+                && &b[i..i + 8] == b"infinity"
+                && (i + 8 >= len || !(b[i + 8].is_ascii_alphanumeric() || b[i + 8] == b'_'))
+            {
+                out.push_str("\\infty");
+                i += 8;
+                continue;
+            }
+            if i + 2 <= len
+                && &b[i..i + 2] == b"pi"
+                && (i + 2 >= len || !(b[i + 2].is_ascii_alphanumeric() || b[i + 2] == b'_'))
+            {
+                out.push_str("\\pi");
+                i += 2;
+                continue;
+            }
+            if i + 3 <= len
+                && &b[i..i + 3] == b"inf"
+                && (i + 3 >= len || !(b[i + 3].is_ascii_alphanumeric() || b[i + 3] == b'_'))
+            {
+                out.push_str("\\infty");
+                i += 3;
+                continue;
+            }
+        }
+
+        out.push(b[i] as char);
+        i += 1;
+    }
+
+    out
+}
+
+fn print_repl_help() {
+    println!(
+        "\
+Commands:
+  simplify <expr>                  Simplify an expression
+  diff <expr> [var]                Differentiate (default var: x)
+  integrate <expr> [var] [lo hi]   Integrate (definite with bounds)
+  solve <equation> [var]           Solve equation or inequality
+  solve \"eq1,eq2\" \"x,y\"           Solve a system
+  factor <expr> [var]              Factor over Q
+  limit <expr> [var] [point]       Limit (point: number, inf, 0+, 0-)
+  taylor <expr> [var] [center] [n] Taylor series (default order 5)
+  eval <expr> [var=val ...]        Evaluate numerically
+  sub <expr> <var> <value>         Substitute a value
+  ode <rhs> [indep] [dep]          Solve dy/dx = rhs
+  ode --cc <a> <b> <c>             Solve ay'' + by' + cy = 0
+  factorint <n>                    Prime factorization
+  pf <num> <den> [var]             Partial fractions
+  format <expr>                    Show canonical LaTeX
+
+Or type any expression to simplify and evaluate.
+Constants: pi (= \\pi), inf (= \\infty). LaTeX notation accepted."
+    );
+}
+
+fn repl_format(rest: &str) {
+    match parse_latex_raw(rest).map(|n| format!("{n}")) {
+        Ok(r) => println!("{r}"),
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_simplify(rest: &str, env: &Environment) {
+    match parse_latex(rest, env).map(|n| format!("{n}")) {
+        Ok(r) => println!("{r}"),
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_diff(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+    match arithma::derivative::differentiate_latex(args[0], &var) {
+        Ok(r) => println!("{r}"),
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_integrate(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let expr = args[0];
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+    if args.len() >= 4 {
+        match arithma::integration::definite_integral_exact_latex(expr, &var, args[2], args[3]) {
+            Ok(r) => println!("{r}"),
+            Err(e) if e.starts_with("NON_ELEMENTARY:") => {
+                println!("{}", non_elementary_marker(&e, expr, &var));
+            }
+            Err(e) => println!("Error: {e}"),
+        }
+    } else {
+        match arithma::integration::integrate_latex(expr, &var) {
+            Ok(r) => println!("{r}"),
+            Err(e) if e.starts_with("NON_ELEMENTARY:") => {
+                println!("{}", non_elementary_marker(&e, expr, &var));
+            }
+            Err(e) => println!("Error: {e}"),
+        }
+    }
+}
+
+fn repl_solve(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let equation = args[0];
+
+    if let Some(vars_str) = args.get(1) {
+        let vars: Vec<String> = vars_str
+            .split(',')
+            .map(|s| normalize_var(s.trim()))
+            .collect();
+        if vars.len() > 1 || equation.contains(',') {
+            repl_solve_system(equation, &vars);
+            return;
+        }
+    }
+
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+
+    let mut tokenizer = Tokenizer::new(equation);
+    let tokens = tokenizer.tokenize();
+    let expr = match build_expression_tree(tokens) {
+        Ok(e) => e,
+        Err(e) => {
+            println!("Error: {e}");
+            return;
+        }
+    };
+
+    if matches!(
+        expr,
+        Node::Greater(_, _) | Node::GreaterEqual(_, _) | Node::Less(_, _) | Node::LessEqual(_, _)
+    ) {
+        match arithma::solve_inequality(&expr, &var) {
+            Ok(r) => println!("{r}"),
+            Err(e) => println!("Error: {e}"),
+        }
+        return;
+    }
+
+    match arithma::expression::solve_full(&expr, &var) {
+        Ok(result) => {
+            if result.solutions.is_empty() && result.complex_omitted > 0 {
+                println!(
+                    "No real solutions ({} complex root{} omitted)",
+                    result.complex_omitted,
+                    if result.complex_omitted == 1 { "" } else { "s" }
+                );
+            } else if result.solutions.is_empty() {
+                println!("No solutions found");
+            } else {
+                for s in &result.solutions {
+                    println!("{var} = {s}");
+                }
+                if result.complex_omitted > 0 {
+                    println!(
+                        "({} complex root{} omitted)",
+                        result.complex_omitted,
+                        if result.complex_omitted == 1 { "" } else { "s" }
+                    );
+                }
+            }
+        }
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_solve_system(equations_str: &str, vars: &[String]) {
+    let eq_strings: Vec<&str> = equations_str.split(',').collect();
+    let mut equations = Vec::new();
+    for eq_str in &eq_strings {
+        let mut tokenizer = Tokenizer::new(eq_str.trim());
+        let tokens = tokenizer.tokenize();
+        match build_expression_tree(tokens) {
+            Ok(e) => equations.push(e),
+            Err(e) => {
+                println!("Error parsing '{}': {e}", eq_str.trim());
+                return;
+            }
+        }
+    }
+    match arithma::solve_system(&equations, vars) {
+        Ok(arithma::SystemSolution::Unique(solutions)) => {
+            for (var, val) in &solutions {
+                println!("{var} = {val}");
+            }
+        }
+        Ok(arithma::SystemSolution::Multiple(sets)) => {
+            for (i, solutions) in sets.iter().enumerate() {
+                if sets.len() > 1 {
+                    println!("Solution {}:", i + 1);
+                }
+                for (var, val) in solutions {
+                    let pre = if sets.len() > 1 { "  " } else { "" };
+                    println!("{pre}{var} = {val}");
+                }
+            }
+        }
+        Ok(arithma::SystemSolution::Parametric {
+            solutions,
+            free_vars,
+        }) => {
+            println!("Parametric solution (free: {}):", free_vars.join(", "));
+            for (var, val) in &solutions {
+                println!("  {var} = {val}");
+            }
+        }
+        Ok(arithma::SystemSolution::NoSolution) => {
+            println!("No solution (inconsistent system)");
+        }
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_factor(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+
+    let mut tokenizer = Tokenizer::new(args[0]);
+    let tokens = tokenizer.tokenize();
+    let node = match build_expression_tree(tokens) {
+        Ok(n) => n,
+        Err(e) => {
+            println!("Error: {e}");
+            return;
+        }
+    };
+
+    let poly = match arithma::polynomial::Polynomial::from_node(&node, &var) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("Not a polynomial: {e}");
+            return;
+        }
+    };
+
+    let (content, factors) = arithma::mod_poly::factor_over_q(&poly);
+
+    let mut parts: Vec<String> = Vec::new();
+    let content_node = arithma::Node::Num(arithma::ExactNum::rational(
+        content.numer().try_into().unwrap_or(1),
+        content.denom().try_into().unwrap_or(1),
+    ));
+    let cs = format!("{content_node}");
+    if cs != "1" {
+        parts.push(cs);
+    }
+
+    let mut grouped: Vec<(String, usize)> = Vec::new();
+    for f in &factors {
+        let s = format!("{f}");
+        if let Some(entry) = grouped.iter_mut().find(|(fs, _)| *fs == s) {
+            entry.1 += 1;
+        } else {
+            grouped.push((s, 1));
+        }
+    }
+    for (f, m) in &grouped {
+        if *m == 1 {
+            parts.push(format!("({f})"));
+        } else {
+            parts.push(format!("({f})^{m}"));
+        }
+    }
+
+    if parts.is_empty() {
+        println!("1");
+    } else {
+        println!("{}", parts.join(" * "));
+        if factors.len() == 1 && factors[0].degree().unwrap_or(0) > 1 {
+            println!("(irreducible over \\mathbb{{Q}})");
+        }
+    }
+}
+
+fn repl_limit(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+    let point = args.get(2).copied().unwrap_or("0");
+    match arithma::limits::limit_latex_str(args[0], &var, point) {
+        Ok(r) => println!("{r}"),
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_taylor(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    let var = args
+        .get(1)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+    let order = args
+        .get(3)
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(5);
+    let center = args.get(2).copied().unwrap_or("0");
+
+    if let Ok(center_f64) = center.parse::<f64>() {
+        match arithma::series::taylor_series_latex(args[0], &var, center_f64, order) {
+            Ok(r) => println!("{r}"),
+            Err(e) => println!("Error: {e}"),
+        }
+    } else {
+        let center_norm = normalize_var(center);
+        match arithma::series::taylor_series_latex_symbolic(args[0], &var, &center_norm, order) {
+            Ok(r) => println!("{r}"),
+            Err(e) => println!("Error: {e}"),
+        }
+    }
+}
+
+fn repl_eval(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+
+    let mut tokenizer = Tokenizer::new(args[0]);
+    let tokens = tokenizer.tokenize();
+    let expr = match build_expression_tree(tokens) {
+        Ok(e) => e,
+        Err(e) => {
+            println!("Error: {e}");
+            return;
+        }
+    };
+
+    let env_s = Environment::new();
+    let simplified = expr.simplify(&env_s).unwrap_or_else(|_| expr.clone());
+
+    let mut env = Environment::new();
+    for arg in &args[1..] {
+        if let Some((var, val_str)) = arg.split_once('=') {
+            if let Ok(val) = val_str.parse::<f64>() {
+                if val == val.floor() && val.abs() < 1e15 {
+                    env.set_exact(var, arithma::ExactNum::integer(val as i64));
+                } else {
+                    env.set(var, val);
+                }
+            } else {
+                println!("Invalid value for {var}: {val_str}");
+                return;
+            }
+        }
+    }
+
+    match Evaluator::evaluate_exact(&simplified, &env) {
+        Ok(val) => println!("{}", Node::Num(val)),
+        Err(_) => match Evaluator::evaluate(&simplified, &env) {
+            Ok(val) => println!("{val}"),
+            Err(_) => println!("{simplified}"),
+        },
+    }
+}
+
+fn repl_sub(rest: &str, env: &Environment) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    if args.len() < 3 {
+        println!("Usage: sub <expr> <var> <value>");
+        return;
+    }
+    let var = normalize_var(args[1]);
+    let subs = vec![(var, args[2].to_string())];
+    match arithma::substitute::substitute_latex(args[0], &subs) {
+        Ok(result) => match parse_latex(&result, env).map(|n| format!("{n}")) {
+            Ok(simplified) => println!("{simplified}"),
+            Err(_) => println!("{result}"),
+        },
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_ode(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    if args[0] == "--cc" {
+        if args.len() < 4 {
+            println!("Usage: ode --cc <a> <b> <c> [indep]");
+            return;
+        }
+        let a: f64 = match args[1].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Invalid coefficient: {}", args[1]);
+                return;
+            }
+        };
+        let b: f64 = match args[2].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Invalid coefficient: {}", args[2]);
+                return;
+            }
+        };
+        let c: f64 = match args[3].parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Invalid coefficient: {}", args[3]);
+                return;
+            }
+        };
+        let indep = args
+            .get(4)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "x".into());
+        match arithma::ode::solve_constant_coeff_latex(a, b, c, &indep) {
+            Ok(r) => println!("{r}"),
+            Err(e) => println!("Error: {e}"),
+        }
+    } else {
+        let indep = args
+            .get(1)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "x".into());
+        let dep = args
+            .get(2)
+            .map(|s| normalize_var(s))
+            .unwrap_or_else(|| "y".into());
+        match arithma::ode::solve_ode_latex(args[0], &indep, &dep) {
+            Ok(r) => println!("{r}"),
+            Err(e) => println!("Error: {e}"),
+        }
+    }
+}
+
+fn repl_prime_factorize(rest: &str) {
+    match rest.trim().parse::<u64>() {
+        Ok(n) => println!("{}", arithma::prime_factorize_latex(n)),
+        Err(_) => println!("Error: expected a non-negative integer"),
+    }
+}
+
+fn repl_pf(rest: &str) {
+    let args: Vec<&str> = rest.split_whitespace().collect();
+    if args.len() < 2 {
+        println!("Usage: pf <numerator> <denominator> [var]");
+        return;
+    }
+    let var = args
+        .get(2)
+        .map(|s| normalize_var(s))
+        .unwrap_or_else(|| "x".into());
+    match arithma::partial_fractions::partial_fractions_latex(args[0], args[1], &var) {
+        Ok(r) => println!("{r}"),
+        Err(e) => println!("Error: {e}"),
+    }
+}
+
+fn repl_expr(input: &str, env: &Environment) {
+    if input.contains("\\begin{pmatrix}")
+        && input.contains("\\cdot")
+        && input.contains("\\end{pmatrix}")
+    {
+        let parts: Vec<&str> = input.split("\\cdot").collect();
+        if parts.len() == 2 {
+            match (
+                arithma::matrix::parse_latex_matrix(parts[0].trim(), env),
+                arithma::matrix::parse_latex_matrix(parts[1].trim(), env),
+            ) {
+                (Ok(a), Ok(b)) => match a.multiply(&b, env) {
+                    Ok(result) => {
+                        println!("{}", result.to_latex());
+                        return;
+                    }
+                    Err(e) => {
+                        println!("Error: {e}");
+                        return;
+                    }
+                },
+                (Err(e), _) | (_, Err(e)) => {
+                    println!("Error: {e}");
+                    return;
+                }
+            }
+        }
+    }
+
+    let mut tokenizer = Tokenizer::new(input);
+    let tokens = tokenizer.tokenize();
+    let parsed = match build_expression_tree(tokens) {
+        Ok(e) => e,
+        Err(e) => {
+            println!("Error: {e}");
+            return;
+        }
+    };
+
+    let simplified = match parsed.simplify(env) {
+        Ok(e) => e,
+        Err(e) => {
+            println!("Error: {e}");
+            return;
+        }
+    };
+
+    match Evaluator::evaluate_exact(&simplified, env) {
+        Ok(val) => println!("{}", Node::Num(val)),
+        Err(_) => match Evaluator::evaluate(&simplified, env) {
+            Ok(val) => println!("{val}"),
+            Err(_) => println!("{simplified}"),
+        },
+    }
+}
+
 fn repl() {
-    println!("Arithma — type 'exit' to quit, '--help' for commands, 'format <expr>' for canonical LaTeX.");
+    println!("Arithma v{} — interactive mode", env!("CARGO_PKG_VERSION"));
+    println!("Commands: simplify, diff, integrate, solve, factor, limit, taylor, eval");
+    println!("Type 'help' for details, 'exit' to quit.\n");
+
     let env = Environment::new();
 
     loop {
@@ -649,71 +1187,48 @@ fn repl() {
         io::stdout().flush().unwrap();
 
         let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-        let input = input.trim();
-
-        if input == "exit" || input == "quit" {
+        if io::stdin().read_line(&mut input).unwrap() == 0 {
             break;
         }
+        let input = input.trim();
         if input.is_empty() {
             continue;
         }
-        if input == "--help" || input == "help" {
-            print_help();
+        if input == "exit" || input == "quit" {
+            break;
+        }
+        if input == "help" || input == "--help" {
+            print_repl_help();
             continue;
         }
 
-        if let Some(expr) = input.strip_prefix("format ") {
-            match parse_latex_raw(expr.trim()).map(|node| format!("{node}")) {
-                Ok(result) => println!("{result}"),
-                Err(e) => println!("Error: {e}"),
-            }
-            continue;
-        }
+        let input = preprocess_input(input);
 
-        if input.contains("\\begin{pmatrix}")
-            && input.contains("\\cdot")
-            && input.contains("\\end{pmatrix}")
-        {
-            let parts: Vec<&str> = input.split("\\cdot").collect();
-            if parts.len() == 2 {
-                let matrix_a = parts[0].trim();
-                let matrix_b = parts[1].trim();
-                match (
-                    arithma::matrix::parse_latex_matrix(matrix_a, &env),
-                    arithma::matrix::parse_latex_matrix(matrix_b, &env),
-                ) {
-                    (Ok(a), Ok(b)) => match a.multiply(&b, &env) {
-                        Ok(result) => println!("{}", result.to_latex()),
-                        Err(e) => println!("Error: {}", e),
-                    },
-                    (Err(e), _) | (_, Err(e)) => println!("Error: {}", e),
-                }
-                continue;
-            }
-        }
-
-        let mut tokenizer = Tokenizer::new(input);
-        let tokens = tokenizer.tokenize();
-        let parsed = match build_expression_tree(tokens) {
-            Ok(expr) => expr,
-            Err(e) => {
-                println!("Error: {}", e);
-                continue;
-            }
+        let (cmd, rest) = match input.find(char::is_whitespace) {
+            Some(pos) => (&input[..pos], input[pos..].trim_start()),
+            None => (input.as_str(), ""),
         };
 
-        let simplified = match parsed.simplify(&env) {
-            Ok(expr) => expr,
-            Err(e) => {
-                println!("Error: {}", e);
-                continue;
+        match cmd {
+            "format" if !rest.is_empty() => repl_format(rest),
+            "simplify" if !rest.is_empty() => repl_simplify(rest, &env),
+            "diff" | "differentiate" if !rest.is_empty() => repl_diff(rest),
+            "integrate" if !rest.is_empty() => repl_integrate(rest),
+            "solve" if !rest.is_empty() => repl_solve(rest),
+            "factor" if !rest.is_empty() => repl_factor(rest),
+            "limit" if !rest.is_empty() => repl_limit(rest),
+            "taylor" if !rest.is_empty() => repl_taylor(rest),
+            "eval" | "evaluate" if !rest.is_empty() => repl_eval(rest),
+            "sub" | "substitute" if !rest.is_empty() => repl_sub(rest, &env),
+            "ode" if !rest.is_empty() => repl_ode(rest),
+            "prime-factorize" | "factorint" if !rest.is_empty() => repl_prime_factorize(rest),
+            "pf" | "partial-fractions" if !rest.is_empty() => repl_pf(rest),
+            "format" | "simplify" | "diff" | "differentiate" | "integrate" | "solve" | "factor"
+            | "limit" | "taylor" | "eval" | "evaluate" | "sub" | "substitute" | "ode"
+            | "prime-factorize" | "factorint" | "pf" | "partial-fractions" => {
+                println!("Usage: {cmd} <expr> [args...] — type 'help' for details");
             }
-        };
-
-        match Evaluator::evaluate(&simplified, &env) {
-            Ok(result) => println!("{}", result),
-            Err(_) => println!("{}", simplified),
+            _ => repl_expr(&input, &env),
         }
     }
 }
