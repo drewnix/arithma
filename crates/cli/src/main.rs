@@ -701,6 +701,31 @@ fn cmd_ode(cmd: &str, args: &[String]) {
     }
 }
 
+/// Shell-like argument splitting that respects quoted groups.
+/// `solve "x^2 - 4 = 0" x` → ["x^2 - 4 = 0", "x"]
+fn split_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quote: Option<char> = None;
+
+    for c in input.chars() {
+        match c {
+            q @ ('"' | '\'') if in_quote == Some(q) => in_quote = None,
+            q @ ('"' | '\'') if in_quote.is_none() => in_quote = Some(q),
+            c if c.is_whitespace() && in_quote.is_none() => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
 /// Replace natural math notation with LaTeX equivalents.
 /// Converts standalone `pi` → `\pi`, `inf`/`infinity` → `\infty`.
 fn preprocess_input(input: &str) -> String {
@@ -790,7 +815,8 @@ fn repl_simplify(rest: &str, env: &Environment) {
 }
 
 fn repl_diff(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let var = args
         .get(1)
         .map(|s| normalize_var(s))
@@ -802,7 +828,8 @@ fn repl_diff(rest: &str) {
 }
 
 fn repl_integrate(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let expr = args[0];
     let var = args
         .get(1)
@@ -828,7 +855,8 @@ fn repl_integrate(rest: &str) {
 }
 
 fn repl_solve(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let equation = args[0];
 
     if let Some(vars_str) = args.get(1) {
@@ -943,7 +971,8 @@ fn repl_solve_system(equations_str: &str, vars: &[String]) {
 }
 
 fn repl_factor(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let var = args
         .get(1)
         .map(|s| normalize_var(s))
@@ -1007,7 +1036,8 @@ fn repl_factor(rest: &str) {
 }
 
 fn repl_limit(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let var = args
         .get(1)
         .map(|s| normalize_var(s))
@@ -1020,7 +1050,8 @@ fn repl_limit(rest: &str) {
 }
 
 fn repl_taylor(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let var = args
         .get(1)
         .map(|s| normalize_var(s))
@@ -1046,7 +1077,8 @@ fn repl_taylor(rest: &str) {
 }
 
 fn repl_eval(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
 
     let mut tokenizer = Tokenizer::new(args[0]);
     let tokens = tokenizer.tokenize();
@@ -1087,7 +1119,8 @@ fn repl_eval(rest: &str) {
 }
 
 fn repl_sub(rest: &str, env: &Environment) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     if args.len() < 3 {
         print_note("Usage: sub <expr> <var> <value>");
         return;
@@ -1104,7 +1137,8 @@ fn repl_sub(rest: &str, env: &Environment) {
 }
 
 fn repl_ode(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     if args[0] == "--cc" {
         if args.len() < 4 {
             print_note("Usage: ode --cc <a> <b> <c> [indep]");
@@ -1163,7 +1197,8 @@ fn repl_prime_factorize(rest: &str) {
 }
 
 fn repl_pf(rest: &str) {
-    let args: Vec<&str> = rest.split_whitespace().collect();
+    let args_owned = split_args(rest);
+    let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     if args.len() < 2 {
         print_note("Usage: pf <numerator> <denominator> [var]");
         return;
@@ -1306,7 +1341,7 @@ fn repl() {
                     break;
                 }
 
-                let _ = rl.add_history_entry(&line);
+                let _ = rl.add_history_entry(input);
 
                 if input == "latex" {
                     LATEX_OUTPUT.store(true, Ordering::Relaxed);

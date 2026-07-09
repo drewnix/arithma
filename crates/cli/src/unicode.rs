@@ -226,6 +226,7 @@ fn needs_parens(s: &str) -> bool {
             b')' => depth -= 1,
             b'+' if depth == 0 && i > 0 => return true,
             b'-' if depth == 0 && i > 0 => return true,
+            b'/' if depth == 0 && i > 0 => return true,
             _ => {}
         }
     }
@@ -383,6 +384,7 @@ mod tests {
         assert_eq!(latex_to_unicode("\\frac{1}{3}"), "1/3");
         assert_eq!(latex_to_unicode("\\frac{x+1}{x-1}"), "(x+1)/(x-1)");
         assert_eq!(latex_to_unicode("\\frac{-x}{2}"), "-x/2");
+        assert_eq!(latex_to_unicode("\\frac{1}{\\frac{x+1}{x}}"), "1/((x+1)/x)");
     }
 
     #[test]
