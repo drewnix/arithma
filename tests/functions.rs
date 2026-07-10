@@ -26,6 +26,13 @@ mod function_tests {
         evaluate_expression_with_env(latex, &env)
     }
 
+    fn evaluate_exact_expression(latex: &str) -> Result<ExactNum, String> {
+        let env = Environment::new();
+        let mut tokenizer = Tokenizer::new(latex);
+        let parsed = build_expression_tree(tokenizer.tokenize())?;
+        Evaluator::evaluate_exact(&parsed, &env)
+    }
+
     // Integer arithmetic
 
     #[test]
@@ -56,7 +63,16 @@ mod function_tests {
         assert!(evaluate_expression("\\factorial{-1}")
             .unwrap_err()
             .contains("non-negative"));
-        assert!(evaluate_expression("\\factorial{21}").unwrap().is_finite());
+        // 21! exceeds f64 exact-integer range; evaluate_exact stays exact.
+        assert_eq!(
+            evaluate_exact_expression("\\factorial{21}")
+                .unwrap()
+                .to_rational()
+                .unwrap()
+                .numer()
+                .to_string(),
+            "51090942171709440000"
+        );
     }
 
     #[test]
@@ -64,7 +80,15 @@ mod function_tests {
         assert_eq!(evaluate_expression("5!").unwrap(), 120.0);
         assert_eq!(evaluate_expression("(3+2)!").unwrap(), 120.0);
         assert_eq!(evaluate_expression("5! + 1").unwrap(), 121.0);
-        assert!(evaluate_expression("21!").unwrap().is_finite());
+        assert_eq!(
+            evaluate_exact_expression("21!")
+                .unwrap()
+                .to_rational()
+                .unwrap()
+                .numer()
+                .to_string(),
+            "51090942171709440000"
+        );
     }
 
     #[test]
@@ -80,7 +104,15 @@ mod function_tests {
         assert!(evaluate_expression("\\binom{-1}{2}")
             .unwrap_err()
             .contains("non-negative"));
-        assert!(evaluate_expression("\\binom{68}{34}").unwrap().is_finite());
+        assert_eq!(
+            evaluate_exact_expression("\\binom{68}{34}")
+                .unwrap()
+                .to_rational()
+                .unwrap()
+                .numer()
+                .to_string(),
+            "28453041475240576740"
+        );
     }
 
     #[test]
@@ -111,6 +143,114 @@ mod function_tests {
         let command = simplify_expression("\\factorial{5}").unwrap();
         assert_eq!(postfix, command);
         assert_eq!(postfix, Node::Num(ExactNum::integer(120)));
+        assert!(matches!(postfix, Node::Num(ExactNum::Rational(_))));
+    }
+
+    #[test]
+    fn test_gcd_simplify() {
+        assert_eq!(
+            simplify_expression("\\gcd{24, 36}").unwrap(),
+            Node::Num(ExactNum::integer(12))
+        );
+        assert_eq!(
+            simplify_expression("\\gcd{12+12, 36}").unwrap(),
+            Node::Num(ExactNum::integer(12))
+        );
+    }
+
+    #[test]
+    fn test_gcd_simplify_bigint() {
+        let simplified =
+            simplify_expression("\\gcd{10000000000000000000, 30000000000000000000}").unwrap();
+        if let Node::Num(n) = simplified {
+            assert_eq!(
+                n.to_rational().unwrap().numer().to_string(),
+                "10000000000000000000"
+            );
+        } else {
+            panic!("expected numeric gcd simplify result");
+        }
+    }
+
+    #[test]
+    fn test_lcm_simplify() {
+        assert_eq!(
+            simplify_expression("\\lcm{4, 6}").unwrap(),
+            Node::Num(ExactNum::integer(12))
+        );
+    }
+
+    #[test]
+    fn test_lcm_simplify_bigint() {
+        let simplified =
+            simplify_expression("\\lcm{10000000000000000000, 30000000000000000000}").unwrap();
+        if let Node::Num(n) = simplified {
+            assert_eq!(
+                n.to_rational().unwrap().numer().to_string(),
+                "30000000000000000000"
+            );
+        } else {
+            panic!("expected numeric lcm simplify result");
+        }
+    }
+
+    #[test]
+    fn test_factorial_simplify_large_exact() {
+        let expected_23 = "25852016738884976640000";
+        for input in ["23!", "\\factorial{23}"] {
+            let simplified = simplify_expression(input).unwrap();
+            if let Node::Num(n) = simplified {
+                assert!(
+                    matches!(n, ExactNum::Rational(_)),
+                    "{input} should simplify to exact rational, not float"
+                );
+                assert!(n.is_integer());
+                assert_eq!(n.to_rational().unwrap().numer().to_string(), expected_23);
+            } else {
+                panic!("expected numeric factorial simplify result for {input}");
+            }
+        }
+
+        let expected_30 = "265252859812191058636308480000000";
+        for input in ["30!", "\\factorial{30}"] {
+            let simplified = simplify_expression(input).unwrap();
+            if let Node::Num(n) = simplified {
+                assert!(matches!(n, ExactNum::Rational(_)));
+                assert_eq!(n.to_rational().unwrap().numer().to_string(), expected_30);
+            } else {
+                panic!("expected numeric factorial simplify result for {input}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_factorial_evaluate_exact_parity() {
+        let env = Environment::new();
+        for input in ["21!", "23!", "\\factorial{21}", "\\factorial{23}"] {
+            let mut tokenizer = Tokenizer::new(input);
+            let parsed = build_expression_tree(tokenizer.tokenize()).unwrap();
+            let exact = Evaluator::evaluate_exact(&parsed, &env).unwrap();
+            assert!(matches!(exact, ExactNum::Rational(_)));
+            assert!(exact.is_integer());
+        }
+        assert_eq!(
+            evaluate_exact_expression("21!")
+                .unwrap()
+                .to_rational()
+                .unwrap()
+                .numer()
+                .to_string(),
+            "51090942171709440000"
+        );
+        assert_eq!(
+            evaluate_exact_expression("23!")
+                .unwrap()
+                .to_rational()
+                .unwrap()
+                .numer()
+                .to_string(),
+            "25852016738884976640000"
+        );
     }
 
     #[test]

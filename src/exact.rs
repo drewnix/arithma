@@ -17,6 +17,11 @@ impl ExactNum {
         ExactNum::Rational(BigRational::from_integer(BigInt::from(n)))
     }
 
+    /// Non-negative integer from a Rust loop counter (`usize` → `BigInt`).
+    pub fn from_usize(n: usize) -> Self {
+        ExactNum::Rational(BigRational::from_integer(BigInt::from(n)))
+    }
+
     pub fn rational(numer: i64, denom: i64) -> Self {
         if denom == 0 {
             return ExactNum::Float(f64::NAN);
