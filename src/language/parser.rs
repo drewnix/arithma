@@ -111,7 +111,7 @@ pub fn shunting_yard(tokens: Vec<String>) -> Result<Vec<String>, String> {
     Ok(output_queue)
 }
 
-pub fn get_precedence(op: &str) -> i32 {
+pub(crate) fn get_precedence(op: &str) -> i32 {
     match op {
         "^" => 5,                            // Exponentiation
         "NEG" => 4,                          // Unary minus (binds tighter than *, looser than ^)
