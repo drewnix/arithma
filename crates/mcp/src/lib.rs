@@ -1697,6 +1697,16 @@ fn chain_text(chain: &ChainResult) -> String {
     lines.join("\n")
 }
 
+/// Build provenance embedded at compile time (build.rs). "unknown" + dirty
+/// is the fallback when the binary was built outside a git checkout: a
+/// build that cannot name its sources must not claim to be clean.
+fn build_provenance() -> Value {
+    json!({
+        "commit": env!("ARITHMA_GIT_COMMIT"),
+        "dirty": env!("ARITHMA_GIT_DIRTY") == "true",
+    })
+}
+
 fn tool_verify_chain(args: &Value) -> Result<(String, Value), String> {
     let steps_arr = args
         .get("steps")
@@ -1740,6 +1750,7 @@ fn tool_verify_chain(args: &Value) -> Result<(String, Value), String> {
     // Chain-level status: the minimum evidence across steps, with the
     // machine-readable verdict and the full per-step audit trail.
     let mut status_json = chain.status.clone().with_verdict(chain.verdict).to_json();
+    status_json["build"] = build_provenance();
     status_json["steps"] = Value::Array(
         chain
             .steps

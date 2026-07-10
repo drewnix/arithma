@@ -139,3 +139,32 @@ fn equivalent_tool_gains_machine_readable_verdict() {
     let fail = call("equivalent", json!({ "expr_a": "x^2", "expr_b": "x^3" }));
     assert_eq!(status_of(&fail)["verdict"], "fail");
 }
+
+#[test]
+fn verify_chain_response_carries_build_provenance() {
+    // A replay verdict without build provenance is not reproducible: the
+    // chain-level result_status must say which checker build produced it.
+    let result = call(
+        "verify_chain",
+        json!({
+            "steps": [
+                { "expr": "(x+1)^2" },
+                { "expr": "x^2 + 2x + 1" }
+            ]
+        }),
+    );
+    let build = &status_of(&result)["build"];
+
+    // The commit is a non-empty identifier ("unknown" only when the
+    // binary was built outside a git checkout).
+    let commit = build["commit"].as_str().expect("build.commit is a string");
+    assert!(!commit.is_empty());
+
+    // The dirty flag is always present and boolean: a dirty build must be
+    // distinguishable from a clean one in every chain report.
+    assert!(
+        build["dirty"].is_boolean(),
+        "build.dirty must be a boolean, got: {}",
+        build["dirty"]
+    );
+}
