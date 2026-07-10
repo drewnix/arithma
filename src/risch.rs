@@ -1427,10 +1427,7 @@ fn integrate_in_exp_ext_structured(
         } else {
             // Degree i≥1: solve q' + i·g'·q = aᵢ
             let f = g_prime.scalar_mul(&BigRational::from_integer(BigInt::from(i as i64)));
-            match solve_risch_de_rational(&f, &a_i, var) {
-                Some(qi) => result_coeffs[i] = qi,
-                None => return None,
-            }
+            result_coeffs[i] = solve_risch_de_rational(&f, &a_i, var)?;
         }
     }
 
@@ -2049,10 +2046,7 @@ fn solve_risch_de_in_log_ext(f: &Polynomial, g: &ExtPoly, var: &str) -> Option<E
             continue;
         }
 
-        match solve_risch_de_rational(f, &rhs, var) {
-            Some(bk) => b[k] = bk,
-            None => return None,
-        }
+        b[k] = solve_risch_de_rational(f, &rhs, var)?;
     }
 
     Some(ExtPoly::from_coeffs(b, var))
