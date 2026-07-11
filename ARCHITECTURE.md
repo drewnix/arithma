@@ -51,8 +51,8 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Radical preservation**: `√12 → 2√3`, `√(4a²) → 2|a|` (assumption-aware). Like-radical combination: `√8+√2 → 3√2`.
 - **Symbolic sqrt**: simplifier preserves `√2` as symbolic, never evaluates to float. `√a·√a → a`, `(√x)² → |x|` (or `x` with nonneg assumption).
 - **Repeating decimals**: `0.\overline{3} → 1/3` exactly, parsed at the tokenizer level. Supports non-repeating prefixes: `0.1\overline{6} → 1/6`.
-- **Factorial**: `n!` postfix and `\factorial{n}`. Exact evaluation via BigRational. `factorial_u64` for values ≤ 20!, `factorial_exact` for arbitrary size.
-- **Integer number theory**: prime factorization, GCD/LCM (`\gcd`, `\lcm` as multi-argument functions), square-factor extraction.
+- **Integer number theory** (`integer` module): GCD, LCM, binomial, factorial (`n!`, `\factorial{n}`), prime factorization (`Vec<(ExactNum, u32)>`), and square-factor extraction. Public APIs take and return [`ExactNum`] where applicable; algorithms run on [`BigInt`] with no `usize`/`i64` input cap. `\gcd` / `\lcm` are multi-argument; simplify folds them symbolically when arguments are numeric literals.
+- **Evaluation paths**: [`Evaluator::evaluate_exact`] preserves exact rationals for integer functions; [`Evaluator::evaluate`] → `f64` is a legacy/numeric wrapper (may lose precision for very large values).
 
 ### Simplification
 
@@ -209,6 +209,11 @@ All mathematical expressions are represented as a tree of `Node` variants:
 ### Number System (`ExactNum`)
 
 Two variants: `Rational(BigRational)` for exact computation, `Float(f64)` for numerical fallback. All internal computation uses `Rational` wherever possible. Float is a last resort.
+
+- **`ExactNum::integer(i64)`** — small literals and loop indices that fit in `i64`.
+- **`ExactNum::from_usize(n)`** — non-negative loop counters → `BigInt` without `i64` cast.
+- **Parser literals** — arbitrary-size integers stored as `Rational` with `BigInt` numerators.
+- **Integer functions** — use [`as_non_negative_integer`] to extract `BigInt`; `Float` inputs accepted only when the value is a whole number exactly representable in `f64` (up to 2⁵³).
 
 ### Polynomial Infrastructure
 

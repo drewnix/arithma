@@ -10,7 +10,7 @@ use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::exact::ExactNum;
 use crate::fps::FormalPowerSeries;
-use crate::integer::factorial_exact;
+use crate::integer::factorial;
 use crate::node::Node;
 use crate::parser::build_expression_tree;
 use crate::polynomial::Polynomial;
@@ -54,7 +54,8 @@ fn taylor_series_numeric(
 
     for k in 0..=order {
         let value = try_rationalize(&Evaluator::evaluate_exact(&current, &eval_env)?);
-        let fact = factorial_exact(k);
+        let fact = factorial(&ExactNum::from_usize(k))
+            .ok_or_else(|| format!("internal error: factorial({k})"))?;
         let coeff = &value / &fact;
         coeffs.push(coeff);
 
@@ -278,7 +279,8 @@ pub fn taylor_series_symbolic(
     for k in 0..=order {
         let substituted = substitute_variable(&current, var, center)?;
         let value = substituted.simplify(&env).unwrap_or(substituted);
-        let fact = factorial_exact(k);
+        let fact = factorial(&ExactNum::from_usize(k))
+            .ok_or_else(|| format!("internal error: factorial({k})"))?;
         let coeff = if fact.is_one() {
             value
         } else {
@@ -596,7 +598,9 @@ pub fn taylor_to_fps(
         match Evaluator::evaluate_exact(&dc[n], &eval_env) {
             Ok(val) => {
                 let rationalized = try_rationalize(&val);
-                let fact = factorial_exact(n);
+                let Some(fact) = factorial(&ExactNum::from_usize(n)) else {
+                    return BigRational::zero();
+                };
                 match (&rationalized, &fact) {
                     (ExactNum::Rational(v), ExactNum::Rational(f)) => v / f,
                     _ => BigRational::zero(),

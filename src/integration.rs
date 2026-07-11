@@ -1673,7 +1673,7 @@ fn integrate_mixed_even(
     var: &str,
 ) -> Result<Node, String> {
     let env = crate::environment::Environment::new();
-    let p = expand_half as u64;
+    let p = expand_half as usize;
     let q = keep_half;
 
     // (1 - t²)^p = Σ C(p,j)·(-1)^j·t^(2j)
@@ -1682,19 +1682,22 @@ fn integrate_mixed_even(
     let mut terms: Vec<Node> = Vec::new();
 
     for j in 0..=p {
-        let binom = crate::integer::binom_u64(p, j)? as i64;
-        let coeff = if j % 2 == 0 { binom } else { -binom };
+        let mut coeff = crate::integer::binom(&ExactNum::from_usize(p), &ExactNum::from_usize(j))
+            .ok_or_else(|| format!("binom({p}, {j}) out of range"))?;
+        if j % 2 == 1 {
+            coeff = -coeff;
+        }
         let power = 2 * j as u32 + 2 * q;
 
         let integral_term = integrate_trig_power(keep_func, var, power)?;
 
-        if coeff == 1 {
+        if coeff == ExactNum::one() {
             terms.push(integral_term);
-        } else if coeff == -1 {
+        } else if coeff == ExactNum::integer(-1) {
             terms.push(Node::Negate(Box::new(integral_term)));
         } else {
             terms.push(Node::Multiply(
-                Box::new(Node::Num(ExactNum::integer(coeff))),
+                Box::new(Node::Num(coeff)),
                 Box::new(integral_term),
             ));
         }

@@ -488,14 +488,20 @@ fn cmd_prime_factorize(cmd: &str, args: &[String]) {
     if args.is_empty() {
         usage(cmd, "<n>", NONE, NONE);
     }
-    let n: u64 = match args[0].parse() {
-        Ok(n) => n,
-        Err(_) => {
+    let n = match arithma::parse_non_negative_integer(&args[0]) {
+        Some(n) => n,
+        None => {
             eprintln!("Error: expected a non-negative integer");
             std::process::exit(1);
         }
     };
-    output(&arithma::prime_factorize_latex(n));
+    match arithma::prime_factorize_latex(&n) {
+        Ok(result) => output(&result),
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
 
 fn cmd_partial_fractions(cmd: &str, args: &[String]) {
@@ -1190,9 +1196,12 @@ fn repl_ode(rest: &str) {
 }
 
 fn repl_prime_factorize(rest: &str) {
-    match rest.trim().parse::<u64>() {
-        Ok(n) => output(&arithma::prime_factorize_latex(n)),
-        Err(_) => print_error("Error: expected a non-negative integer"),
+    match arithma::parse_non_negative_integer(rest) {
+        Some(n) => match arithma::prime_factorize_latex(&n) {
+            Ok(result) => output(&result),
+            Err(e) => print_error(&format!("Error: {}", e)),
+        },
+        None => print_error("Error: expected a non-negative integer"),
     }
 }
 

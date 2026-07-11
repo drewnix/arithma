@@ -31,11 +31,8 @@ impl Evaluator {
             }
             Node::Factorial(expr) => {
                 let value = Self::evaluate_exact(expr, env)?;
-                let n = value
-                    .to_i64()
-                    .filter(|&v| v >= 0)
-                    .ok_or_else(|| "factorial requires a non-negative integer.".to_string())?;
-                Ok(crate::integer::factorial_exact(n as usize))
+                crate::integer::factorial(&value)
+                    .ok_or_else(|| "factorial requires a non-negative integer.".to_string())
             }
             Node::Add(left, right) => {
                 let l = Self::evaluate_exact(left, env)?;
@@ -188,10 +185,9 @@ impl Evaluator {
             Node::Function(ref name, ref args) => {
                 let mut evaluated_args = Vec::new();
                 for arg in args {
-                    evaluated_args.push(Self::evaluate(arg, env)?);
+                    evaluated_args.push(Self::evaluate_exact(arg, env)?);
                 }
-                let result = call_function(name, evaluated_args)?;
-                Ok(ExactNum::Float(result))
+                call_function(name, evaluated_args)
             }
         }
     }
