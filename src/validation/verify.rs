@@ -2,7 +2,9 @@ use crate::assumptions::Assumptions;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
 use crate::node::Node;
+use crate::status::free_variables;
 use crate::tokenizer::normalize_var;
+use std::collections::HashMap;
 
 const TEST_POINTS: &[f64] = &[
     0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0, 0.8, 4.5,
@@ -39,13 +41,38 @@ pub fn verify_identity(
     let mut points_tested = 0;
     let domain_mismatches = 0;
 
+    let range_constraints = {
+        let mut m = HashMap::new();
+        collect_range_bound_constraints(lhs, &mut m);
+        collect_range_bound_constraints(rhs, &mut m);
+        m
+    };
+
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
         let mut point_values = Vec::new();
         let mut skip_point = false;
 
         for (j, var) in normalized.iter().enumerate() {
-            let val = base_point + 0.3 * j as f64 + 0.1 * i as f64;
+            let val = match range_constraints.get(var) {
+                Some(c) => match (c.min, c.max) {
+                    // Anchored integer streams: lo, lo+1, … (or hi, hi−1, …),
+                    // offset by variable position so multi-variable points
+                    // stay distinct.
+                    (Some(lo), _) => lo + (i + j) as f64,
+                    (None, Some(hi)) => hi - (i + j) as f64,
+                    (None, None) => (base_point + 0.3 * j as f64 + 0.1 * i as f64).round(),
+                },
+                None => base_point + 0.3 * j as f64 + 0.1 * i as f64,
+            };
+            if let Some(c) = range_constraints.get(var) {
+                // A var constrained from both sides (appears in a lower and
+                // an upper bound) samples from its min; skip past the max.
+                if c.max.is_some_and(|hi| val > hi) || c.min.is_some_and(|lo| val < lo) {
+                    skip_point = true;
+                    break;
+                }
+            }
             if !point_satisfies_assumptions(var, val, assumptions) {
                 skip_point = true;
                 break;
@@ -134,6 +161,83 @@ pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Ass
         return false;
     }
     true
+}
+
+/// Sampling constraint for a variable that appears in a Σ/Π range bound.
+/// Such a variable only means anything at integer values, and when the
+/// opposite bound is a constant, only on the meaningful side of it: a sum
+/// written Σ_{k=1}^{n} presupposes n ≥ 1, and sampling n = 0.5 — where the
+/// sum has no value and a truncated evaluation invents one — tests nothing
+/// the author wrote. (Evaluation of a non-integer bound is an error; this
+/// constraint is what keeps the sampler from wasting its points on errors.)
+#[derive(Default, Clone, Copy)]
+struct RangeBoundConstraint {
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+fn collect_range_bound_constraints(node: &Node, out: &mut HashMap<String, RangeBoundConstraint>) {
+    match node {
+        Node::Variable(_) | Node::Num(_) => {}
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r)
+        | Node::Greater(l, r)
+        | Node::Less(l, r)
+        | Node::GreaterEqual(l, r)
+        | Node::LessEqual(l, r)
+        | Node::Equal(l, r)
+        | Node::Equation(l, r) => {
+            collect_range_bound_constraints(l, out);
+            collect_range_bound_constraints(r, out);
+        }
+        Node::Sqrt(inner)
+        | Node::Abs(inner)
+        | Node::Floor(inner)
+        | Node::Ceil(inner)
+        | Node::Round(inner)
+        | Node::Trunc(inner)
+        | Node::Negate(inner)
+        | Node::Factorial(inner) => collect_range_bound_constraints(inner, out),
+        Node::Piecewise(arms) => {
+            for (expr, cond) in arms {
+                collect_range_bound_constraints(expr, out);
+                collect_range_bound_constraints(cond, out);
+            }
+        }
+        Node::Function(_, args) => {
+            for a in args {
+                collect_range_bound_constraints(a, out);
+            }
+        }
+        Node::Summation(_, start, end, body) | Node::Product(_, start, end, body) => {
+            let constant_of = |bound: &Node| Evaluator::evaluate(bound, &Environment::new()).ok();
+            // Variables in the upper bound are bounded below by a constant
+            // lower bound (and vice versa). Multiple sums over the same
+            // variable merge to the tightest constraint.
+            let lo = constant_of(start);
+            for v in free_variables(&[end]) {
+                let entry = out.entry(v).or_default();
+                if let Some(lo) = lo {
+                    let lo = lo.ceil();
+                    entry.min = Some(entry.min.map_or(lo, |m: f64| m.max(lo)));
+                }
+            }
+            let hi = constant_of(end);
+            for v in free_variables(&[start]) {
+                let entry = out.entry(v).or_default();
+                if let Some(hi) = hi {
+                    let hi = hi.floor();
+                    entry.max = Some(entry.max.map_or(hi, |m: f64| m.min(hi)));
+                }
+            }
+            collect_range_bound_constraints(start, out);
+            collect_range_bound_constraints(end, out);
+            collect_range_bound_constraints(body, out);
+        }
+    }
 }
 
 pub(crate) fn values_match(a: f64, b: f64) -> bool {

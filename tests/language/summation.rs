@@ -477,3 +477,62 @@ mod indexed_abs_interaction_tests {
         assert_eq!(eval("\\sum_{k=1}^{5} \\lfloor \\frac{k}{2} \\rfloor"), 6.0);
     }
 }
+
+#[cfg(test)]
+mod non_integer_bound_tests {
+    // Σ/Π bounds must be integers at evaluation time. Silently truncating
+    // (n = 0.5 → empty range → 0, n = 2.7 → n = 2) manufactures a value
+    // the expression never had; downstream numeric samplers then serialize
+    // that invented value inside "counterexamples". A non-integer bound is
+    // an evaluation error, full stop.
+    use arithma::{build_expression_tree, Environment, Evaluator, Tokenizer};
+
+    fn parse(input: &str) -> arithma::Node {
+        let mut tokenizer = Tokenizer::new(input);
+        let tokens = tokenizer.tokenize();
+        build_expression_tree(tokens).unwrap()
+    }
+
+    #[test]
+    fn fractional_upper_bound_refuses_to_evaluate() {
+        let expr = parse("\\sum_{k=1}^{n} k");
+        let mut env = Environment::new();
+        env.set("n", 0.5);
+        assert!(Evaluator::evaluate(&expr, &env).is_err());
+    }
+
+    #[test]
+    fn truncatable_upper_bound_refuses_to_evaluate() {
+        let expr = parse("\\sum_{k=1}^{n} k");
+        let mut env = Environment::new();
+        env.set("n", 2.7);
+        assert!(Evaluator::evaluate(&expr, &env).is_err());
+    }
+
+    #[test]
+    fn fractional_product_bound_refuses_to_evaluate() {
+        let expr = parse("\\prod_{k=1}^{n} k");
+        let mut env = Environment::new();
+        env.set("n", 1.5);
+        assert!(Evaluator::evaluate(&expr, &env).is_err());
+    }
+
+    #[test]
+    fn integer_valued_float_bound_still_evaluates() {
+        // 3.0 IS an integer value — refusing it would break every caller
+        // that stores bounds as f64. Σ_{k=1}^{3} k = 6.
+        let expr = parse("\\sum_{k=1}^{n} k");
+        let mut env = Environment::new();
+        env.set("n", 3.0);
+        assert_eq!(Evaluator::evaluate(&expr, &env).unwrap(), 6.0);
+    }
+
+    #[test]
+    fn empty_integer_range_still_evaluates_to_zero() {
+        // Σ_{k=1}^{0} = 0 is a legitimate empty range, not an error.
+        let expr = parse("\\sum_{k=1}^{n} k");
+        let mut env = Environment::new();
+        env.set("n", 0.0);
+        assert_eq!(Evaluator::evaluate(&expr, &env).unwrap(), 0.0);
+    }
+}

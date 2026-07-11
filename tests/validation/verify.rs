@@ -182,3 +182,24 @@ fn finding4_one_sided_undefinedness_is_a_counterexample() {
     assert!(!result.passed);
     assert!(result.counterexample.is_some());
 }
+
+#[test]
+fn summation_bound_variable_sampled_at_integers() {
+    // Σ_{k=1}^{n} (1/k − 1/(k+1)) = 1 − 1/(n+1): true at every integer
+    // n ≥ 1. The sampler must give a Σ-bound variable integer values in
+    // range — not n = 0.5, where the sum has no value and a truncated
+    // evaluation invents one.
+    let lhs = arithma::parse_latex_raw("\\sum_{k=1}^{n} {\\frac{1}{k} - \\frac{1}{k+1}}").unwrap();
+    let rhs = arithma::parse_latex_raw("1 - \\frac{1}{n+1}").unwrap();
+    let result = arithma::verify_identity(
+        &lhs,
+        &rhs,
+        &["n".to_string()],
+        &arithma::assumptions::Assumptions::new(),
+    );
+    assert!(
+        result.passed,
+        "telescoping identity must verify on integer-sampled n; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+}
