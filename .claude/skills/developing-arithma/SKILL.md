@@ -30,6 +30,25 @@ make mcp            # build only the MCP server
 
 `cargo build` at the repo root builds **only the library** — not the CLI or MCP binaries. Always use `cargo build --workspace` or `make build`. If a binary seems stale after changes, this is almost certainly why.
 
+## Branch & PR Workflow
+
+All code reaches `main` through a pull request. **Never commit to `main` directly** — the `main` ruleset hard-blocks it: PRs require 1 approval and green CI (`Build & Test`, `WASM Build`); only Admin can bypass, and a bypass is a deliberate visible act, not a workflow.
+
+1. **Branch before the first commit**, from up-to-date `main`:
+   `<type>/<short-kebab>` where type matches the commit prefix — `fix/bigint-literals`, `feature/impossibility-proofs`, `refactor/reorganize-src-structure`.
+2. Commit on the branch. Titles use conventional prefixes: `feat:`, `fix:`, `refactor:`, `release:`. Run `make check` before each commit.
+3. Push and open the PR (`gh pr create`). Description: what changed, why, and how it was verified — name the test evidence.
+4. Wait for CI green. **Approval mechanics:** external PRs need maintainer review; self-authored PRs can't be self-approved (GitHub forbids it) — merge those with the admin bypass (`gh pr merge --admin`). A new push to an approved PR dismisses the approval; re-review after every push.
+5. Delete the branch after merge.
+
+**Already made edits on `main`?** `git switch -c <type>/<name>` carries uncommitted work onto a fresh branch — do this the moment you notice, before committing.
+
+| Excuse | Reality |
+|--------|---------|
+| "Tiny fix, straight to main" | Blocked by the ruleset; the PR *is* the record of verification. |
+| "I'll branch before pushing" | Branch before *committing*. Commits on main invite accidental pushes and dirty release tags. |
+| "It's my own repo/session" | The workflow is the same for maintainers and contributors — that symmetry is the point. |
+
 ## Pre-Commit Discipline
 
 Run before every commit — CI enforces all three:
