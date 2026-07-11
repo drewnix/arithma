@@ -38,8 +38,8 @@ All code reaches `main` through a pull request. **Never commit to `main` directl
    `<type>/<short-kebab>` where type matches the commit prefix — `fix/bigint-literals`, `feature/impossibility-proofs`, `refactor/reorganize-src-structure`.
 2. Commit on the branch. Titles use conventional prefixes: `feat:`, `fix:`, `refactor:`, `release:`. Run `make check` before each commit.
 3. Push and open the PR (`gh pr create`). Description: what changed, why, and how it was verified — name the test evidence.
-4. Wait for CI green. **Approval mechanics:** external PRs need maintainer review; self-authored PRs can't be self-approved (GitHub forbids it) — merge those with the admin bypass (`gh pr merge --admin`). A new push to an approved PR dismisses the approval; re-review after every push.
-5. Delete the branch after merge.
+4. Wait for CI green, then stop. **Merging is a human act.** The maintainer reviews and merges; do not merge PRs yourself, and never use admin/bypass mechanisms (`gh pr merge --admin`, "bypass rules") unless the maintainer explicitly directs it for that specific PR in that conversation. A new push to an approved PR dismisses the approval — expect re-review after every push.
+5. After the maintainer merges, delete the branch.
 
 **Already made edits on `main`?** `git switch -c <type>/<name>` carries uncommitted work onto a fresh branch — do this the moment you notice, before committing.
 
@@ -48,6 +48,7 @@ All code reaches `main` through a pull request. **Never commit to `main` directl
 | "Tiny fix, straight to main" | Blocked by the ruleset; the PR *is* the record of verification. |
 | "I'll branch before pushing" | Branch before *committing*. Commits on main invite accidental pushes and dirty release tags. |
 | "It's my own repo/session" | The workflow is the same for maintainers and contributors — that symmetry is the point. |
+| "CI is green and it's approved — I'll just merge it" | Merging is the maintainer's decision, made by the human. Open the PR, report its state, stop. |
 
 ## Pre-Commit Discipline
 
