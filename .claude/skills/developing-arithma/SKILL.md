@@ -61,17 +61,20 @@ cargo test -p arithma-cli     # CLI integration tests only
 
 Releases are tagged on `main`. The flow:
 
-1. Merge all feature branches to `main`
+1. Merge all feature branches to `main`. **Wait for CI green on the release commit before tagging** — the tag triggers artifact builds from exactly that commit.
 2. Run `make release V=x.y.z` — this:
-   - Checks the working tree is clean
-   - Updates `[workspace.package] version` in root `Cargo.toml`
-   - Runs `cargo check` to update `Cargo.lock`
-   - Commits: `release: vx.y.z`
+   - Checks the working tree is clean and the tag doesn't already exist
+   - If `Cargo.toml` already carries version x.y.z (e.g. a merged PR bumped it), skips the bump commit and tags HEAD directly; otherwise updates `[workspace.package] version`, runs `cargo check` to refresh `Cargo.lock`, and commits `release: vx.y.z`
    - Tags: `vx.y.z`
-3. Push: `git push origin main --tags`
-4. The `v*` tag triggers `.github/workflows/release.yml`, which builds cross-platform binaries (Linux x86_64, macOS aarch64, Windows x86_64) for both `arithma` and `arithma-mcp` and creates a GitHub release with artifacts.
+3. Push: `git push origin main vx.y.z` (push the tag by name — `--tags` sends every local tag, including stale ones)
+4. The `v*` tag triggers `.github/workflows/release.yml`, which builds cross-platform binaries for both `arithma` and `arithma-mcp`, names each asset with a platform suffix (`arithma-linux-x86_64`, `arithma-macos-aarch64`, `arithma-mcp-windows-x86_64.exe`, …), fails loudly if any of the 6 expected binaries is missing, and publishes a GitHub release with the assets plus `SHA256SUMS.txt`.
+5. **Verify:** `gh release view vx.y.z --json assets` — expect 6 platform-suffixed binaries + checksums. A tag without a corresponding release means the workflow failed silently; check `gh run list --workflow=release.yml`.
 
-**Version scheme:** semver. Pre-1.0, bump minor for capability additions, patch for fixes.
+**Re-cutting a release** (bad artifacts, workflow fix): the workflow runs *from the tag's commit*, so a workflow fix only takes effect if the tag contains it. Delete the release (`gh release delete vX --yes`) and the remote tag (`git push origin :refs/tags/vX`), re-tag on a commit that includes the fix, and push the tag again.
+
+**Version scheme:** semver. Pre-1.0, bump minor for capability additions, patch for fixes. Breaking API changes (removed `pub` items, changed signatures) also require at least a minor bump.
+
+**Known ledger gaps:** v0.2.0's release assets predate the platform-suffix fix (four ambiguous binaries). v0.3.0 is tagged but has no release — its workflow run never produced one; superseded by v0.4.0 within two days, left as-is deliberately.
 
 ## Makefile Targets
 

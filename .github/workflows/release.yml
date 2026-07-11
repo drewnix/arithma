@@ -28,16 +28,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release --workspace
-      - name: Upload CLI
+      # Release assets are keyed by file basename; the platform suffix must be
+      # on the FILE, not just the artifact directory, or the three platforms'
+      # binaries collide into one ambiguous asset on the release page.
+      - name: Rename binaries with platform suffix
+        shell: bash
+        run: |
+          ext=""
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then ext=".exe"; fi
+          cp "target/release/arithma$ext" "arithma-${{ matrix.suffix }}$ext"
+          cp "target/release/arithma-mcp$ext" "arithma-mcp-${{ matrix.suffix }}$ext"
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
-          name: arithma-${{ matrix.suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-          path: target/release/arithma${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-      - name: Upload MCP server
-        uses: actions/upload-artifact@v4
-        with:
-          name: arithma-mcp-${{ matrix.suffix }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-          path: target/release/arithma-mcp${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          name: binaries-${{ matrix.suffix }}
+          path: |
+            arithma-${{ matrix.suffix }}*
+            arithma-mcp-${{ matrix.suffix }}*
+          if-no-files-found: error
 
   release:
     name: Create Release
@@ -53,9 +61,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
+
+      - name: Verify asset set and write checksums
+        working-directory: artifacts
+        run: |
+          count=$(ls | wc -l)
+          if [ "$count" -ne 6 ]; then
+            echo "Expected 6 platform-suffixed binaries, found $count:" >&2
+            ls >&2
+            exit 1
+          fi
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: artifacts/**/*
+          files: artifacts/*

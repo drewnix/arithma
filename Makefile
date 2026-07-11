@@ -19,12 +19,18 @@ ifndef V
 	$(error Usage: make release V=x.y.z)
 endif
 	@if [ -n "$$(git status --porcelain)" ]; then echo "Error: working tree is dirty" >&2; exit 1; fi
-	sed -i '' 's/^version = ".*"/version = "$(V)"/' Cargo.toml
-	cargo check --workspace 2>/dev/null
-	git add Cargo.toml Cargo.lock
-	git commit -m "release: v$(V)"
+	@if git rev-parse -q --verify "refs/tags/v$(V)" >/dev/null; then echo "Error: tag v$(V) already exists" >&2; exit 1; fi
+	@current=$$(sed -n 's/^version = "\(.*\)"$$/\1/p' Cargo.toml | head -1); \
+	if [ "$$current" = "$(V)" ]; then \
+		echo "Version already $(V) (e.g. bumped in a merged PR) — tagging HEAD without a bump commit"; \
+	else \
+		sed -i '' 's/^version = ".*"/version = "$(V)"/' Cargo.toml; \
+		cargo check --workspace 2>/dev/null; \
+		git add Cargo.toml Cargo.lock; \
+		git commit -m "release: v$(V)"; \
+	fi
 	git tag "v$(V)"
-	@echo "Tagged v$(V). Push with: git push origin main --tags"
+	@echo "Tagged v$(V). Verify CI is green on this commit, then push with: git push origin main v$(V)"
 
 test: ## Run all tests
 	cargo test --all
