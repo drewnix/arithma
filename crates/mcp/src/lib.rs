@@ -512,12 +512,17 @@ pub fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
     // (text, status) shape, so it assembles its own response.
     if tool_name == "verify_chain" {
         return match tool_verify_chain(&args) {
+            // result_status appears twice by design (F3): typed MCP SDKs
+            // drop unknown top-level fields, so the sibling alone never
+            // reaches them; structuredContent is the standards-track
+            // surface, and the sibling stays for raw-JSON consumers.
             Ok((text, status_json)) => json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
                     "content": [{ "type": "text", "text": text }],
-                    "result_status": status_json
+                    "result_status": status_json,
+                    "structuredContent": { "result_status": status_json }
                 }
             }),
             Err(e) => json!({
@@ -561,12 +566,15 @@ pub fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
                 Some(marker) => format!("{}\n{}", marker, text),
                 None => text,
             };
+            let status_json = status.to_json();
             json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {
                     "content": [{ "type": "text", "text": text }],
-                    "result_status": status.to_json()
+                    // Twice by design (F3) — see the verify_chain branch.
+                    "result_status": status_json,
+                    "structuredContent": { "result_status": status_json }
                 }
             })
         }

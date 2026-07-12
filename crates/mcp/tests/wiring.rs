@@ -273,6 +273,36 @@ fn verify_fail_carries_counterexample_in_status() {
 }
 
 #[test]
+fn result_status_reaches_typed_consumers_via_structured_content() {
+    // F3: typed MCP SDKs drop unknown TOP-LEVEL fields, so a sibling
+    // result_status never reaches them — Claude Code itself strips it.
+    // structuredContent is the standards-track surface; the sibling stays
+    // for existing raw-JSON consumers. Both must carry the same object.
+    for (tool, args) in [
+        ("simplify", json!({"expr": "x^2 + 2x + 1"})),
+        (
+            "verify",
+            json!({"expr_a": "\\sin(x)", "expr_b": "\\cos(x)"}),
+        ),
+        (
+            "verify_chain",
+            json!({"steps": [{"expr": "(x+1)^2"}, {"expr": "x^2+2x+1"}]}),
+        ),
+        ("evaluate", json!({"expr": "e^{-50}"})),
+    ] {
+        let resp = call(tool, args);
+        let sibling = &resp["result"]["result_status"];
+        let structured = &resp["result"]["structuredContent"]["result_status"];
+        assert!(!sibling.is_null(), "{}: sibling missing", tool);
+        assert_eq!(
+            structured, sibling,
+            "{}: structuredContent must mirror the sibling exactly",
+            tool
+        );
+    }
+}
+
+#[test]
 fn evaluate_unevaluated_echo_is_unable_to_compute() {
     // F8: an unevaluated echo is not a candidate result — the request was
     // a number and no number was produced. heuristic says "use with
