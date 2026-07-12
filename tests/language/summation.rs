@@ -535,4 +535,119 @@ mod non_integer_bound_tests {
         env.set("n", 0.0);
         assert_eq!(Evaluator::evaluate(&expr, &env).unwrap(), 0.0);
     }
+
+    // The same invariant at the simplify layer: closed forms (Faulhaber,
+    // geometric, telescoping, constant-body) are theorems about integer
+    // ranges. Substituting a literal non-integer bound into them
+    // manufactures a value just as surely as truncation does — Faulhaber
+    // at n = 1/2 yields 3/8 for a sum that has no meaning. Simplify must
+    // leave such expressions unevaluated; the evaluator then reports the
+    // error when a value is demanded.
+
+    fn simplify_latex(input: &str) -> String {
+        let env = Environment::new();
+        let simplified = arithma::simplify::Simplifiable::simplify(&parse(input), &env).unwrap();
+        format!("{}", simplified)
+    }
+
+    #[test]
+    fn fractional_bound_refuses_faulhaber_closed_form() {
+        let result = simplify_latex("\\sum_{k=1}^{1/2} k");
+        assert!(
+            result.starts_with("\\sum"),
+            "Σ_(k=1)^(1/2) k must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn decimal_bound_refuses_faulhaber_closed_form() {
+        let result = simplify_latex("\\sum_{k=1}^{2.7} k");
+        assert!(
+            result.starts_with("\\sum"),
+            "Σ_(k=1)^(2.7) k must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_lower_bound_refuses_closed_form() {
+        let result = simplify_latex("\\sum_{k=1/2}^{3} k");
+        assert!(
+            result.starts_with("\\sum"),
+            "Σ_(k=1/2)^(3) k must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_bound_refuses_constant_body_closed_form() {
+        // Σ_{k=1}^{1/2} 3 via c·(b−a+1) would yield 3/2.
+        let result = simplify_latex("\\sum_{k=1}^{1/2} 3");
+        assert!(
+            result.starts_with("\\sum"),
+            "constant-body sum with fractional bound must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_bound_refuses_geometric_closed_form() {
+        let result = simplify_latex("\\sum_{k=0}^{5/2} 2^k");
+        assert!(
+            result.starts_with("\\sum"),
+            "geometric sum with fractional bound must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_bound_refuses_telescoping_closed_form() {
+        let result = simplify_latex("\\sum_{k=1}^{1/2} {\\frac{1}{k} - \\frac{1}{k+1}}");
+        assert!(
+            result.starts_with("\\sum"),
+            "telescoping sum with fractional bound must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_bound_refuses_telescoping_pf_closed_form() {
+        let result = simplify_latex("\\sum_{k=1}^{7/2} \\frac{1}{k(k+1)}");
+        assert!(
+            result.starts_with("\\sum"),
+            "partial-fraction telescoping with fractional bound must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn fractional_bound_refuses_product_constant_body() {
+        // Π_{k=1}^{1/2} 3 via c^(b−a+1) would yield 3^(1/2).
+        let result = simplify_latex("\\prod_{k=1}^{1/2} 3");
+        assert!(
+            result.starts_with("\\prod"),
+            "constant-body product with fractional bound must stay unevaluated, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn symbolic_bound_closed_form_unaffected() {
+        // The guard is about numeric non-integer bounds only — symbolic
+        // bounds are the entire point of the closed-form machinery.
+        let result = simplify_latex("\\sum_{k=1}^{n} k");
+        assert!(
+            !result.contains("\\sum"),
+            "symbolic bound must still produce the closed form, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn integer_literal_bounds_still_evaluate_exactly() {
+        assert_eq!(simplify_latex("\\sum_{k=1}^{3} k"), "6");
+        // Large range: exercises the closed-form path, not term-by-term.
+        assert_eq!(simplify_latex("\\sum_{k=1}^{100} k"), "5050");
+    }
 }
