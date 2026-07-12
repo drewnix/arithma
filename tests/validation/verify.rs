@@ -264,21 +264,68 @@ fn symbolic_range_product_is_not_its_first_factor() {
 
 #[test]
 fn compound_bound_sum_is_not_its_first_two_terms() {
+    // Whether by refutation (a length ≠ 2 was sampled) or by refusal
+    // (coverage starved), this must never PASS.
     let result = verify_mn("\\sum_{k=m}^{n+1} k^2", "m^2 + (m+1)^2");
     assert!(
         !result.passed,
         "Σ_(k=m)^(n+1) k² = m² + (m+1)² is false beyond two-term ranges; \
          a sampler that passes it never varied the range length"
     );
-    assert!(
-        result.counterexample.is_none() && result.insufficient_points,
-        "starved length coverage is a refusal of evidence, not a refutation"
-    );
+}
+
+#[test]
+fn starved_coverage_refusal_states_its_reason() {
+    // A refusal that misstates its own reason is a check lying about
+    // what it checked. The starved-coverage message must name length
+    // coverage, not the (satisfied) point count.
+    let result = arithma::verify::VerifyResult {
+        passed: false,
+        points_tested: 7,
+        counterexample: None,
+        insufficient_points: true,
+        domain_mismatches: 0,
+        starved_range_lengths: Some(1),
+    };
     let rendered = format!("{}", result);
     assert!(
-        rendered.contains("length"),
+        rendered.contains("length") && !rendered.contains("only 7"),
         "the refusal must state its actual reason (length coverage), got: {}",
         rendered
+    );
+}
+
+// The coverage assertion certifies a MARGINAL — the set of realized
+// lengths. The claim is JOINT — over the bound variables. If the
+// sampled (m, n) all lie on a line, a bound like 2n makes L vary along
+// that line (marginal green) while the joint never leaves it, and any
+// claim true exactly on the line passes. The stream must walk the
+// joint: co-bound variables must realize varying differences.
+
+#[test]
+fn claim_true_only_on_the_sampled_line_is_refuted() {
+    // Σ_{k=m}^{2n} 1 = (2n−m+1) + (n−m)(n−m−1): the extra term vanishes
+    // exactly on n − m ∈ {0, 1}. False at n = m + 2, so a sampler that
+    // walks the joint refutes it.
+    let result = verify_mn("\\sum_{k=m}^{2n} 1", "(2n - m + 1) + (n-m)(n-m-1)");
+    assert!(
+        !result.passed,
+        "a claim true only on the line n − m ∈ {{0,1}} must not verify; \
+         the sampler never left the diagonal"
+    );
+}
+
+#[test]
+fn true_bound_expression_identity_verifies() {
+    // Σ_{k=m}^{n+1} 1 = n − m + 2 is true wherever the range is defined.
+    // Refusing it means the assertion is doing the constructor's job;
+    // a joint-walking stream realizes ≥3 lengths and verifies it.
+    let result = verify_mn("\\sum_{k=m}^{n+1} 1", "n - m + 2");
+    assert!(
+        result.passed,
+        "true bound-expression identity must verify; got {:?} / insufficient={}",
+        result.counterexample.map(|c| c.point),
+        result.insufficient_points
     );
 }
 

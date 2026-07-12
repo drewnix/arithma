@@ -153,7 +153,17 @@ pub fn verify_identity(
                         // stay distinct.
                         (Some(lo), _) => lo + (i + j) as f64,
                         (None, Some(hi)) => hi - (i + j) as f64,
-                        (None, None) => (base_point + 0.3 * j as f64 + 0.1 * i as f64).round(),
+                        // Unanchored bound variables need an INTEGER
+                        // offset that varies with the point index: a
+                        // constant sub-quantum offset (0.3·j) collapses
+                        // co-bound variables onto the diagonal after
+                        // rounding — the sampler walks a line and the
+                        // length assertion, which certifies a marginal,
+                        // cannot see it. (i mod 4)·j walks the joint:
+                        // pairwise differences cycle 0, 1, 2, 3.
+                        (None, None) => {
+                            (base_point + 0.1 * i as f64).round() + (j * (i % 4)) as f64
+                        }
                     },
                     None => base_point + 0.3 * j as f64 + 0.1 * i as f64,
                 }
