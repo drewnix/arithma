@@ -129,8 +129,11 @@ pub struct ChainResult {
 /// Evidence rank for the min-across-steps rule. Higher is stronger.
 fn rank(status: &ResultStatus) -> u8 {
     match status {
-        ResultStatus::Exact => 4,
-        ResultStatus::Verified { .. } => 3,
+        ResultStatus::Exact => 5,
+        ResultStatus::Verified { .. } => 4,
+        // Weaker than verified (nothing independent checked it), stronger
+        // than heuristic (its precision is stated, not unknown).
+        ResultStatus::Approximate { .. } => 3,
         ResultStatus::Heuristic => 2,
         ResultStatus::UnableToCompute { .. } => 1,
         ResultStatus::ProvablyImpossible { .. } => 0,
@@ -628,6 +631,26 @@ fn check_solution_of(
 
     let mut checked = check_equals(&lhs_sub, &rhs_sub, env);
     checked.mechanism = format!("solution_substitution+{}", checked.mechanism);
+    if checked.verdict == Verdict::Fail {
+        // The error-bounded comparison correctly refutes STRICT equality
+        // for a rounded literal — but solution_of's documented semantics
+        // accept a near-root as APPROXIMATE membership: the author names a
+        // root to the precision they wrote down, and the caveat below says
+        // exactly that. The legacy tolerance decides near-ness, so the
+        // mechanism names the legacy check.
+        if let (Ok(a), Ok(b)) = (
+            crate::evaluator::Evaluator::evaluate(&lhs_sub, env),
+            crate::evaluator::Evaluator::evaluate(&rhs_sub, env),
+        ) {
+            if a.is_finite() && b.is_finite() && crate::verify::values_match(a, b) {
+                checked = CheckedStep {
+                    verdict: Verdict::Pass,
+                    status: StatusReport::verified(1),
+                    mechanism: "solution_substitution+numeric_constant_eval".to_string(),
+                };
+            }
+        }
+    }
     if checked.verdict == Verdict::Pass {
         // The membership sentence is earned only by exact arithmetic. A
         // float value agreeing within f64 tolerance is a near-root, and a
@@ -1364,6 +1387,60 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     // same point twelve times as twelve (evidence inflation).
     if vars.is_empty() {
         let env_pt = Environment::new();
+
+        // Preferred path: measure the disagreement against the PROPAGATED
+        // floating-point error bound of the two computations instead of a
+        // fixed tolerance. A fixed tolerance cannot tell e^{-50} = 0
+        // (difference 1.9e-22, bound ~1e-35: a real disagreement) from
+        // sin(2π) = 0 (difference 2.4e-16, bound ~1e-15: indistinguishable
+        // from equal); the bound holds both verdicts correctly.
+        if let (Ok((av, ae)), Ok((bv, be))) = (
+            crate::error_eval::evaluate_with_error(lhs, &env_pt),
+            crate::error_eval::evaluate_with_error(rhs, &env_pt),
+        ) {
+            let mechanism = "numeric_constant_eval_bounded".to_string();
+            let diff = (av - bv).abs();
+            // The bound is first-order; a wrongful FAIL would be a false
+            // disproof — the worst outcome — so a refutation must clear a
+            // 4× safety margin.
+            let bound = 4.0 * (ae + be);
+            if diff <= bound {
+                let status = if diff == 0.0 {
+                    StatusReport::verified(1).with_caveat(
+                        caveat_codes::F64_PRECISION,
+                        "variable-free comparison: a single floating-point evaluation is the evidence",
+                    )
+                } else {
+                    StatusReport::verified(1).with_caveat(
+                        caveat_codes::SUB_RESOLUTION,
+                        "values agree within the propagated floating-point error bound — equality at f64 resolution, not proof",
+                    )
+                };
+                return CheckedStep {
+                    verdict: Verdict::Pass,
+                    status,
+                    mechanism,
+                };
+            }
+            let cx = crate::verify::Counterexample {
+                point: Vec::new(),
+                lhs_value: av,
+                rhs_value: bv,
+            };
+            return CheckedStep {
+                verdict: Verdict::Fail,
+                status: StatusReport::verified(1)
+                    .with_caveat(
+                        caveat_codes::DISAGREEMENT_WITNESS,
+                        "the disagreement exceeds the propagated floating-point error bound — a real difference, not a rounding artifact",
+                    )
+                    .with_counterexample(&cx),
+                mechanism,
+            };
+        }
+
+        // Fallback for expressions without an error model: fixed-tolerance
+        // comparison, honestly labeled.
         let mechanism = "numeric_constant_eval".to_string();
         let (a, b) = match (
             crate::evaluator::Evaluator::evaluate(lhs, &env_pt),

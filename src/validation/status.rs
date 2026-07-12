@@ -222,6 +222,12 @@ pub enum ResultStatus {
     /// Independently checked numerically at `points_tested` points. Evidence,
     /// not proof.
     Verified { points_tested: usize },
+    /// A floating-point value, correct only to `significant_digits` leading
+    /// decimal digits (from first-order error propagation; `None` when no
+    /// bound could be computed). Weaker than `verified` — nothing checked
+    /// it independently — but stronger than `heuristic`: its precision is
+    /// stated rather than unknown.
+    Approximate { significant_digits: Option<u32> },
     /// Transformation believed sound but not independently verified.
     Heuristic,
     /// The request was understood but no answer could be produced.
@@ -290,6 +296,10 @@ impl StatusReport {
 
     pub fn verified(points_tested: usize) -> Self {
         Self::new(ResultStatus::Verified { points_tested })
+    }
+
+    pub fn approximate(significant_digits: Option<u32>) -> Self {
+        Self::new(ResultStatus::Approximate { significant_digits })
     }
 
     pub fn heuristic() -> Self {
@@ -409,6 +419,13 @@ impl StatusReport {
                 obj["status"] = json!("verified");
                 obj["points_tested"] = json!(points_tested);
             }
+            ResultStatus::Approximate { significant_digits } => {
+                obj["status"] = json!("approximate");
+                // An untracked bound must not default into a number.
+                if let Some(digits) = significant_digits {
+                    obj["significant_digits"] = json!(digits);
+                }
+            }
             ResultStatus::Heuristic => {
                 obj["status"] = json!("heuristic");
             }
@@ -473,6 +490,18 @@ impl StatusReport {
                     format!("{} points — {}", points_tested, self.caveat_messages())
                 };
                 Some(format!("[verified] {}", detail))
+            }
+            ResultStatus::Approximate { significant_digits } => {
+                let precision = match significant_digits {
+                    Some(d) => format!("~{} significant digits", d),
+                    None => "precision not tracked".to_string(),
+                };
+                let detail = if self.caveats.is_empty() {
+                    precision
+                } else {
+                    format!("{} — {}", precision, self.caveat_messages())
+                };
+                Some(format!("[approximate] floating-point result, {}", detail))
             }
             ResultStatus::Heuristic => {
                 let detail = if self.caveats.is_empty() {

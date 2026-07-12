@@ -409,19 +409,25 @@ fn r2_pi_is_not_a_free_variable() {
 }
 
 #[test]
-fn r2_regression_e_to_minus_50_documented_limitation() {
-    // e^{-50} ≠ 0, but with e bound to its constant the difference is
-    // ~2e-22 and f64 tolerance accepts it. This is the documented limit of
-    // numeric evidence until the `approximate` tier lands (ar-schema-v2).
-    // This test pins the CURRENT behavior so the eventual fix flips it
-    // deliberately, not accidentally.
+fn r2_e_to_minus_50_is_refuted_beyond_the_error_bound() {
+    // Formerly a pinned false PASS: e^{-50} ≈ 1.9e-22 vs 0 sat inside a
+    // fixed absolute tolerance. The constant comparison now measures the
+    // disagreement against the PROPAGATED error bound of the computation
+    // (~1e-35 here): the difference is real, not a rounding artifact, so
+    // the claim fails. This flip is the intended effect of the
+    // `approximate` machinery (ar-schema-v2 brief), done deliberately.
     let steps = vec![eq_step("start", "e^{-50}"), eq_step("zero", "0")];
     let result = verify_chain(&steps, &Environment::new()).unwrap();
-    assert_eq!(result.verdict, Verdict::Pass); // known false pass — see above
-    assert!(matches!(
-        result.status.status,
-        ResultStatus::Verified { .. }
-    ));
+    assert_eq!(result.verdict, Verdict::Fail);
+    assert_eq!(result.first_failure, Some(1));
+    assert!(
+        result.steps[1].status.counterexample_json().is_some(),
+        "the disagreement is the diagnosis and must be attached"
+    );
+    // The companion direction: sin(2π) = 0 (r2_pi_is_not_a_free_variable)
+    // must KEEP passing — its value sits inside its own error bound of
+    // zero. A fixed tolerance cannot hold both verdicts; the propagated
+    // bound can.
 }
 
 #[test]

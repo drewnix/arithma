@@ -104,6 +104,42 @@ fn uncertified_exact_downgrade_carries_coded_caveat() {
     assert_eq!(json["caveats"][0]["code"], "uncertified_exact");
 }
 
+#[test]
+fn approximate_report_serializes_with_digits() {
+    // F8: a floating-point value is not "verified" by anything — it is
+    // approximate, and the tier says how approximate.
+    let json = StatusReport::approximate(Some(13)).to_json();
+    assert_eq!(json["status"], "approximate");
+    assert_eq!(json["significant_digits"], 13);
+}
+
+#[test]
+fn approximate_without_tracked_digits_omits_the_field() {
+    // No bound available: the tier still says approximate, but claims no
+    // digit count — an untracked bound must not default into a number.
+    let json = StatusReport::approximate(None).to_json();
+    assert_eq!(json["status"], "approximate");
+    assert!(json.get("significant_digits").is_none());
+}
+
+#[test]
+fn approximate_marker_names_digits_when_tracked() {
+    let m = StatusReport::approximate(Some(13)).marker().unwrap();
+    assert!(m.starts_with("[approximate]"), "got: {}", m);
+    assert!(m.contains("13"), "should name digit count, got: {}", m);
+}
+
+#[test]
+fn approximate_marker_is_honest_when_untracked() {
+    let m = StatusReport::approximate(None).marker().unwrap();
+    assert!(m.starts_with("[approximate]"), "got: {}", m);
+    assert!(
+        m.contains("not tracked"),
+        "must not imply a precision it didn't compute, got: {}",
+        m
+    );
+}
+
 // Text markers: quiet statuses produce no marker (happy-path output stays
 // byte-identical); loud statuses produce a bracketed marker line.
 

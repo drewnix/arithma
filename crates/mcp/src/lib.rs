@@ -1385,33 +1385,77 @@ fn tool_evaluate(args: &Value) -> ToolResult {
         Ok(val) => {
             // The exact evaluator can still carry a float if one entered the
             // computation; only a rational result is exact arithmetic.
-            let status = match &val {
-                ExactNum::Rational(_) => StatusReport::exact(Certificate::by_construction(
-                    "exact_rational_arithmetic — evaluated in exact Q arithmetic",
+            match &val {
+                ExactNum::Rational(_) => Ok((
+                    format!("{}", arithma::Node::Num(val)),
+                    StatusReport::exact(Certificate::by_construction(
+                        "exact_rational_arithmetic — evaluated in exact Q arithmetic",
+                    )),
                 )),
-                ExactNum::Float(_) => StatusReport::verified(1).with_caveat(
-                    caveat_codes::F64_PRECISION,
-                    "floating-point evaluation (f64 precision)",
-                ),
-            };
-            Ok((format!("{}", arithma::Node::Num(val)), status))
+                ExactNum::Float(f) => Ok(float_evaluation_result(*f, &simplified, &env)),
+            }
         }
         Err(_) => match Evaluator::evaluate(&simplified, &env) {
-            Ok(val) => Ok((
-                val.to_string(),
-                StatusReport::verified(1).with_caveat(
+            Ok(val) => Ok(float_evaluation_result(val, &simplified, &env)),
+            // F8: an unevaluated echo is not a candidate result — the
+            // request was a number and none was produced. The simplified
+            // form still reaches the caller through the text.
+            Err(_) => Ok((
+                format!("{}", simplified),
+                StatusReport::unable_to_compute("expression did not evaluate to a number")
+                    .with_caveat(
+                        caveat_codes::UNEVALUATED,
+                        "returning the simplified form instead",
+                    ),
+            )),
+        },
+    }
+}
+
+/// F8: a floating-point value is `approximate`, and honesty about HOW
+/// approximate comes from first-order error propagation
+/// (arithma::error_eval). Three outcomes: digits tracked → approximate
+/// with the count; bound unavailable → approximate claiming no count; zero
+/// surviving digits → the value is numerical noise, which is not a result —
+/// refuse with the mechanism named, never publish noise with a generic
+/// precision caveat.
+fn float_evaluation_result(
+    value: f64,
+    simplified: &arithma::Node,
+    env: &Environment,
+) -> (String, StatusReport) {
+    match arithma::evaluate_with_error(simplified, env) {
+        Ok((_, bound)) => {
+            let digits = arithma::significant_digits(value, bound);
+            if digits == 0 {
+                return (
+                    String::new(),
+                    StatusReport::unable_to_compute(
+                        "floating-point evaluation retains no significant digits at this input",
+                    )
+                    .with_caveat(
+                        caveat_codes::CATASTROPHIC_CANCELLATION,
+                        "cancellation or ill-conditioning destroyed every significant digit; \
+                         the computed value is numerical noise",
+                    ),
+                );
+            }
+            (
+                value.to_string(),
+                StatusReport::approximate(Some(digits)).with_caveat(
                     caveat_codes::F64_PRECISION,
                     "floating-point evaluation (f64 precision)",
                 ),
-            )),
-            Err(_) => Ok((
-                format!("{}", simplified),
-                StatusReport::heuristic().with_caveat(
-                    caveat_codes::UNEVALUATED,
-                    "could not fully evaluate; returning simplified form",
-                ),
-            )),
-        },
+            )
+        }
+        Err(_) => (
+            value.to_string(),
+            StatusReport::approximate(None).with_caveat(
+                caveat_codes::F64_PRECISION,
+                "floating-point evaluation (f64 precision; error bound not tracked \
+                 for this expression)",
+            ),
+        ),
     }
 }
 
@@ -1652,6 +1696,10 @@ fn describe_status(report: &arithma::status::StatusReport) -> String {
                 if *points_tested == 1 { "" } else { "s" }
             )
         }
+        ResultStatus::Approximate { significant_digits } => match significant_digits {
+            Some(d) => format!("approximate (~{} significant digits)", d),
+            None => "approximate (precision not tracked)".to_string(),
+        },
         ResultStatus::Heuristic => "heuristic".to_string(),
         ResultStatus::UnableToCompute { reason } => format!("unable to compute: {}", reason),
         ResultStatus::ProvablyImpossible { proof } => {
