@@ -1399,11 +1399,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     if result.insufficient_points {
         return CheckedStep {
             verdict: Verdict::Inconclusive,
-            status: StatusReport::unable_to_compute(&format!(
-                "only {} valid test point{} in the assumed domain (need at least 3)",
-                result.points_tested,
-                if result.points_tested == 1 { "" } else { "s" }
-            )),
+            status: StatusReport::unable_to_compute(&result.insufficiency_reason()),
             mechanism: "numeric_sample".to_string(),
         };
     }

@@ -1543,9 +1543,8 @@ fn tool_equivalent(args: &Value) -> ToolResult {
 
     let text = if result.insufficient_points {
         format!(
-            "Equivalent: inconclusive (only {} valid test point{})\nA simplifies to: {}\nB simplifies to: {}",
-            result.points_tested,
-            if result.points_tested == 1 { "" } else { "s" },
+            "Equivalent: inconclusive ({})\nA simplifies to: {}\nB simplifies to: {}",
+            result.insufficiency_reason(),
             a_form,
             b_form
         )

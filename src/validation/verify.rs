@@ -1,7 +1,9 @@
 use crate::assumptions::Assumptions;
 use crate::environment::Environment;
 use crate::evaluator::Evaluator;
+use crate::exact::ExactNum;
 use crate::node::Node;
+use crate::simplify::Simplifiable;
 use crate::status::free_variables;
 use crate::tokenizer::normalize_var;
 use std::collections::{HashMap, HashSet};
@@ -12,6 +14,10 @@ const TEST_POINTS: &[f64] = &[
 
 const TOLERANCE: f64 = 1e-8;
 pub(crate) const MIN_POINTS_FOR_PASS: usize = 3;
+/// A Σ/Π whose range length varies must realize at least this many
+/// distinct lengths before a PASS is granted — otherwise the sampler is
+/// certifying an identity over a slice of its parameter space.
+const MIN_DISTINCT_RANGE_LENGTHS: usize = 3;
 
 pub struct VerifyResult {
     pub passed: bool,
@@ -23,6 +29,33 @@ pub struct VerifyResult {
     /// *domain* difference, which callers surface as a caveat rather than
     /// as a numeric counterexample with a null in it.
     pub domain_mismatches: usize,
+    /// When a PASS was withheld because some Σ/Π range realized too few
+    /// distinct lengths, the minimum realized count — so renderers can
+    /// state the actual reason instead of misattributing the refusal to
+    /// the point count. None when length coverage was adequate or not owed.
+    pub starved_range_lengths: Option<usize>,
+}
+
+impl VerifyResult {
+    /// The reason a PASS was withheld. Meaningful when
+    /// `insufficient_points` is true; every renderer of an inconclusive
+    /// verdict must use this rather than assuming the point count was
+    /// the cause.
+    pub fn insufficiency_reason(&self) -> String {
+        match self.starved_range_lengths {
+            Some(k) => format!(
+                "a Σ/Π range realized only {k} distinct length{} across the sampled points \
+                 (need at least {MIN_DISTINCT_RANGE_LENGTHS} — the identity is parameterized \
+                 by its range length)",
+                if k == 1 { "" } else { "s" }
+            ),
+            None => format!(
+                "only {} valid test point{} in the assumed domain (need at least {MIN_POINTS_FOR_PASS})",
+                self.points_tested,
+                if self.points_tested == 1 { "" } else { "s" }
+            ),
+        }
+    }
 }
 
 pub struct Counterexample {
@@ -73,6 +106,23 @@ pub fn verify_identity(
     // The empty range (L = 0) is legitimate and sharply discriminating:
     // most false closed forms are not 0 there.
     const RANGE_LENGTH_CYCLE: &[f64] = &[0.0, 1.0, 2.0, 3.0, 5.0, 7.0];
+
+    // Coverage assertion — the backstop behind the pair constructor
+    // above. A Σ/Π whose range length L = end − start + 1 is not
+    // structurally constant is an identity parameterized by L, and a
+    // PASS must be backed by evidence across lengths: any sampling
+    // strategy that collapses to one length (a bound the constructor
+    // doesn't recognize falls back to the rounding stream, which does)
+    // silently verifies every claim true of that one length. The
+    // constructor is a strategy for achieving coverage; this makes the
+    // strategy's failure loud. Realized lengths are recorded at each
+    // counted point and checked before a PASS is granted.
+    let mut length_ranges: Vec<((Node, Node), HashSet<i64>)> = {
+        let mut ranges = Vec::new();
+        collect_variable_length_ranges(lhs, &normalized, &mut ranges);
+        collect_variable_length_ranges(rhs, &normalized, &mut ranges);
+        ranges.into_iter().map(|r| (r, HashSet::new())).collect()
+    };
 
     let mut seen_points = HashSet::new();
 
@@ -130,8 +180,12 @@ pub fn verify_identity(
 
         // Rounding and derived bounds can collide onto an already-tested
         // assignment; a duplicate is not new evidence and must not inflate
-        // points_tested.
-        let point_key: Vec<u64> = point_values.iter().map(|(_, v)| v.to_bits()).collect();
+        // points_tested. (−0.0 normalizes to +0.0 — they are the same
+        // sample point even though their bit patterns differ.)
+        let point_key: Vec<u64> = point_values
+            .iter()
+            .map(|(_, v)| if *v == 0.0 { 0.0f64 } else { *v }.to_bits())
+            .collect();
         if !seen_points.insert(point_key) {
             continue;
         }
@@ -165,10 +219,20 @@ pub fn verify_identity(
                 }),
                 insufficient_points: false,
                 domain_mismatches: domain_mismatches + 1,
+                starved_range_lengths: None,
             };
         }
 
         points_tested += 1;
+
+        for ((start, end), realized) in length_ranges.iter_mut() {
+            if let (Ok(s), Ok(e)) = (
+                Evaluator::evaluate(start, &env),
+                Evaluator::evaluate(end, &env),
+            ) {
+                realized.insert((e - s + 1.0).round() as i64);
+            }
+        }
 
         if !values_match(lhs_val, rhs_val) {
             return VerifyResult {
@@ -181,17 +245,24 @@ pub fn verify_identity(
                 }),
                 insufficient_points: false,
                 domain_mismatches,
+                starved_range_lengths: None,
             };
         }
     }
 
-    let insufficient = points_tested < MIN_POINTS_FOR_PASS;
+    let starved_range_lengths = length_ranges
+        .iter()
+        .map(|(_, realized)| realized.len())
+        .min()
+        .filter(|&k| k < MIN_DISTINCT_RANGE_LENGTHS);
+    let insufficient = points_tested < MIN_POINTS_FOR_PASS || starved_range_lengths.is_some();
     VerifyResult {
         passed: !insufficient,
         points_tested,
         counterexample: None,
         insufficient_points: insufficient,
         domain_mismatches,
+        starved_range_lengths,
     }
 }
 
@@ -225,6 +296,70 @@ pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Ass
 struct RangeBoundConstraint {
     min: Option<f64>,
     max: Option<f64>,
+}
+
+/// Σ/Π ranges whose length L = end − start + 1 is NOT structurally
+/// constant — the ranges for which `verify_identity` owes realized
+/// length coverage. Restricted to ranges whose bound variables are all
+/// sampled: an inner range depending on an enclosing Σ/Π index cannot
+/// be evaluated standalone and is not asserted here.
+fn collect_variable_length_ranges(node: &Node, sampled: &[String], out: &mut Vec<(Node, Node)>) {
+    match node {
+        Node::Variable(_) | Node::Num(_) => {}
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r)
+        | Node::Greater(l, r)
+        | Node::Less(l, r)
+        | Node::GreaterEqual(l, r)
+        | Node::LessEqual(l, r)
+        | Node::Equal(l, r)
+        | Node::Equation(l, r) => {
+            collect_variable_length_ranges(l, sampled, out);
+            collect_variable_length_ranges(r, sampled, out);
+        }
+        Node::Sqrt(inner)
+        | Node::Abs(inner)
+        | Node::Floor(inner)
+        | Node::Ceil(inner)
+        | Node::Round(inner)
+        | Node::Trunc(inner)
+        | Node::Negate(inner)
+        | Node::Factorial(inner) => collect_variable_length_ranges(inner, sampled, out),
+        Node::Piecewise(arms) => {
+            for (expr, cond) in arms {
+                collect_variable_length_ranges(expr, sampled, out);
+                collect_variable_length_ranges(cond, sampled, out);
+            }
+        }
+        Node::Function(_, args) => {
+            for a in args {
+                collect_variable_length_ranges(a, sampled, out);
+            }
+        }
+        Node::Summation(_, start, end, body) | Node::Product(_, start, end, body) => {
+            let bound_vars = free_variables(&[start, end]);
+            if !bound_vars.is_empty() && bound_vars.iter().all(|v| sampled.contains(v)) {
+                let length_expr = Node::Add(
+                    Box::new(Node::Subtract(end.clone(), start.clone())),
+                    Box::new(Node::Num(ExactNum::integer(1))),
+                );
+                let structurally_constant =
+                    matches!(length_expr.simplify(&Environment::new()), Ok(Node::Num(_)));
+                let already = out
+                    .iter()
+                    .any(|(s, e)| s == start.as_ref() && e == end.as_ref());
+                if !structurally_constant && !already {
+                    out.push((start.as_ref().clone(), end.as_ref().clone()));
+                }
+            }
+            collect_variable_length_ranges(start, sampled, out);
+            collect_variable_length_ranges(end, sampled, out);
+            collect_variable_length_ranges(body, sampled, out);
+        }
+    }
 }
 
 /// Σ/Π ranges whose start and end are both plain, distinct variables —
@@ -357,12 +492,16 @@ pub(crate) fn values_match(a: f64, b: f64) -> bool {
 impl std::fmt::Display for VerifyResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.insufficient_points {
+            let hint = if self.starved_range_lengths.is_none() {
+                "; check that variable names match the expressions"
+            } else {
+                ""
+            };
             return write!(
                 f,
-                "Verified: INCONCLUSIVE (only {} point{} tested — need at least {}; check that variable names match the expressions)",
-                self.points_tested,
-                if self.points_tested == 1 { "" } else { "s" },
-                MIN_POINTS_FOR_PASS
+                "Verified: INCONCLUSIVE ({}{})",
+                self.insufficiency_reason(),
+                hint
             );
         }
         if self.passed {

@@ -253,6 +253,57 @@ fn symbolic_range_product_is_not_its_first_factor() {
     );
 }
 
+// A pattern-matched pair detector names the syntax (plain variables);
+// the bug is about a property (range-length coverage). A bound written
+// as an expression escapes the matcher and falls back to the collapsing
+// stream: Σ_{k=m}^{n+1} samples L ≡ 2 everywhere, so the two-term
+// analogue of the first-term claim verifies for any body. The defense
+// is asserting realized coverage, not recognizing more shapes: a Σ/Π
+// whose range length is not structurally constant must realize ≥3
+// distinct lengths, or the evidence is insufficient.
+
+#[test]
+fn compound_bound_sum_is_not_its_first_two_terms() {
+    let result = verify_mn("\\sum_{k=m}^{n+1} k^2", "m^2 + (m+1)^2");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n+1) k² = m² + (m+1)² is false beyond two-term ranges; \
+         a sampler that passes it never varied the range length"
+    );
+    assert!(
+        result.counterexample.is_none() && result.insufficient_points,
+        "starved length coverage is a refusal of evidence, not a refutation"
+    );
+    let rendered = format!("{}", result);
+    assert!(
+        rendered.contains("length"),
+        "the refusal must state its actual reason (length coverage), got: {}",
+        rendered
+    );
+}
+
+#[test]
+fn compound_bound_product_is_not_its_first_two_factors() {
+    let result = verify_mn("\\prod_{k=m}^{n+1} k", "m(m+1)");
+    assert!(
+        !result.passed,
+        "Π_(k=m)^(n+1) k = m(m+1) must not verify on single-length sampling"
+    );
+}
+
+#[test]
+fn structurally_constant_length_owes_no_coverage() {
+    // Σ_{k=m}^{m+2} has L ≡ 3 by construction — the author pinned the
+    // length, so one length IS the whole domain and the identity is
+    // verifiable. Coverage is owed only where L actually varies.
+    let result = verify_mn("\\sum_{k=m}^{m+2} k", "3m + 3");
+    assert!(
+        result.passed,
+        "fixed-length range identity must verify; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+}
+
 #[test]
 fn true_symbolic_range_identity_still_verifies() {
     // Σ_{k=m}^{n} k = (n(n+1) − (m−1)m)/2 at every integer pair m ≤ n + 1
