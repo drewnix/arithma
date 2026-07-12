@@ -1142,3 +1142,25 @@ fn retry_that_also_starves_is_audited_as_simplify_assisted() {
         result.steps[1].mechanism
     );
 }
+
+#[test]
+fn summation_closure_earns_verified_never_exact() {
+    // A chain whose spine crosses a symbolic summation is a value check:
+    // no summation relation exists, and canonical_form_Q has no Σ object.
+    // With integer-sampled bounds the closure PASSES on numeric evidence —
+    // and it must never reach exact, because sampling is not a proof.
+    let steps = vec![
+        eq_step(
+            "telescoped",
+            "\\sum_{k=1}^{n} {\\frac{1}{k} - \\frac{1}{k+1}}",
+        ),
+        eq_step("closed form", "1 - \\frac{1}{n+1}"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        matches!(result.status.status, ResultStatus::Verified { .. }),
+        "summation closure must land verified — never exact, never spurious FAIL; got {:?}",
+        result.status.status
+    );
+}

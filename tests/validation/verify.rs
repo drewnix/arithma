@@ -182,3 +182,189 @@ fn finding4_one_sided_undefinedness_is_a_counterexample() {
     assert!(!result.passed);
     assert!(result.counterexample.is_some());
 }
+
+#[test]
+fn summation_bound_variable_sampled_at_integers() {
+    // Σ_{k=1}^{n} (1/k − 1/(k+1)) = 1 − 1/(n+1): true at every integer
+    // n ≥ 1. The sampler must give a Σ-bound variable integer values in
+    // range — not n = 0.5, where the sum has no value and a truncated
+    // evaluation invents one.
+    let lhs = arithma::parse_latex_raw("\\sum_{k=1}^{n} {\\frac{1}{k} - \\frac{1}{k+1}}").unwrap();
+    let rhs = arithma::parse_latex_raw("1 - \\frac{1}{n+1}").unwrap();
+    let result = arithma::verify_identity(
+        &lhs,
+        &rhs,
+        &["n".to_string()],
+        &arithma::assumptions::Assumptions::new(),
+    );
+    assert!(
+        result.passed,
+        "telescoping identity must verify on integer-sampled n; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+}
+
+// ── Both-bounds-symbolic ranges: the sampler owes coverage of the range
+// length L = n − m + 1. If every sampled range has the same length, any
+// claim that is correct for that one length verifies — Σ_{k=m}^{n} f(k)
+// = f(m) holds whenever L ≡ 1, for every f. Refuting these claims
+// requires sampling at least two distinct lengths; that coverage is the
+// invariant these tests pin.
+
+fn verify_mn(lhs: &str, rhs: &str) -> arithma::verify::VerifyResult {
+    let lhs = arithma::parse_latex_raw(lhs).unwrap();
+    let rhs = arithma::parse_latex_raw(rhs).unwrap();
+    arithma::verify_identity(
+        &lhs,
+        &rhs,
+        &["m".to_string(), "n".to_string()],
+        &arithma::assumptions::Assumptions::default(),
+    )
+}
+
+#[test]
+fn symbolic_range_sum_is_not_its_first_term() {
+    let result = verify_mn("\\sum_{k=m}^{n} k^2", "m^2");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n) k² = m² is false for any range longer than one term; \
+         a sampler that passes it never varied the range length"
+    );
+}
+
+#[test]
+fn symbolic_range_constant_sum_counts_its_terms() {
+    // Σ_{k=m}^{n} 1 = L exactly. The claim "= 1" is the purest length
+    // probe: it holds iff L = 1 at every sampled point.
+    let result = verify_mn("\\sum_{k=m}^{n} 1", "1");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n) 1 = 1 must be refuted — the sum counts its terms"
+    );
+}
+
+#[test]
+fn symbolic_range_product_is_not_its_first_factor() {
+    // Π_{k=m}^{n} 2 = 2^L; the claim "= 2" holds only at L = 1.
+    let result = verify_mn("\\prod_{k=m}^{n} 2", "2");
+    assert!(
+        !result.passed,
+        "Π_(k=m)^(n) 2 = 2 must be refuted — the product has L factors"
+    );
+}
+
+// A pattern-matched pair detector names the syntax (plain variables);
+// the bug is about a property (range-length coverage). A bound written
+// as an expression escapes the matcher and falls back to the collapsing
+// stream: Σ_{k=m}^{n+1} samples L ≡ 2 everywhere, so the two-term
+// analogue of the first-term claim verifies for any body. The defense
+// is asserting realized coverage, not recognizing more shapes: a Σ/Π
+// whose range length is not structurally constant must realize ≥3
+// distinct lengths, or the evidence is insufficient.
+
+#[test]
+fn compound_bound_sum_is_not_its_first_two_terms() {
+    // Whether by refutation (a length ≠ 2 was sampled) or by refusal
+    // (coverage starved), this must never PASS.
+    let result = verify_mn("\\sum_{k=m}^{n+1} k^2", "m^2 + (m+1)^2");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n+1) k² = m² + (m+1)² is false beyond two-term ranges; \
+         a sampler that passes it never varied the range length"
+    );
+}
+
+#[test]
+fn starved_coverage_refusal_states_its_reason() {
+    // A refusal that misstates its own reason is a check lying about
+    // what it checked. The starved-coverage message must name length
+    // coverage, not the (satisfied) point count.
+    let result = arithma::verify::VerifyResult {
+        passed: false,
+        points_tested: 7,
+        counterexample: None,
+        insufficient_points: true,
+        domain_mismatches: 0,
+        starved_range_lengths: Some(1),
+    };
+    let rendered = format!("{}", result);
+    assert!(
+        rendered.contains("length") && !rendered.contains("only 7"),
+        "the refusal must state its actual reason (length coverage), got: {}",
+        rendered
+    );
+}
+
+// The coverage assertion certifies a MARGINAL — the set of realized
+// lengths. The claim is JOINT — over the bound variables. If the
+// sampled (m, n) all lie on a line, a bound like 2n makes L vary along
+// that line (marginal green) while the joint never leaves it, and any
+// claim true exactly on the line passes. The stream must walk the
+// joint: co-bound variables must realize varying differences.
+
+#[test]
+fn claim_true_only_on_the_sampled_line_is_refuted() {
+    // Σ_{k=m}^{2n} 1 = (2n−m+1) + (n−m)(n−m−1): the extra term vanishes
+    // exactly on n − m ∈ {0, 1}. False at n = m + 2, so a sampler that
+    // walks the joint refutes it.
+    let result = verify_mn("\\sum_{k=m}^{2n} 1", "(2n - m + 1) + (n-m)(n-m-1)");
+    assert!(
+        !result.passed,
+        "a claim true only on the line n − m ∈ {{0,1}} must not verify; \
+         the sampler never left the diagonal"
+    );
+}
+
+#[test]
+fn true_bound_expression_identity_verifies() {
+    // Σ_{k=m}^{n+1} 1 = n − m + 2 is true wherever the range is defined.
+    // Refusing it means the assertion is doing the constructor's job;
+    // a joint-walking stream realizes ≥3 lengths and verifies it.
+    let result = verify_mn("\\sum_{k=m}^{n+1} 1", "n - m + 2");
+    assert!(
+        result.passed,
+        "true bound-expression identity must verify; got {:?} / insufficient={}",
+        result.counterexample.map(|c| c.point),
+        result.insufficient_points
+    );
+}
+
+#[test]
+fn compound_bound_product_is_not_its_first_two_factors() {
+    let result = verify_mn("\\prod_{k=m}^{n+1} k", "m(m+1)");
+    assert!(
+        !result.passed,
+        "Π_(k=m)^(n+1) k = m(m+1) must not verify on single-length sampling"
+    );
+}
+
+#[test]
+fn structurally_constant_length_owes_no_coverage() {
+    // Σ_{k=m}^{m+2} has L ≡ 3 by construction — the author pinned the
+    // length, so one length IS the whole domain and the identity is
+    // verifiable. Coverage is owed only where L actually varies.
+    let result = verify_mn("\\sum_{k=m}^{m+2} k", "3m + 3");
+    assert!(
+        result.passed,
+        "fixed-length range identity must verify; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+}
+
+#[test]
+fn true_symbolic_range_identity_still_verifies() {
+    // Σ_{k=m}^{n} k = (n(n+1) − (m−1)m)/2 at every integer pair m ≤ n + 1
+    // (including the empty range, where both sides are 0). Refusing this
+    // would trade the false PASS for a false refusal-of-evidence.
+    let result = verify_mn("\\sum_{k=m}^{n} k", "\\frac{n(n+1) - (m-1)m}{2}");
+    assert!(
+        result.passed,
+        "true symbolic-range identity must verify; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+    assert!(
+        result.points_tested >= 3,
+        "expected real evidence, got {} points",
+        result.points_tested
+    );
+}

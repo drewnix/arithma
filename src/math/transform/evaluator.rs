@@ -141,8 +141,7 @@ impl Evaluator {
                 let start_val = Self::evaluate_exact(start, env)?;
                 let end_val = Self::evaluate_exact(end, env)?;
 
-                let start_i = start_val.to_f64() as i64;
-                let end_i = end_val.to_f64() as i64;
+                let (start_i, end_i) = Self::integer_range_bounds(&start_val, &end_val, "sum")?;
 
                 let mut sum_env = env.clone();
                 let mut sum = ExactNum::zero();
@@ -159,8 +158,7 @@ impl Evaluator {
                 let start_val = Self::evaluate_exact(start, env)?;
                 let end_val = Self::evaluate_exact(end, env)?;
 
-                let start_i = start_val.to_f64() as i64;
-                let end_i = end_val.to_f64() as i64;
+                let (start_i, end_i) = Self::integer_range_bounds(&start_val, &end_val, "product")?;
 
                 let mut prod_env = env.clone();
                 let mut product = ExactNum::one();
@@ -194,5 +192,24 @@ impl Evaluator {
 
     pub fn simplify(node: &Node, env: &Environment) -> Result<Node, String> {
         node.simplify(env)
+    }
+
+    /// Σ/Π range bounds must be integers. Truncating (0.5 → empty range → 0,
+    /// 2.7 → 2) would manufacture a value the expression never had — which
+    /// numeric samplers then serialize inside "counterexamples". An empty
+    /// integer range (start > end) is legitimate and yields the identity
+    /// element; a non-integer bound is an error.
+    fn integer_range_bounds(
+        start: &ExactNum,
+        end: &ExactNum,
+        kind: &str,
+    ) -> Result<(i64, i64), String> {
+        let start_i = start
+            .to_i64()
+            .ok_or_else(|| format!("{kind} lower bound is not an integer: {start}"))?;
+        let end_i = end
+            .to_i64()
+            .ok_or_else(|| format!("{kind} upper bound is not an integer: {end}"))?;
+        Ok((start_i, end_i))
     }
 }

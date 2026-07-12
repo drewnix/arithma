@@ -2791,6 +2791,18 @@ fn try_geometric_sum(
 }
 
 /// Telescoping: detect f(k) = g(k) − g(k±1) and collapse.
+/// Closed forms for Σ/Π (Faulhaber, geometric, telescoping, constant-body)
+/// are theorems about integer ranges. Substituting a numeric non-integer
+/// bound into one manufactures a value the expression never had — Faulhaber
+/// at end = 1/2 yields 3/8 for Σ_{k=1}^{1/2} k, which the evaluator rightly
+/// rejects. Symbolic bounds pass: they are what the closed forms exist for.
+/// The test is integrality, not i64-representability — Σ_{k=1}^{10^{30}} k
+/// must keep its closed form.
+fn range_bounds_admit_closed_form(start: &Node, end: &Node) -> bool {
+    let non_integer_numeric = |n: &Node| matches!(n, Node::Num(v) if !v.is_integer());
+    !non_integer_numeric(start) && !non_integer_numeric(end)
+}
+
 fn try_telescoping_sum(
     index_var: &str,
     start: &Node,
@@ -2798,6 +2810,9 @@ fn try_telescoping_sum(
     body: &Node,
     env: &Environment,
 ) -> Option<Result<Node, String>> {
+    if !range_bounds_admit_closed_form(start, end) {
+        return None;
+    }
     if let Node::Subtract(ref left, ref right) = body {
         let k_plus_1 = Node::Add(
             Box::new(Node::Variable(index_var.to_string())),
@@ -3048,6 +3063,9 @@ fn try_symbolic_summation(
     body: &Node,
     env: &Environment,
 ) -> Option<Result<Node, String>> {
+    if !range_bounds_admit_closed_form(start, end) {
+        return None;
+    }
     // Constant body: Σ_{k=a}^{b} c = c · (b − a + 1)
     if !body.contains_variable(index_var) {
         let count = Node::Add(
@@ -3195,6 +3213,9 @@ fn try_symbolic_product(
     body: &Node,
     env: &Environment,
 ) -> Option<Result<Node, String>> {
+    if !range_bounds_admit_closed_form(start, end) {
+        return None;
+    }
     // Constant body: ∏_{k=a}^{b} c = c^(b − a + 1)
     if !body.contains_variable(index_var) {
         let count = Node::Add(

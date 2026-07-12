@@ -555,8 +555,9 @@ fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> Sta
     }
     if result.insufficient_points {
         return StatusReport::heuristic().with_caveat(&format!(
-            "numeric {} inconclusive (only {} valid test points)",
-            context, result.points_tested
+            "numeric {} inconclusive ({})",
+            context,
+            result.insufficiency_reason()
         ));
     }
     StatusReport::verified(result.points_tested)
@@ -569,12 +570,8 @@ fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> Sta
 /// this tool is numeric by definition.
 pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
     if result.insufficient_points {
-        return StatusReport::unable_to_compute(&format!(
-            "only {} valid test point{} in the assumed domain (need at least 3)",
-            result.points_tested,
-            if result.points_tested == 1 { "" } else { "s" }
-        ))
-        .with_verdict(Verdict::Inconclusive);
+        return StatusReport::unable_to_compute(&result.insufficiency_reason())
+            .with_verdict(Verdict::Inconclusive);
     }
     let mut report = StatusReport::verified(result.points_tested);
     if result.domain_mismatches > 0 {

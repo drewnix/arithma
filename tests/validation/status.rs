@@ -420,6 +420,7 @@ fn verify_inconclusive_maps_to_unable_to_compute() {
         counterexample: None,
         insufficient_points: true,
         domain_mismatches: 0,
+        starved_range_lengths: None,
     };
     let report = classify_verify(&result);
     match report.status {
