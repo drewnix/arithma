@@ -383,7 +383,7 @@ fn tools_schema() -> Value {
         },
         {
             "name": "verify",
-            "description": "Numerically verify that two expressions are equal by evaluating both at multiple test points. Returns PASS with the number of points tested, or FAIL with a specific counterexample showing where the expressions disagree. Use this to cross-check symbolic results. Supports assumptions to filter test points (e.g. only test positive values when x is assumed positive). The response's result_status carries the evidence: points tested, and the counterexample on FAIL. Note: agreement at n points is evidence, never proof.",
+            "description": "Numerically verify that two expressions are equal by evaluating both at multiple test points. Returns PASS with the number of points tested, or FAIL with a specific counterexample showing where the expressions disagree. Use this to cross-check symbolic results. Supports assumptions to filter test points (e.g. only test positive values when x is assumed positive). The response's result_status carries the evidence: points_tested, and the counterexample on FAIL. points_tested semantics switch on the verdict: on PASS it is the sample size; on FAIL it is the number of points examined up to and including the counterexample that stopped the search — search effort, not agreement. Note: agreement at n points is evidence, never proof.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

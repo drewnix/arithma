@@ -8,14 +8,33 @@ transformation is believed sound but was not independently checked." Those are
 different epistemic states, and conflating them is precisely the error an
 agent-facing CAS exists to prevent.
 
-## The five statuses
+## Schema v2 (breaking changes, one release)
+
+Four consumer-side changes land together so the payload breaks once:
+
+1. **Caveats are `{code, message}` objects**, no longer bare strings. The
+   `code` comes from a fixed registry (below) and is the machine surface;
+   the `message` is prose with **no contract** — it may be reworded at any
+   time. Consumers that matched caveat text must switch on codes.
+2. **New status `approximate`** for floating-point values, carrying
+   `significant_digits` when first-order error propagation could bound the
+   error. Consumers with exhaustive status switches must add the arm.
+3. **`result_status` is also emitted inside `structuredContent`** (additive).
+   Typed MCP SDKs drop unknown top-level fields, so the sibling alone never
+   reached them; both surfaces carry the identical object.
+4. **`points_tested` semantics documented** (clarification, not a change):
+   on PASS it is the sample size; on FAIL it is the number of points
+   examined up to and including the counterexample that stopped the search.
+
+## The six statuses
 
 | Status | Meaning | Evidence carried |
 |---|---|---|
 | `exact` | The result follows from a decision procedure or a complete, sound algebraic algorithm, backed by a checked `certificate`. The certificate proves the result by naming the check (replay or decision procedure) and recording that it passed. At the tool boundary, exact without a checked certificate is downgraded to heuristic. | `certificate` — `{kind, witness, checked}` |
 | `verified` | The result was independently checked numerically. Not a proof: agreement at *n* points. | `points_tested`, optionally `counterexample` (when the *verdict itself* is "not equal" and the counterexample is the evidence) |
+| `approximate` | A floating-point value. `significant_digits` states how many leading decimal digits are trustworthy, from first-order error propagation through the computation; absent when no bound could be computed — an untracked bound is never defaulted into a number. Weaker than `verified` (nothing checked it independently), stronger than `heuristic` (its precision is stated rather than unknown). | `significant_digits` (optional) |
 | `heuristic` | A transformation was applied that is believed sound, but the result was not independently verified (e.g. too few valid test points in the domain). | `caveats` explain why |
-| `unable_to_compute` | The tool understood the request but could not produce an answer. This is an honest "I don't know," distinct from a protocol error. | `reason` |
+| `unable_to_compute` | The tool understood the request but could not produce an answer. This is an honest "I don't know," distinct from a protocol error. Includes floating-point results whose significant digits were entirely destroyed by cancellation or ill-conditioning — a value with zero trustworthy digits is noise, not a result. | `reason` |
 | `provably_impossible` | The tool *proved* no answer exists in the requested class (e.g. Risch non-elementarity, negative discriminant, Abel-Ruffini). This is a theorem, not a failure. | `proof_certificate` — structured: `{method, reason, explanation}` |
 
 Three design rules:
@@ -31,8 +50,9 @@ Three design rules:
 
 ## JSON payload
 
-The MCP `tools/call` result gains a `result_status` object as a sibling of
-`content`:
+The MCP `tools/call` result carries `result_status` in two places with the
+identical object: as a sibling of `content` (raw-JSON consumers) and inside
+`structuredContent` (typed SDKs, which drop unknown top-level fields):
 
 ```json
 {
@@ -44,7 +64,8 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
       "witness": "d/dx of antiderivative matches integrand structurally",
       "checked": true
     }
-  }
+  },
+  "structuredContent": { "result_status": { "status": "exact", "certificate": { "...": "identical" } } }
 }
 ```
 
@@ -53,7 +74,24 @@ The MCP `tools/call` result gains a `result_status` object as a sibling of
   "result_status": {
     "status": "verified",
     "points_tested": 12,
-    "caveats": ["transcendental rewrite checked numerically, not algebraically"]
+    "caveats": [
+      {
+        "code": "corroborated",
+        "message": "transcendental rewrite checked numerically, not algebraically"
+      }
+    ]
+  }
+}
+```
+
+```json
+{
+  "result_status": {
+    "status": "approximate",
+    "significant_digits": 13,
+    "caveats": [
+      { "code": "f64_precision", "message": "floating-point evaluation (f64 precision)" }
+    ]
   }
 }
 ```
@@ -139,6 +177,49 @@ At the tool boundary, `to_json()` enforces invariant 3: if the status is
 downgrades to `heuristic` with a caveat. This makes classifier over-claims
 structurally impossible.
 
+## Caveats: `{code, message}` pairs
+
+Caveats are orthogonal to the status: domain restrictions, precision notes,
+corroboration outcomes, method-scope statements. Each carries a stable
+machine `code` from the registry below and a human `message`. **The code is
+the contract; the message is not** — consumers must never regex the prose
+(the same token can appear in a confirmation and a refutation, and prose is
+reworded freely).
+
+| Code | Meaning |
+|---|---|
+| `f64_precision` | Computed in f64 floating point; exactness not claimed. |
+| `self_check_failed` | An independent recomputation disagreed with the result — the tool's own output is under suspicion. |
+| `check_unavailable` | The independent check could not run; the result is unvalidated, not contradicted. |
+| `check_inconclusive` | The check ran but could not conclude (e.g. insufficient sampling). |
+| `not_corroborated` | A symbolic claim with no numeric corroboration path. |
+| `corroborated` | Numeric samples agree with the claim. |
+| `slow_convergence` | Samples move toward the claim but below tolerance — consistent, not confirming. |
+| `corroboration_failed` | Numeric samples contradict the claim. |
+| `domain_mismatch` | One side undefined at some sample points; values compared only where both defined. |
+| `truncation` | A series result is truncated at a stated order. |
+| `sub_resolution` | Two constants agree only within the propagated floating-point error bound — equality at f64 resolution, not proof. |
+| `catastrophic_cancellation` | Cancellation or ill-conditioning destroyed every significant digit; the value is numerical noise. |
+| `uncertified_exact` | An `exact` claim reached the boundary without a checked certificate and was downgraded. |
+| `exact_disagreement` | Disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement. |
+| `symbolic_imaginary` | Complex quantities expressed with `i` as a symbol. |
+| `chain_structure` | A structural property of the chain (anchors, degenerate shapes), not a mathematical judgement. |
+| `unevaluated` | The evaluation returned a simplified-but-unevaluated form instead of a value. |
+| `method_scope` | A statement of what the check's method does and does not certify. |
+| `complex_omitted` | Complex solutions omitted from a real-valued comparison. |
+| `disagreement_witness` | The specific witness of a disagreement, in prose, beside the structured counterexample. |
+
+Adding a code is additive (consumers ignore unknown codes); renaming or
+removing one is a breaking schema change.
+
+**`points_tested` semantics.** The field's meaning switches on the verdict:
+on **PASS** it is the sample size (how many points agreed); on **FAIL** it
+is the number of points examined up to and including the counterexample
+that stopped the search — a measure of search effort, not of agreement.
+Averaging or comparing `points_tested` across mixed verdicts is a category
+error. On INCONCLUSIVE the status is `unable_to_compute` and the count, if
+any, appears in the `reason`.
+
 **The `verdict` field.** Tools whose result *is* a yes/no claim (`verify`,
 `equivalent`, `verify_chain`) additionally carry a machine-readable
 `verdict`: `"pass"`, `"fail"`, or `"inconclusive"` — one vocabulary across
@@ -158,11 +239,11 @@ Verdict and status are orthogonal: "not equal, counterexample attached" is a
 ```
 
 **Extensibility contract.** Consumers switch on the `status` string and ignore
-unknown fields. New evidence fields and new caveat strings are non-breaking
-additions. New `status` values are additions reserved for a version bump and
-announced in advance (`approximate` — for single-point floating-point evaluation
-— is the designated first candidate; until then such results are `verified` with
-`points_tested: 1` and an explanatory caveat).
+unknown fields. New evidence fields and new caveat *codes* are non-breaking
+additions. New `status` values are reserved for a version bump and announced
+in advance (`approximate` was the designated first candidate and landed in
+schema v2; floating-point evaluation results previously reported as
+`verified` with `points_tested: 1` now report `approximate`).
 
 ## Backward compatibility
 
@@ -213,7 +294,7 @@ justifies it, never asserted by optimism.
 | `partial_fractions` | Exact rational arithmetic → `exact`. |
 | `limit` | Symbolic result corroborated numerically by sampling the approach (when point and result are numeric): agreement → `verified`; error contracting but not yet within tolerance → quiet `heuristic` ("slow convergence", never a false alarm); contradiction → loud `heuristic`; corroboration unavailable (symbolic parameters) → quiet `heuristic` with caveat. |
 | `taylor_series` | Exact rational coefficient recurrences → `exact`, with truncation-order caveat. |
-| `evaluate` | Exact-rational path → `exact`. Floating-point path → `verified` with `points_tested: 1` and caveat `"floating-point evaluation (f64)"`. |
+| `evaluate` | Exact-rational path → `exact`. Floating-point path → `approximate` with `significant_digits` from first-order error propagation through the expression tree (leaves start at conversion error, each operation applies its sensitivity, subtraction of near-equal quantities amplifies); when no error model exists for the expression, `approximate` without the field. **Zero surviving digits → `unable_to_compute`** with caveat `catastrophic_cancellation`: (1−cos x)/x² at x = 10⁻⁸ computes 0 in f64 while the true value is ½ — noise is refused, not published with a precision label. An expression that does not evaluate to a number at all → `unable_to_compute` with caveat `unevaluated` (the simplified form still reaches the text). |
 | `matrix` | Exact arithmetic over ℚ / symbolic entries → `exact`. Numeric eigenvalue root-finding (detected by floating-point output) → `verified` with an f64 caveat; complex pairs are explicit as re ± im·i, recovered by deflation or refused — never fabricated. |
 | `equivalent` | Structural or difference-zero match → `exact`. Numeric-only agreement → `verified` with point count. Disagreement → the *"not equivalent"* verdict is `verified` with the counterexample as evidence. Carries a machine-readable `verdict`. |
 | `verify` | PASS → `verified` with point count (never `exact` — this tool is numeric by definition). FAIL → `verified` carrying the counterexample. INCONCLUSIVE → `unable_to_compute` with reason. Carries a machine-readable `verdict`. |
@@ -239,12 +320,12 @@ declares a relation to its predecessor. How each relation earns its status:
 
 | Relation | Mechanism | Can earn `exact`? |
 |---|---|---|
-| `equals` (expressions) | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: degree-aware exact rational evaluation.** Within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem — a decision, mechanism `interpolation_identity_Q`. Over budget or starved of valid points: bounded exact sampling (still zero tolerance), `verified` with the shortfall named. Outside the fragment: assumption-aware f64 sampling. | Yes, inside the fragment — including by interpolation, which is a proof, not a sample. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated; a polynomial constructed to vanish exactly on a fixed sample grid is caught by the degree count. Transcendental agreement caps at `verified`. |
+| `equals` (expressions) | Syntactic identity (structural tree equality) → unit-normal form (u·1, u+0, u^1, −(−u): identities in every interpretation, no side conditions) → canonical form over ℚ (poly/rational fragment only) → **in-fragment: degree-aware exact rational evaluation.** Within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem — a decision, mechanism `interpolation_identity_Q`. Over budget or starved of valid points: bounded exact sampling (still zero tolerance), `verified` with the shortfall named. Outside the fragment: assumption-aware f64 sampling. **Variable-free comparisons** (mechanism `numeric_constant_eval_bounded`) measure the disagreement against the *propagated floating-point error bound* of the two computations rather than a fixed tolerance — e^{-50} = 0 fails honestly (difference ≫ bound) while sin(2π) = 0 passes (value within its own bound of zero); refutation requires a 4× safety margin over the first-order bound. | Yes, inside the fragment — including by interpolation, which is a proof, not a sample. In-fragment disagreement is a *disproof*: exact arithmetic exhibits a point where the values differ, so a provably false step like x = x + 10⁻¹⁵ is refuted, never tolerated; a polynomial constructed to vanish exactly on a fixed sample grid is caught by the degree count. Transcendental agreement caps at `verified`. |
 | `equals` (equations) | Two equation-shaped steps are compared by **solution set** (mechanism `solution_set_comparison`): both sides solved, sets compared exactly. This is the semantics under which dividing both sides by 2 is an identity step — residual (pointwise) comparison would refute valid algebra. A solution of one equation missing from the other refutes the step and is the witness. Mixing an equation with an expression is refused with guidance. | **No — capped at `verified`:** the comparison inherits the solver's completeness, which is not proven. |
 | `derivative_of` | Derivative rules (complete, sound), then the `equals` ladder on the result. Constant factors differentiate to *literal* zeros (d(c·f) = c·f', no dead f·0 term), so claims scaled by a constant — right or wrong — are checked through the raw path: recognized special-function antiderivatives like (√π/2)·erf(x) pass raw, and a wrong sign or multiple is refuted raw with a counterexample. If the raw comparison is still inconclusive (the residue: the special function survives in the derivative itself, e.g. erf(x)²), the constructed side is simplified and retried — the retry can pass (mechanism prefixed `simplify+`, auditable) but never refute: a disagreement reached only through an unverified transform stays inconclusive with the witness as a caveat, which reaches the rendered text. | Yes |
 | `integral_of` | Differentiation round-trip: d/dx(step) compared to predecessor. Constants of integration vanish under d/dx and cannot cause a false fail. Same raw-first, simplify-retry policy as `derivative_of`. | Yes — the round-trip is algebraic. |
 | `substitution` | Capture-avoiding substitution, then the `equals` ladder (follows variable-set changes) | Yes |
-| `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. | Yes, for roots inside the ℚ fragment, with a caveat: membership is proven, completeness of the solution set is not claimed. Irrational roots (x = √2 for x² = 2) currently land at `verified` — algebraic-number membership belongs to the certificate work. |
+| `solution_of` | Substitute the claimed root into the equation; exact arithmetic decides membership. A checker, not a finder. A **rounded decimal literal** (x = 1.4142135623 for x² = 2) is provably a NON-root under strict equality, but by design claims *approximate* membership: it passes within the legacy tolerance with a caveat directing the author to supply an exact value for exact membership verification. | Yes, for roots inside the ℚ fragment, with a caveat: membership is proven, completeness of the solution set is not claimed. Irrational roots (x = √2 for x² = 2) currently land at `verified` — algebraic-number membership belongs to the certificate work. |
 | `implies` | Solve the antecedent, check every solution against the consequent. A violating solution refutes the implication and is the counterexample. | **No — capped at `verified` by design.** Finitely many checked solutions are evidence, not proof of implication. |
 | `factored_form_of` | The `equals` ladder (expansion happens in canonicalization) | Yes |
 
