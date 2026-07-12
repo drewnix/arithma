@@ -4,7 +4,7 @@ use crate::evaluator::Evaluator;
 use crate::node::Node;
 use crate::status::free_variables;
 use crate::tokenizer::normalize_var;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const TEST_POINTS: &[f64] = &[
     0.5, -0.5, 1.5, -1.5, 0.3, -0.7, 2.1, 0.1, -2.3, 3.0, 0.8, 4.5,
@@ -48,22 +48,65 @@ pub fn verify_identity(
         m
     };
 
+    // A Σ/Π whose bounds are both unanchored variables is parameterized
+    // by its range length L = end − start + 1, and the sampler owes the
+    // identity coverage in L: independent per-variable streams round to
+    // the same integer, so every sampled range has L = 1 — and any claim
+    // true of single-term ranges (Σ_{k=m}^{n} f(k) = f(m), for every f)
+    // would earn a false PASS. Each such pair samples its lower bound
+    // from an integer stream and derives the upper as lo + L − 1.
+    let bound_pairs = {
+        let mut pairs = Vec::new();
+        collect_symbolic_bound_pairs(lhs, &mut pairs);
+        collect_symbolic_bound_pairs(rhs, &mut pairs);
+        // Anchored variables already walk an integer stream away from
+        // their constant opposite bound, which varies L on its own.
+        let unanchored = |v: &String| {
+            range_constraints
+                .get(v)
+                .is_none_or(|c| c.min.is_none() && c.max.is_none())
+        };
+        pairs.retain(|(lo, hi)| unanchored(lo) && unanchored(hi));
+        pairs
+    };
+
+    // The empty range (L = 0) is legitimate and sharply discriminating:
+    // most false closed forms are not 0 there.
+    const RANGE_LENGTH_CYCLE: &[f64] = &[0.0, 1.0, 2.0, 3.0, 5.0, 7.0];
+
+    let mut seen_points = HashSet::new();
+
     for (i, &base_point) in TEST_POINTS.iter().enumerate() {
         let mut env = Environment::new();
         let mut point_values = Vec::new();
         let mut skip_point = false;
 
+        let mut pair_values: HashMap<String, f64> = HashMap::new();
+        for (lo_var, hi_var) in &bound_pairs {
+            let lo = match pair_values.get(lo_var) {
+                Some(&v) => v,
+                None => (base_point + 0.1 * i as f64).round(),
+            };
+            let len = RANGE_LENGTH_CYCLE[i % RANGE_LENGTH_CYCLE.len()];
+            pair_values.entry(lo_var.clone()).or_insert(lo);
+            pair_values.entry(hi_var.clone()).or_insert(lo + len - 1.0);
+        }
+
         for (j, var) in normalized.iter().enumerate() {
-            let val = match range_constraints.get(var) {
-                Some(c) => match (c.min, c.max) {
-                    // Anchored integer streams: lo, lo+1, … (or hi, hi−1, …),
-                    // offset by variable position so multi-variable points
-                    // stay distinct.
-                    (Some(lo), _) => lo + (i + j) as f64,
-                    (None, Some(hi)) => hi - (i + j) as f64,
-                    (None, None) => (base_point + 0.3 * j as f64 + 0.1 * i as f64).round(),
-                },
-                None => base_point + 0.3 * j as f64 + 0.1 * i as f64,
+            let val = if let Some(&paired) = pair_values.get(var) {
+                paired
+            } else {
+                match range_constraints.get(var) {
+                    Some(c) => match (c.min, c.max) {
+                        // Anchored integer streams: lo, lo+1, … (or hi, hi−1, …),
+                        // offset by variable position so multi-variable points
+                        // stay distinct.
+                        (Some(lo), _) => lo + (i + j) as f64,
+                        (None, Some(hi)) => hi - (i + j) as f64,
+                        (None, None) => (base_point + 0.3 * j as f64 + 0.1 * i as f64).round(),
+                    },
+                    None => base_point + 0.3 * j as f64 + 0.1 * i as f64,
+                }
             };
             if let Some(c) = range_constraints.get(var) {
                 // A var constrained from both sides (appears in a lower and
@@ -82,6 +125,14 @@ pub fn verify_identity(
         }
 
         if skip_point {
+            continue;
+        }
+
+        // Rounding and derived bounds can collide onto an already-tested
+        // assignment; a duplicate is not new evidence and must not inflate
+        // points_tested.
+        let point_key: Vec<u64> = point_values.iter().map(|(_, v)| v.to_bits()).collect();
+        if !seen_points.insert(point_key) {
             continue;
         }
 
@@ -174,6 +225,57 @@ pub(crate) fn point_satisfies_assumptions(var: &str, val: f64, assumptions: &Ass
 struct RangeBoundConstraint {
     min: Option<f64>,
     max: Option<f64>,
+}
+
+/// Σ/Π ranges whose start and end are both plain, distinct variables —
+/// the pairs whose length coverage `verify_identity` must guarantee.
+fn collect_symbolic_bound_pairs(node: &Node, out: &mut Vec<(String, String)>) {
+    match node {
+        Node::Variable(_) | Node::Num(_) => {}
+        Node::Add(l, r)
+        | Node::Subtract(l, r)
+        | Node::Multiply(l, r)
+        | Node::Divide(l, r)
+        | Node::Power(l, r)
+        | Node::Greater(l, r)
+        | Node::Less(l, r)
+        | Node::GreaterEqual(l, r)
+        | Node::LessEqual(l, r)
+        | Node::Equal(l, r)
+        | Node::Equation(l, r) => {
+            collect_symbolic_bound_pairs(l, out);
+            collect_symbolic_bound_pairs(r, out);
+        }
+        Node::Sqrt(inner)
+        | Node::Abs(inner)
+        | Node::Floor(inner)
+        | Node::Ceil(inner)
+        | Node::Round(inner)
+        | Node::Trunc(inner)
+        | Node::Negate(inner)
+        | Node::Factorial(inner) => collect_symbolic_bound_pairs(inner, out),
+        Node::Piecewise(arms) => {
+            for (expr, cond) in arms {
+                collect_symbolic_bound_pairs(expr, out);
+                collect_symbolic_bound_pairs(cond, out);
+            }
+        }
+        Node::Function(_, args) => {
+            for a in args {
+                collect_symbolic_bound_pairs(a, out);
+            }
+        }
+        Node::Summation(_, start, end, body) | Node::Product(_, start, end, body) => {
+            if let (Node::Variable(lo), Node::Variable(hi)) = (start.as_ref(), end.as_ref()) {
+                if lo != hi && !out.iter().any(|(a, b)| a == lo && b == hi) {
+                    out.push((lo.clone(), hi.clone()));
+                }
+            }
+            collect_symbolic_bound_pairs(start, out);
+            collect_symbolic_bound_pairs(end, out);
+            collect_symbolic_bound_pairs(body, out);
+        }
+    }
 }
 
 fn collect_range_bound_constraints(node: &Node, out: &mut HashMap<String, RangeBoundConstraint>) {

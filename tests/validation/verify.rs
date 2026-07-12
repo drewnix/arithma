@@ -203,3 +203,70 @@ fn summation_bound_variable_sampled_at_integers() {
         result.counterexample.map(|c| c.point)
     );
 }
+
+// ── Both-bounds-symbolic ranges: the sampler owes coverage of the range
+// length L = n − m + 1. If every sampled range has the same length, any
+// claim that is correct for that one length verifies — Σ_{k=m}^{n} f(k)
+// = f(m) holds whenever L ≡ 1, for every f. Refuting these claims
+// requires sampling at least two distinct lengths; that coverage is the
+// invariant these tests pin.
+
+fn verify_mn(lhs: &str, rhs: &str) -> arithma::verify::VerifyResult {
+    let lhs = arithma::parse_latex_raw(lhs).unwrap();
+    let rhs = arithma::parse_latex_raw(rhs).unwrap();
+    arithma::verify_identity(
+        &lhs,
+        &rhs,
+        &["m".to_string(), "n".to_string()],
+        &arithma::assumptions::Assumptions::default(),
+    )
+}
+
+#[test]
+fn symbolic_range_sum_is_not_its_first_term() {
+    let result = verify_mn("\\sum_{k=m}^{n} k^2", "m^2");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n) k² = m² is false for any range longer than one term; \
+         a sampler that passes it never varied the range length"
+    );
+}
+
+#[test]
+fn symbolic_range_constant_sum_counts_its_terms() {
+    // Σ_{k=m}^{n} 1 = L exactly. The claim "= 1" is the purest length
+    // probe: it holds iff L = 1 at every sampled point.
+    let result = verify_mn("\\sum_{k=m}^{n} 1", "1");
+    assert!(
+        !result.passed,
+        "Σ_(k=m)^(n) 1 = 1 must be refuted — the sum counts its terms"
+    );
+}
+
+#[test]
+fn symbolic_range_product_is_not_its_first_factor() {
+    // Π_{k=m}^{n} 2 = 2^L; the claim "= 2" holds only at L = 1.
+    let result = verify_mn("\\prod_{k=m}^{n} 2", "2");
+    assert!(
+        !result.passed,
+        "Π_(k=m)^(n) 2 = 2 must be refuted — the product has L factors"
+    );
+}
+
+#[test]
+fn true_symbolic_range_identity_still_verifies() {
+    // Σ_{k=m}^{n} k = (n(n+1) − (m−1)m)/2 at every integer pair m ≤ n + 1
+    // (including the empty range, where both sides are 0). Refusing this
+    // would trade the false PASS for a false refusal-of-evidence.
+    let result = verify_mn("\\sum_{k=m}^{n} k", "\\frac{n(n+1) - (m-1)m}{2}");
+    assert!(
+        result.passed,
+        "true symbolic-range identity must verify; counterexample at {:?}",
+        result.counterexample.map(|c| c.point)
+    );
+    assert!(
+        result.points_tested >= 3,
+        "expected real evidence, got {} points",
+        result.points_tested
+    );
+}
