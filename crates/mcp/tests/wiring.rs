@@ -303,6 +303,25 @@ fn result_status_reaches_typed_consumers_via_structured_content() {
 }
 
 #[test]
+fn verify_infers_free_variables_when_omitted() {
+    // Omitting `variables` used to default to ["x"], starving the sampler
+    // for any identity in other variables (an identity in n reported
+    // "0 valid test points"). The default is now the expressions' actual
+    // free variables, binder-aware: the summation index k is bound, n is
+    // free.
+    let resp = call(
+        "verify",
+        json!({
+            "expr_a": "\\sum_{k=1}^{n} (\\frac{1}{k} - \\frac{1}{k+1})",
+            "expr_b": "1 - \\frac{1}{n+1}"
+        }),
+    );
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["verdict"], "pass", "status: {}", status);
+    assert_eq!(status["status"], "verified", "status: {}", status);
+}
+
+#[test]
 fn evaluate_unevaluated_echo_is_unable_to_compute() {
     // F8: an unevaluated echo is not a candidate result — the request was
     // a number and no number was produced. heuristic says "use with

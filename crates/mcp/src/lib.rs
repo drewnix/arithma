@@ -1675,7 +1675,11 @@ fn tool_verify(args: &Value) -> ToolResult {
                 .filter_map(|v| v.as_str().map(|s| s.to_string()))
                 .collect()
         })
-        .unwrap_or_else(|| vec!["x".to_string()]);
+        // Default to the expressions' actual free variables (binder-aware:
+        // Σ/Π indices are bound, built-in constants excluded). The old
+        // default of ["x"] starved the sampler for any identity in other
+        // variables — "0 valid test points" for a perfectly checkable claim.
+        .unwrap_or_else(|| arithma::status::free_variables(&[&a_expr, &b_expr]));
 
     let assumptions = args
         .get("assumptions")
