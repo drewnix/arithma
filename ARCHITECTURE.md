@@ -69,7 +69,7 @@ The design target is not "everything Mathematica does" but "everything an agent 
 - **Assumption system**: 6 property types (positive, nonneg, negative, nonzero, real, integer). `√(x²) → x` when x ≥ 0. Conservative default.
 - **f64 → rational canonicalization**: float coefficients near simple rationals (denominators ≤ 100) are converted to exact BigRational. `0.5·x → (1/2)·x`, `0.333...·x → (1/3)·x`. Improves equivalence detection.
 - **Numeric verification**: `verify` tool evaluates two expressions at 12 deterministic test points, reports PASS or FAIL with specific counterexample. Multi-variable support. **Assumption-aware**: test points are filtered by stated assumptions — `verify(√(x²), x, {x: positive})` correctly skips negative test points instead of producing spurious counterexamples. Points where BOTH sides are undefined (NaN) test domain membership, not values, and carry no evidence; a point where exactly ONE side is undefined is a domain violation — a counterexample, serialized with an explicit "undefined", never a null. The built-in constants `e` and `π` are never sampled as free variables.
-- **Reasoning-chain verification** (`src/chain.rs`): `verify_chain` checks an ordered list of steps, each declaring a typed relation to its predecessor (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`). Each relation is checked by its own mechanism — for expressions, the `equals` evidence ladder is syntactic identity → unit-normal form (side-condition-free identities only) → canonical form over ℚ → **degree-aware exact rational evaluation**: within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem and earns `exact` (`interpolation_identity_Q`); over budget, or when the bound computation refuses, bounded exact sampling caps at `verified` with the shortfall named — no floating-point tolerance anywhere inside the fragment, and no proof minted from a refused bound. Two equation-shaped steps are compared by **solution set** (`solution_set_comparison`, capped at `verified` — completeness is the solver's promise); mixing an equation with an expression is refused with guidance. `integral_of` uses the differentiation round-trip (exact-capable); both derivative-constructing relations retry an inconclusive comparison with the simplified derivative (mechanism prefixed `simplify+` — the retry can pass but never refute), which is what lets recognized special-function antiderivatives like (√π/2)·erf(x) verify as chain steps; `implies` solves the antecedent and checks each solution against the consequent (capped at `verified` by design); `solution_of` checks membership exactly without claiming completeness (float-valued roots get an approximate-membership caveat, never the membership sentence). Chain status is the minimum evidence across steps; a failing chain carries the first failing step's report, counterexample included. Per-relation earning rules: `docs/result-status.md`.
+- **Reasoning-chain verification** (`src/validation/chain.rs`): `verify_chain` checks an ordered list of steps, each declaring a typed relation to its predecessor (`equals`, `derivative_of`, `integral_of`, `substitution`, `implies`, `solution_of`, `factored_form_of`). Each relation is checked by its own mechanism — for expressions, the `equals` evidence ladder is syntactic identity → unit-normal form (side-condition-free identities only) → canonical form over ℚ → **degree-aware exact rational evaluation**: within budget, agreement on a grid exceeding the difference's per-variable degree bounds is the polynomial identity theorem and earns `exact` (`interpolation_identity_Q`); over budget, or when the bound computation refuses, bounded exact sampling caps at `verified` with the shortfall named — no floating-point tolerance anywhere inside the fragment, and no proof minted from a refused bound. Two equation-shaped steps are compared by **solution set** (`solution_set_comparison`, capped at `verified` — completeness is the solver's promise); mixing an equation with an expression is refused with guidance. `integral_of` uses the differentiation round-trip (exact-capable); both derivative-constructing relations retry an inconclusive comparison with the simplified derivative (mechanism prefixed `simplify+` — the retry can pass but never refute), which is what lets recognized special-function antiderivatives like (√π/2)·erf(x) verify as chain steps; `implies` solves the antecedent and checks each solution against the consequent (capped at `verified` by design); `solution_of` checks membership exactly without claiming completeness (float-valued roots get an approximate-membership caveat, never the membership sentence). Chain status is the minimum evidence across steps; a failing chain carries the first failing step's report, counterexample included. Per-relation earning rules: `docs/result-status.md`.
 - **Idempotency contract**: simplification is stable — applying it twice gives the same result.
 
 ### Differentiation
@@ -236,7 +236,7 @@ input expression
     → Risch algorithm (Hermite + Rothstein-Trager / Risch DE)
     → return antiderivative or proof of non-elementarity
     → on non-elementarity: special-function recognition post-pass
-      (src/special_functions.rs) — match the integrand against defining
+      (`src/math/calculus/special_functions.rs`) — match the integrand against defining
       identities (erf: DLMF 7.2.1, Ei: 6.2.5, li: 6.2.8), guard the
       construction with a numeric differentiation round-trip, and attach
       the named antiderivative to the impossibility result. The post-pass
@@ -269,16 +269,68 @@ reach the rendered step text.
 Cargo workspace with three members:
 
 ```
-arithma/                 # root: math engine library (lib only, no binaries)
-├── src/                 # all math modules, WASM bindings
-├── tests/               # integration tests
+arithma/
+├── src/
+│   ├── lib.rs              # nested modules + flat re-exports
+│   ├── foundation/         # node, exact, integer, assumptions, environment
+│   ├── language/           # tokenizer, parser, functions
+│   ├── math/
+│   │   ├── algebra/
+│   │   ├── transform/      # simplify, evaluate, substitute, composition
+│   │   ├── calculus/
+│   │   └── solving/
+│   ├── validation/         # verify, chain, status
+│   └── interface/          # wasm_bindings
+├── tests/                  # integration tests, same layer layout as src/
+│   ├── foundation/
+│   ├── language/
+│   ├── math_transform/
+│   ├── math_algebra/
+│   ├── math_calculus/
+│   ├── math_solving/
+│   └── validation/
 ├── crates/
-│   ├── cli/             # arithma CLI binary
-│   └── mcp/             # arithma-mcp server binary
-└── frontend/            # React + MathLive web calculator (WASM)
+│   ├── cli/
+│   └── mcp/
+└── frontend/
 ```
 
-The root crate is the public API — downstream Rust projects depend on `arithma`. The CLI and MCP server are thin wrappers. WASM builds target the root crate (`wasm-pack build --target web`).
+### Module Layers
+
+Folders layout the **target** dependency direction — imports do not fully match
+yet ([#78](https://github.com/drewnix/arithma/issues/78)):
+
+```
+foundation → language → math → validation → interface
+```
+
+| Layer              | Role                                                                         |
+|--------------------|------------------------------------------------------------------------------|
+| **foundation**     | AST (`Node`), exact numbers, assumptions, environment                        |
+| **language**       | LaTeX tokenize/parse, built-in function registry                             |
+| **math**           | Domain math — subfolders below; internal cross-imports are expected in a CAS |
+| **math/algebra**   | Polynomial/matrix infrastructure                                             |
+| **math/transform** | Expression pipelines: evaluate, simplify, substitute, compose                |
+| **math/calculus**  | Integration, differentiation, limits, series                                 |
+| **math/solving**   | Equation/ODE/inequality solvers                                              |
+| **validation**     | Equivalence checks, reasoning-chain audit                                    |
+| **interface**      | WASM bindings and other adapters                                             |
+
+- **Cross-layer gaps** ([#78](https://github.com/drewnix/arithma/issues/78)): `node` → `tokenizer`, `parser` →
+  `simplify`, `simplify` → `status`.
+- **Within `math`:** Knot 4 is the hard part — code should follow dependency direction where it can; for now the layout
+  groups modules this way and accepts cross-imports within `math`.
+
+`lib.rs` declares nested `pub mod` blocks matching the folders above, then `pub use` re-exports at the crate root (
+`crate::exact`, `arithma::Evaluator`, …) so existing imports stay unchanged. Nested paths (`crate::foundation::exact`,
+`crate::math::calculus::integration`) are available for new code.
+
+Root crate is the public API — CLI and MCP are thin wrappers. WASM builds target the root crate (
+`wasm-pack build --target web`).
+
+Integration tests mirror the same dependency layers under `tests/<layer>/main.rs` (Cargo only supports one subdirectory
+level, so `math/algebra` becomes `math_algebra`). Each layer crate pulls in its test modules via `mod` declarations; no
+test logic changed.
 
 ---
 
