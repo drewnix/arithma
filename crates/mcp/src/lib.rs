@@ -18,7 +18,7 @@ use arithma::series::{
 };
 use arithma::simplify::Simplifiable;
 use arithma::special_functions::recognize_special_form_latex;
-use arithma::status::Verdict;
+use arithma::status::{caveat_codes, Verdict};
 use arithma::status::{
     classify_integral, classify_limit, classify_simplify, classify_verify, free_variables,
     Certificate, ProofCertificate, StatusReport,
@@ -716,6 +716,7 @@ fn replay_solve_check(
             ReplayOutcome::Confirmed => continue,
             ReplayOutcome::Contradicted => {
                 return StatusReport::heuristic().with_caveat(
+                    caveat_codes::SELF_CHECK_FAILED,
                     "back-substitution check CONTRADICTED: residual is provably nonzero after substituting root",
                 );
             }
@@ -739,8 +740,10 @@ fn replay_solve_check(
 fn classify_simplify_of(raw_latex: &str, simplified: &Node, env: &Environment) -> StatusReport {
     match parse_latex_raw(raw_latex) {
         Ok(raw) => classify_simplify(&raw, simplified, env),
-        Err(e) => StatusReport::heuristic()
-            .with_caveat(&format!("could not classify simplification: {}", e)),
+        Err(e) => StatusReport::heuristic().with_caveat(
+            caveat_codes::CHECK_UNAVAILABLE,
+            &format!("could not classify simplification: {}", e),
+        ),
     }
 }
 
@@ -796,8 +799,10 @@ fn tool_integrate(args: &Value) -> ToolResult {
                 let status = match integrate_latex(expr, &var) {
                     Ok(anti) => match (parse_latex(expr, &env), parse_latex(&anti, &env)) {
                         (Ok(integrand), Ok(a)) => classify_integral(&integrand, &a, &var, &env),
-                        _ => StatusReport::heuristic()
-                            .with_caveat("could not classify the antiderivative round-trip"),
+                        _ => StatusReport::heuristic().with_caveat(
+                            caveat_codes::CHECK_UNAVAILABLE,
+                            "could not classify the antiderivative round-trip",
+                        ),
                     },
                     Err(_) => StatusReport::exact(Certificate::by_construction(
                         "special_value_table — proven result from standard tables",
@@ -817,8 +822,10 @@ fn tool_integrate(args: &Value) -> ToolResult {
             let antiderivative = parse_latex(&r, &env)?;
             let status = match parse_latex(expr, &env) {
                 Ok(integrand) => classify_integral(&integrand, &antiderivative, &var, &env),
-                Err(e) => StatusReport::heuristic()
-                    .with_caveat(&format!("could not classify round-trip: {}", e)),
+                Err(e) => StatusReport::heuristic().with_caveat(
+                    caveat_codes::CHECK_UNAVAILABLE,
+                    &format!("could not classify round-trip: {}", e),
+                ),
             };
             Ok((format!("{antiderivative}"), status))
         }
@@ -993,8 +1000,10 @@ fn tool_solve(args: &Value) -> ToolResult {
     } else {
         let text = parts.join(", ");
         if text.contains('.') {
-            let status = StatusReport::verified(1)
-                .with_caveat("floating-point root-finding (f64 precision), not symbolic radicals");
+            let status = StatusReport::verified(1).with_caveat(
+                caveat_codes::F64_PRECISION,
+                "floating-point root-finding (f64 precision), not symbolic radicals",
+            );
             Ok((text, status))
         } else {
             // Back-substitution check: substitute each root into the
@@ -1106,6 +1115,7 @@ fn tool_solve_system(args: &Value) -> ToolResult {
                         return Ok((
                             text,
                             StatusReport::heuristic().with_caveat(
+                                caveat_codes::SELF_CHECK_FAILED,
                                 "back-substitution check CONTRADICTED: residual provably nonzero",
                             ),
                         ));
@@ -1198,8 +1208,10 @@ fn tool_factor(args: &Value) -> ToolResult {
         ReplayOutcome::Contradicted => {
             return Ok((
                 parts.join(" \\cdot "),
-                StatusReport::heuristic()
-                    .with_caveat("factor multiply-back CONTRADICTED: product differs from input"),
+                StatusReport::heuristic().with_caveat(
+                    caveat_codes::SELF_CHECK_FAILED,
+                    "factor multiply-back CONTRADICTED: product differs from input",
+                ),
             ));
         }
         ReplayOutcome::Inconclusive => {
@@ -1248,6 +1260,7 @@ fn tool_partial_fractions(args: &Value) -> ToolResult {
                     return Ok((
                         result,
                         StatusReport::heuristic().with_caveat(
+                            caveat_codes::SELF_CHECK_FAILED,
                             "partial-fractions multiply-back CONTRADICTED: product differs from numerator",
                         ),
                     ));
@@ -1281,7 +1294,10 @@ fn tool_limit(args: &Value) -> ToolResult {
     let text = parse_and_simplify_with_env(&result, &env)?;
     let status = match parse_latex(expr, &env) {
         Ok(expr_node) => classify_limit(&expr_node, &var, &point_str, &result, &env),
-        Err(e) => StatusReport::heuristic().with_caveat(&format!("could not classify: {}", e)),
+        Err(e) => StatusReport::heuristic().with_caveat(
+            caveat_codes::CHECK_UNAVAILABLE,
+            &format!("could not classify: {}", e),
+        ),
     };
     Ok((text, status))
 }
@@ -1295,7 +1311,7 @@ fn tool_taylor_series(args: &Value) -> ToolResult {
     // Coefficients come from exact rational recurrences; the caveat records
     // that a truncated polynomial equals the function only as a series.
     let status = || {
-        StatusReport::exact(Certificate::by_construction("exact_rational_recurrence — Taylor coefficients from exact arithmetic")).with_caveat(&format!(
+        StatusReport::exact(Certificate::by_construction("exact_rational_recurrence — Taylor coefficients from exact arithmetic")).with_caveat(caveat_codes::TRUNCATION, &format!(
             "Taylor polynomial truncated at order {}; equality holds as series expansion, not as identity",
             order
         ))
@@ -1373,20 +1389,27 @@ fn tool_evaluate(args: &Value) -> ToolResult {
                 ExactNum::Rational(_) => StatusReport::exact(Certificate::by_construction(
                     "exact_rational_arithmetic — evaluated in exact Q arithmetic",
                 )),
-                ExactNum::Float(_) => StatusReport::verified(1)
-                    .with_caveat("floating-point evaluation (f64 precision)"),
+                ExactNum::Float(_) => StatusReport::verified(1).with_caveat(
+                    caveat_codes::F64_PRECISION,
+                    "floating-point evaluation (f64 precision)",
+                ),
             };
             Ok((format!("{}", arithma::Node::Num(val)), status))
         }
         Err(_) => match Evaluator::evaluate(&simplified, &env) {
             Ok(val) => Ok((
                 val.to_string(),
-                StatusReport::verified(1).with_caveat("floating-point evaluation (f64 precision)"),
+                StatusReport::verified(1).with_caveat(
+                    caveat_codes::F64_PRECISION,
+                    "floating-point evaluation (f64 precision)",
+                ),
             )),
             Err(_) => Ok((
                 format!("{}", simplified),
-                StatusReport::heuristic()
-                    .with_caveat("could not fully evaluate; returning simplified form"),
+                StatusReport::heuristic().with_caveat(
+                    caveat_codes::UNEVALUATED,
+                    "could not fully evaluate; returning simplified form",
+                ),
             )),
         },
     }
@@ -1437,10 +1460,15 @@ fn tool_matrix(args: &Value) -> ToolResult {
     // prints a decimal point; a '.' in the output means a floating-point
     // routine ran (numeric eigenvalue root-finding, float entries).
     let status = if text.contains('.') {
-        let mut s =
-            StatusReport::verified(1).with_caveat("floating-point computation (f64 precision)");
+        let mut s = StatusReport::verified(1).with_caveat(
+            caveat_codes::F64_PRECISION,
+            "floating-point computation (f64 precision)",
+        );
         if op == "eigenvalues" && text.contains('i') {
-            s = s.with_caveat("complex eigenvalues expressed with i as a symbol");
+            s = s.with_caveat(
+                caveat_codes::SYMBOLIC_IMAGINARY,
+                "complex eigenvalues expressed with i as a symbol",
+            );
         }
         s
     } else if op == "inverse" {
@@ -1460,8 +1488,10 @@ fn tool_matrix(args: &Value) -> ToolResult {
                     } else {
                         // For matrices, a non-identity product after exact
                         // arithmetic means the inverse is wrong — downgrade.
-                        StatusReport::heuristic()
-                            .with_caveat("inverse multiply-back CONTRADICTED: A × A⁻¹ ≠ I")
+                        StatusReport::heuristic().with_caveat(
+                            caveat_codes::SELF_CHECK_FAILED,
+                            "inverse multiply-back CONTRADICTED: A × A⁻¹ ≠ I",
+                        )
                     }
                 }
                 Err(_) => StatusReport::exact(Certificate::by_construction(
@@ -1631,7 +1661,7 @@ fn describe_status(report: &arithma::status::StatusReport) -> String {
     if report.caveats.is_empty() {
         base
     } else {
-        format!("{} — {}", base, report.caveats.join("; "))
+        format!("{} — {}", base, report.caveat_messages())
     }
 }
 
@@ -1892,10 +1922,13 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> ToolResult {
             StatusReport::exact(Certificate::by_construction(
                 "exact_rational_recurrence — power series coefficients from exact arithmetic",
             ))
-            .with_caveat(&format!(
-                "power series truncated at order {}; coefficients are exact",
-                order
-            )),
+            .with_caveat(
+                caveat_codes::TRUNCATION,
+                &format!(
+                    "power series truncated at order {}; coefficients are exact",
+                    order
+                ),
+            ),
         ))
     } else {
         let solutions = arithma::ode::solve_series(&coeffs)?;
@@ -1925,10 +1958,13 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> ToolResult {
             StatusReport::exact(Certificate::by_construction(
                 "exact_rational_recurrence — power series coefficients from exact arithmetic",
             ))
-            .with_caveat(&format!(
-                "power series truncated at order {}; coefficients are exact",
-                order
-            )),
+            .with_caveat(
+                caveat_codes::TRUNCATION,
+                &format!(
+                    "power series truncated at order {}; coefficients are exact",
+                    order
+                ),
+            ),
         ))
     }
 }

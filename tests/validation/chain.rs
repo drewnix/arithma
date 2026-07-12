@@ -74,7 +74,7 @@ fn single_step_chain_passes_vacuously() {
         .status
         .caveats
         .iter()
-        .any(|c| c.contains("anchor only")));
+        .any(|c| c.code == arithma::status::caveat_codes::CHAIN_STRUCTURE));
 }
 
 #[test]
@@ -240,7 +240,8 @@ fn solution_of_verifies_membership_exactly() {
         .status
         .caveats
         .iter()
-        .any(|c| c.contains("completeness")));
+        .any(|c| c.code == arithma::status::caveat_codes::METHOD_SCOPE
+            && c.message.contains("completeness")));
 }
 
 #[test]
@@ -759,7 +760,7 @@ fn probe_one_sided_undefinedness_is_a_domain_refutation() {
             .status
             .caveats
             .iter()
-            .any(|c| c.contains("domain")),
+            .any(|c| c.code == arithma::status::caveat_codes::DOMAIN_MISMATCH),
         "expected a domain caveat, got: {:?}",
         result.steps[1].status.caveats
     );
@@ -885,14 +886,16 @@ fn finding7_float_valued_solution_of_does_not_claim_membership() {
     let result = verify_chain(&steps, &Environment::new()).unwrap();
     let caveats = &result.steps[1].status.caveats;
     assert!(
-        !caveats.iter().any(|c| c.contains("membership verified")),
+        !caveats
+            .iter()
+            .any(|c| c.message.contains("membership verified")),
         "float near-root must not earn the membership sentence: {:?}",
         caveats
     );
     assert!(
         caveats
             .iter()
-            .any(|c| c.contains("approximate") || c.contains("floating-point")),
+            .any(|c| c.code == arithma::status::caveat_codes::F64_PRECISION),
         "expected an approximate-membership caveat, got: {:?}",
         caveats
     );

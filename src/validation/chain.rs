@@ -21,7 +21,9 @@ use crate::environment::Environment;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
 pub use crate::status::Verdict;
-use crate::status::{free_variables, is_algebraic_exact, Certificate, ResultStatus, StatusReport};
+use crate::status::{
+    caveat_codes, free_variables, is_algebraic_exact, Certificate, ResultStatus, StatusReport,
+};
 use crate::verify::verify_identity;
 
 /// The relation a step declares to its predecessor.
@@ -202,7 +204,10 @@ pub fn verify_chain(steps: &[ChainStepInput], env: &Environment) -> Result<Chain
         (None, Some(i)) => results[i].status.clone(),
         (None, None) => {
             StatusReport::exact(Certificate::by_construction("anchor — no claim to check"))
-                .with_caveat("anchor only; a one-step chain contains no relations to verify")
+                .with_caveat(
+                    caveat_codes::CHAIN_STRUCTURE,
+                    "anchor only; a one-step chain contains no relations to verify",
+                )
         }
     };
 
@@ -357,11 +362,14 @@ fn compare_constructed_derivative(
                 .unwrap_or_else(|| "no witness recorded".to_string());
             CheckedStep {
                 verdict: Verdict::Inconclusive,
-                status: raw.status.with_caveat(&format!(
-                    "the simplified derivative disagreed with the claimed step at {}; \
+                status: raw.status.with_caveat(
+                    caveat_codes::CHECK_INCONCLUSIVE,
+                    &format!(
+                        "the simplified derivative disagreed with the claimed step at {}; \
                      a refutation through an unverified simplification is not certified",
-                    witness
-                )),
+                        witness
+                    ),
+                ),
                 mechanism: format!("simplify+{}", retried.mechanism),
             }
         }
@@ -518,18 +526,23 @@ fn check_equation_equals(
 
     if set_a.keys().eq(set_b.keys()) {
         let mut status = StatusReport::verified(set_a.len().max(1)).with_caveat(
+            caveat_codes::METHOD_SCOPE,
             "equations compared by solution set as computed by the solver — capped at verified (solver completeness is not proven)",
         );
         if set_a.is_empty() {
             status = status.with_caveat(
+                caveat_codes::METHOD_SCOPE,
                 "both equations have empty solution sets as far as the solver can find",
             );
         }
         if sa.complex_omitted != sb.complex_omitted {
-            status = status.with_caveat(&format!(
-                "complex solutions omitted from the comparison: {} vs {}",
-                sa.complex_omitted, sb.complex_omitted
-            ));
+            status = status.with_caveat(
+                caveat_codes::COMPLEX_OMITTED,
+                &format!(
+                    "complex solutions omitted from the comparison: {} vs {}",
+                    sa.complex_omitted, sb.complex_omitted
+                ),
+            );
         }
         return Ok(CheckedStep {
             verdict: Verdict::Pass,
@@ -552,11 +565,13 @@ fn check_equation_equals(
         })
         .expect("sets differ, symmetric difference is nonempty");
 
-    let mut status =
-        StatusReport::verified(set_a.len().max(set_b.len()).max(1)).with_caveat(&format!(
+    let mut status = StatusReport::verified(set_a.len().max(set_b.len()).max(1)).with_caveat(
+        caveat_codes::DISAGREEMENT_WITNESS,
+        &format!(
             "the equations have different solution sets: {} = {} satisfies one but not the other",
             var, witness_str
-        ));
+        ),
+    );
     if let Some((l, r)) = as_equation(lacking) {
         let lhs_val = crate::substitute::substitute_variable(l, &var, &witness)
             .map(|n| node_to_f64(&n, env))
@@ -620,10 +635,12 @@ fn check_solution_of(
         // approximate, never "verified".
         checked.status = if matches!(checked.status.status, ResultStatus::Exact) {
             checked.status.with_caveat(
+                caveat_codes::METHOD_SCOPE,
                 "solution membership verified; completeness of the solution set is not claimed",
             )
         } else {
             checked.status.with_caveat(
+                caveat_codes::F64_PRECISION,
                 "agreement within floating-point tolerance only — approximate membership, not verified as an exact root; supply an exact value (fraction or radical) for exact membership verification",
             )
         };
@@ -709,10 +726,13 @@ fn check_implies(
                 // This solution of the antecedent violates the consequent:
                 // the implication is refuted, and the solution is the
                 // diagnosis.
-                let mut status = StatusReport::verified(checked_count + 1).with_caveat(&format!(
-                    "the antecedent solution {} = {} does not satisfy the consequent",
-                    var, sol
-                ));
+                let mut status = StatusReport::verified(checked_count + 1).with_caveat(
+                    caveat_codes::DISAGREEMENT_WITNESS,
+                    &format!(
+                        "the antecedent solution {} = {} does not satisfy the consequent",
+                        var, sol
+                    ),
+                );
                 // Prefer the inner check's counterexample — for parametric
                 // solutions it carries actual numbers where a direct f64
                 // rendering of the symbolic solution would serialize as
@@ -753,14 +773,18 @@ fn check_implies(
     }
 
     let mut status = StatusReport::verified(checked_count).with_caveat(
+        caveat_codes::METHOD_SCOPE,
         "implication checked at the antecedent's solutions — evidence, not proof; capped at verified by design",
     );
     if solved.complex_omitted > 0 {
-        status = status.with_caveat(&format!(
-            "{} complex solution{} of the antecedent omitted from the check",
-            solved.complex_omitted,
-            if solved.complex_omitted == 1 { "" } else { "s" }
-        ));
+        status = status.with_caveat(
+            caveat_codes::COMPLEX_OMITTED,
+            &format!(
+                "{} complex solution{} of the antecedent omitted from the check",
+                solved.complex_omitted,
+                if solved.complex_omitted == 1 { "" } else { "s" }
+            ),
+        );
     }
     Ok(CheckedStep {
         verdict: Verdict::Pass,
@@ -1016,7 +1040,10 @@ fn exact_rational_check(
                 status: StatusReport::exact(Certificate::by_construction(
                     "exact_constant_eval — constants differ in exact rational arithmetic",
                 ))
-                .with_caveat("constants differ in exact rational arithmetic")
+                .with_caveat(
+                    caveat_codes::EXACT_DISAGREEMENT,
+                    "constants differ in exact rational arithmetic",
+                )
                 .with_counterexample_value(exact_counterexample_json(&[], &a, &b)),
                 mechanism,
             };
@@ -1093,6 +1120,7 @@ fn exact_rational_check(
                                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                                     ))
                                     .with_caveat(
+                                        caveat_codes::EXACT_DISAGREEMENT,
                                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                                     )
                                     .with_counterexample_value(exact_counterexample_json(
@@ -1133,6 +1161,7 @@ fn exact_rational_check(
                         "interpolation_identity_Q",
                         "exact evaluation on a grid exceeding the degree bound (polynomial identity theorem)",
                     )).with_caveat(
+                        caveat_codes::METHOD_SCOPE,
                         "equality in the rational function field, decided by exact evaluation on a grid exceeding the degree bound of the difference (polynomial identity theorem)",
                     ),
                     mechanism: "interpolation_identity_Q".to_string(),
@@ -1189,6 +1218,7 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
                         "disagreement established in exact rational arithmetic — a disproof",
                     ))
                     .with_caveat(
+                        caveat_codes::EXACT_DISAGREEMENT,
                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                     )
                     .with_counterexample_value(exact_counterexample_json(&point_values, &a, &b)),
@@ -1215,6 +1245,7 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
     CheckedStep {
         verdict: Verdict::Pass,
         status: StatusReport::verified(tested).with_caveat(
+            caveat_codes::METHOD_SCOPE,
             "agreement established by exact rational evaluation (no floating-point tolerance), but at fewer points than the degree bound of the difference — evidence, not proof",
         ),
         mechanism,
@@ -1353,6 +1384,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
             return CheckedStep {
                 verdict: Verdict::Pass,
                 status: StatusReport::verified(1).with_caveat(
+                    caveat_codes::F64_PRECISION,
                     "variable-free comparison: a single floating-point evaluation is the evidence",
                 ),
                 mechanism,
@@ -1377,7 +1409,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     // points is correct, hiding them is not.
     let domain_caveat = |report: StatusReport| {
         if result.domain_mismatches > 0 {
-            report.with_caveat(&format!(
+            report.with_caveat(caveat_codes::DOMAIN_MISMATCH, &format!(
                 "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
                 result.domain_mismatches,
                 if result.domain_mismatches == 1 { "" } else { "s" }

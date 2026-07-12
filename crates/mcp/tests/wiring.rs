@@ -283,8 +283,11 @@ fn taylor_series_is_exact_with_truncation_caveat() {
     let resp = call("taylor_series", json!({"expr": "e^x", "order": 3}));
     assert_eq!(resp["result"]["result_status"]["status"], "exact");
     let caveats = &resp["result"]["result_status"]["caveats"];
+    // F5 contract: caveats are {code, message} pairs — the code is the
+    // machine surface, the message the human one.
+    assert_eq!(caveats[0]["code"], "truncation", "caveats: {}", caveats);
     assert!(
-        caveats[0].as_str().unwrap().contains("order 3"),
+        caveats[0]["message"].as_str().unwrap().contains("order 3"),
         "caveats: {}",
         caveats
     );
