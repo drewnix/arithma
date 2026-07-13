@@ -28,4 +28,29 @@ fn main() {
         println!("cargo:rerun-if-changed={git_dir}/HEAD");
         println!("cargo:rerun-if-changed={git_dir}/index");
     }
+
+    // Emitting ANY rerun-if-changed disables cargo's default heuristics,
+    // so the script must also watch the sources whose edits make the tree
+    // dirty — otherwise the baked dirty flag reports the state of the LAST
+    // script run, and a probe can read "dirty: false" from a dirty tree.
+    // A provenance sentinel that can go stale defeats its purpose; the
+    // walk costs milliseconds.
+    println!("cargo:rerun-if-changed=build.rs");
+    for root in ["src", "../../src", "../cli/src"] {
+        emit_rerun_for_rs_files(std::path::Path::new(root));
+    }
+}
+
+fn emit_rerun_for_rs_files(dir: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            emit_rerun_for_rs_files(&path);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
 }
