@@ -5,8 +5,8 @@
 // contract change; add fields instead.
 
 use arithma::status::{
-    classify_integral, classify_simplify, is_algebraic_exact, Certificate, ProofCertificate,
-    ResultStatus, StatusReport,
+    caveat_codes, classify_integral, classify_simplify, is_algebraic_exact, Certificate,
+    ProofCertificate, ResultStatus, StatusReport,
 };
 use arithma::{parse_latex, parse_latex_raw, Environment};
 
@@ -73,11 +73,88 @@ fn provably_impossible_carries_structured_proof_certificate() {
 }
 
 #[test]
-fn caveats_serialize_when_present() {
+fn caveats_serialize_as_code_message_pairs() {
+    // F5: consumers must never have to regex prose — every caveat carries
+    // a stable machine code alongside the human message.
     let json = StatusReport::verified(1)
-        .with_caveat("floating-point evaluation (f64)")
+        .with_caveat(
+            arithma::status::caveat_codes::F64_PRECISION,
+            "floating-point evaluation (f64)",
+        )
         .to_json();
-    assert_eq!(json["caveats"][0], "floating-point evaluation (f64)");
+    assert_eq!(json["caveats"][0]["code"], "f64_precision");
+    assert_eq!(
+        json["caveats"][0]["message"],
+        "floating-point evaluation (f64)"
+    );
+}
+
+#[test]
+fn uncertified_exact_downgrade_carries_coded_caveat() {
+    // The to_json gate's own caveat obeys the same contract.
+    // exact() requires a certificate; an UNCHECKED one must be downgraded
+    // at the to_json gate.
+    let report = StatusReport::exact(Certificate {
+        kind: "test".to_string(),
+        witness: "test".to_string(),
+        checked: false,
+    });
+    let json = report.to_json();
+    assert_eq!(json["status"], "heuristic");
+    assert_eq!(json["caveats"][0]["code"], "uncertified_exact");
+}
+
+#[test]
+fn error_bound_serializes_when_attached() {
+    // The bound is the domain of a bounded-comparison certificate: the
+    // step would pass for ANY rhs within it. Publishing it is the
+    // name-the-domain discipline, machine-readable, not prose.
+    let json = StatusReport::approximate(Some(14))
+        .with_error_bound(2.8e-15)
+        .to_json();
+    assert!((json["error_bound"].as_f64().unwrap() - 2.8e-15).abs() < 1e-20);
+}
+
+#[test]
+fn error_bound_absent_when_not_attached() {
+    let json = StatusReport::approximate(Some(14)).to_json();
+    assert!(json.get("error_bound").is_none());
+}
+
+#[test]
+fn approximate_report_serializes_with_digits() {
+    // F8: a floating-point value is not "verified" by anything — it is
+    // approximate, and the tier says how approximate.
+    let json = StatusReport::approximate(Some(13)).to_json();
+    assert_eq!(json["status"], "approximate");
+    assert_eq!(json["significant_digits"], 13);
+}
+
+#[test]
+fn approximate_without_tracked_digits_omits_the_field() {
+    // No bound available: the tier still says approximate, but claims no
+    // digit count — an untracked bound must not default into a number.
+    let json = StatusReport::approximate(None).to_json();
+    assert_eq!(json["status"], "approximate");
+    assert!(json.get("significant_digits").is_none());
+}
+
+#[test]
+fn approximate_marker_names_digits_when_tracked() {
+    let m = StatusReport::approximate(Some(13)).marker().unwrap();
+    assert!(m.starts_with("[approximate]"), "got: {}", m);
+    assert!(m.contains("13"), "should name digit count, got: {}", m);
+}
+
+#[test]
+fn approximate_marker_is_honest_when_untracked() {
+    let m = StatusReport::approximate(None).marker().unwrap();
+    assert!(m.starts_with("[approximate]"), "got: {}", m);
+    assert!(
+        m.contains("not tracked"),
+        "must not imply a precision it didn't compute, got: {}",
+        m
+    );
 }
 
 // Text markers: quiet statuses produce no marker (happy-path output stays
@@ -100,7 +177,10 @@ fn verified_marker_carries_point_count() {
 #[test]
 fn verified_marker_includes_caveats_when_present() {
     let m = StatusReport::verified(1)
-        .with_caveat("floating-point evaluation (f64)")
+        .with_caveat(
+            caveat_codes::F64_PRECISION,
+            "floating-point evaluation (f64)",
+        )
         .marker()
         .unwrap();
     assert!(m.contains("[verified]"), "got: {}", m);
@@ -173,7 +253,10 @@ fn unable_to_compute_marker_includes_caveats() {
     // in the data structure — "preserved as a caveat" is only true if the
     // marker renderer includes it.
     let m = StatusReport::unable_to_compute("only 0 valid test points")
-        .with_caveat("the simplified derivative disagreed at {\"x\": 0.5}")
+        .with_caveat(
+            caveat_codes::SELF_CHECK_FAILED,
+            "the simplified derivative disagreed at {\"x\": 0.5}",
+        )
         .marker()
         .unwrap();
     assert!(
@@ -186,7 +269,10 @@ fn unable_to_compute_marker_includes_caveats() {
 #[test]
 fn heuristic_marker_includes_caveats() {
     let m = StatusReport::heuristic()
-        .with_caveat("transcendental rewrite not independently verified")
+        .with_caveat(
+            caveat_codes::NOT_CORROBORATED,
+            "transcendental rewrite not independently verified",
+        )
         .marker()
         .unwrap();
     assert_eq!(
@@ -309,7 +395,10 @@ fn simplify_self_check_failure_is_loud() {
     let report = classify_simplify(&input, &output, &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().any(|c| c.contains("self-check")),
+        report
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::SELF_CHECK_FAILED),
         "caveats should flag the self-check failure: {:?}",
         report.caveats
     );
@@ -349,7 +438,10 @@ fn integral_round_trip_mismatch_is_loud() {
     let report = classify_integral(&integrand, &wrong, "x", &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().any(|c| c.contains("round-trip")),
+        report
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::SELF_CHECK_FAILED && c.message.contains("round-trip")),
         "caveats should flag round-trip failure: {:?}",
         report.caveats
     );
@@ -477,7 +569,10 @@ fn limit_wrong_claim_is_loud() {
     let report = classify_limit(&expr, "x", "0", "2", &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().any(|c| c.contains("FAILED")),
+        report
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::CORROBORATION_FAILED),
         "should flag corroboration failure: {:?}",
         report.caveats
     );
@@ -491,7 +586,10 @@ fn limit_symbolic_claim_is_heuristic_with_caveat() {
     let report = classify_limit(&expr, "x", "0", "a", &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().any(|c| c.contains("corroborat")),
+        report
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::NOT_CORROBORATED),
         "should note lack of corroboration: {:?}",
         report.caveats
     );
@@ -508,12 +606,18 @@ fn limit_slow_convergence_is_not_a_false_alarm() {
     let report = classify_limit(&expr, "x", "inf", "0", &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().all(|c| !c.contains("FAILED")),
+        report
+            .caveats
+            .iter()
+            .all(|c| c.code != caveat_codes::CORROBORATION_FAILED),
         "slow convergence must not be reported as failure: {:?}",
         report.caveats
     );
     assert!(
-        report.caveats.iter().any(|c| c.contains("slow")),
+        report
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::SLOW_CONVERGENCE),
         "caveat should name slow convergence: {:?}",
         report.caveats
     );
@@ -529,7 +633,10 @@ fn limit_slow_divergence_is_not_a_false_alarm() {
     let report = classify_limit(&expr, "x", "inf", "\\infty", &env);
     assert_eq!(report.status, arithma::status::ResultStatus::Heuristic);
     assert!(
-        report.caveats.iter().all(|c| !c.contains("FAILED")),
+        report
+            .caveats
+            .iter()
+            .all(|c| c.code != caveat_codes::CORROBORATION_FAILED),
         "slow divergence must not be reported as failure: {:?}",
         report.caveats
     );

@@ -74,7 +74,7 @@ fn single_step_chain_passes_vacuously() {
         .status
         .caveats
         .iter()
-        .any(|c| c.contains("anchor only")));
+        .any(|c| c.code == arithma::status::caveat_codes::CHAIN_STRUCTURE));
 }
 
 #[test]
@@ -240,7 +240,8 @@ fn solution_of_verifies_membership_exactly() {
         .status
         .caveats
         .iter()
-        .any(|c| c.contains("completeness")));
+        .any(|c| c.code == arithma::status::caveat_codes::METHOD_SCOPE
+            && c.message.contains("completeness")));
 }
 
 #[test]
@@ -408,19 +409,303 @@ fn r2_pi_is_not_a_free_variable() {
 }
 
 #[test]
-fn r2_regression_e_to_minus_50_documented_limitation() {
-    // e^{-50} ≠ 0, but with e bound to its constant the difference is
-    // ~2e-22 and f64 tolerance accepts it. This is the documented limit of
-    // numeric evidence until the `approximate` tier lands (ar-schema-v2).
-    // This test pins the CURRENT behavior so the eventual fix flips it
-    // deliberately, not accidentally.
+fn r2_e_to_minus_50_is_refuted_beyond_the_error_bound() {
+    // Formerly a pinned false PASS: e^{-50} ≈ 1.9e-22 vs 0 sat inside a
+    // fixed absolute tolerance. The constant comparison now measures the
+    // disagreement against the PROPAGATED error bound of the computation
+    // (~1e-35 here): the difference is real, not a rounding artifact, so
+    // the claim fails. This flip is the intended effect of the
+    // `approximate` machinery (ar-schema-v2 brief), done deliberately.
     let steps = vec![eq_step("start", "e^{-50}"), eq_step("zero", "0")];
     let result = verify_chain(&steps, &Environment::new()).unwrap();
-    assert_eq!(result.verdict, Verdict::Pass); // known false pass — see above
+    assert_eq!(result.verdict, Verdict::Fail);
+    assert_eq!(result.first_failure, Some(1));
+    assert!(
+        result.steps[1].status.counterexample_json().is_some(),
+        "the disagreement is the diagnosis and must be attached"
+    );
+    // The companion direction: sin(2π) = 0 (r2_pi_is_not_a_free_variable)
+    // must KEEP passing — its value sits inside its own error bound of
+    // zero. A fixed tolerance cannot hold both verdicts; the propagated
+    // bound can.
+}
+
+#[test]
+fn cancellation_noise_equality_is_inconclusive_not_verified() {
+    // E = (1 − cos(10⁻⁸))/(10⁻⁸)² has true value ½; f64 cancels it to
+    // exactly 0 with a propagated bound ≈ 2.2. Before the resolution gate,
+    // the chain certified BOTH E = 0 and E = 1 as `verified` — agreement
+    // inside a bound that swamps the values is the absence of resolution,
+    // not evidence. evaluate() already refuses this value as noise
+    // (significant_digits == 0); the chain must consult the same gate.
+    let e_expr = "\\frac{1 - \\cos(10^{-8})}{(10^{-8})^2}";
+    for claimed in ["0", "1", "0.5"] {
+        let steps = vec![eq_step("noise", e_expr), eq_step("claim", claimed)];
+        let result = verify_chain(&steps, &Environment::new()).unwrap();
+        assert_eq!(
+            result.steps[1].verdict,
+            Verdict::Inconclusive,
+            "E = {} must be refused, not certified",
+            claimed
+        );
+        assert!(
+            matches!(
+                result.steps[1].status.status,
+                ResultStatus::UnableToCompute { .. }
+            ),
+            "E = {}: got {:?}",
+            claimed,
+            result.steps[1].status.status
+        );
+        assert!(
+            result.steps[1]
+                .status
+                .caveats
+                .iter()
+                .any(|c| c.code == arithma::status::caveat_codes::CATASTROPHIC_CANCELLATION),
+            "E = {}: the refusal must name the mechanism",
+            claimed
+        );
+        // The bound is the domain of this non-certificate — publish it.
+        assert!(
+            result.steps[1]
+                .status
+                .to_json()
+                .get("error_bound")
+                .is_some(),
+            "E = {}: refusal must publish the bound it refused over",
+            claimed
+        );
+    }
+}
+
+#[test]
+fn swamped_trig_bound_is_inconclusive_not_verified() {
+    // sin(10²⁰): the argument-reduction intrinsic makes the bound ≈ 2.2e4
+    // on a quantity in [−1, 1]. Before the gate, sin(10²⁰) = 42 passed as
+    // `verified`. The comparison cannot resolve anything at that scale —
+    // Inconclusive, never a certificate.
+    for claimed in ["42", "1000", "0"] {
+        let steps = vec![
+            eq_step("huge-arg", "\\sin(10^{20})"),
+            eq_step("claim", claimed),
+        ];
+        let result = verify_chain(&steps, &Environment::new()).unwrap();
+        assert_eq!(
+            result.steps[1].verdict,
+            Verdict::Inconclusive,
+            "sin(10^20) = {} must be refused",
+            claimed
+        );
+    }
+    // Control: a claim OUTSIDE the swamped interval is still refutable —
+    // the gate compares the bound to the claim's own scale.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(10^{20})"),
+        eq_step("claim", "10^9"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn bounded_constant_pass_is_approximate_with_published_bound() {
+    // F2: a pass whose entire evidence is one f64 evaluation agreeing
+    // within a rounding bound is the paradigm case for `approximate` —
+    // reporting it as `verified` is a tier over-claim. The digits count
+    // states what the comparison resolved at its scale, and the bound
+    // itself is published: the bound is the domain of the certificate.
+    let steps = vec![
+        eq_step("start", "\\sin(2 \\cdot \\pi)"),
+        eq_step("zero", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    match result.steps[1].status.status {
+        ResultStatus::Approximate { significant_digits } => {
+            let d = significant_digits.expect("digits tracked for constants");
+            assert!(d >= 10, "digits: {}", d);
+        }
+        ref other => panic!("expected Approximate, got {:?}", other),
+    }
+    let json = result.steps[1].status.to_json();
+    assert!(
+        json.get("error_bound").is_some(),
+        "the pass certificate must publish the bound it passed within"
+    );
+}
+
+#[test]
+fn margin_band_is_inconclusive_never_a_pass() {
+    // The 4× refutation margin exists to prevent false disproofs. A margin
+    // is not symmetric: it must widen REFUSAL, never agreement. The band
+    // (bound, 4·bound] means "too uncertain to refute" — scoring it as
+    // PASS manufactured a certificate asserting a bound it did not
+    // enforce: sin(4e14) = 0.397 passed with caveat "±8.88e-2" while the
+    // actual disagreement was 0.350. Three-way outcome: agreement inside
+    // the bound passes, the margin band is Inconclusive, only clearing
+    // 4× the bound refutes. A PASS must mean what its caveat says.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(400000000000000)"),
+        eq_step("claim", "0.397"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(
+        result.steps[1].verdict,
+        Verdict::Inconclusive,
+        "the margin band must refuse, not confirm"
+    );
     assert!(matches!(
-        result.status.status,
-        ResultStatus::Verified { .. }
+        result.steps[1].status.status,
+        ResultStatus::UnableToCompute { .. }
     ));
+    // The bound is still published on the refusal.
+    assert!(result.steps[1]
+        .status
+        .to_json()
+        .get("error_bound")
+        .is_some());
+
+    // The three-way boundaries hold the flagship rows: agreement INSIDE
+    // the bound still passes...
+    let steps = vec![
+        eq_step("start", "\\sin(2 \\cdot \\pi)"),
+        eq_step("zero", "0"),
+    ];
+    assert_eq!(
+        verify_chain(&steps, &Environment::new()).unwrap().verdict,
+        Verdict::Pass
+    );
+    // ...and disagreement beyond 4× the bound still refutes.
+    let steps = vec![eq_step("start", "e^{-50}"), eq_step("zero", "0")];
+    assert_eq!(
+        verify_chain(&steps, &Environment::new()).unwrap().verdict,
+        Verdict::Fail
+    );
+}
+
+#[test]
+fn refusal_codes_name_their_actual_mechanism() {
+    use arithma::status::caveat_codes;
+    // Cancellation noise: a subtraction destroyed the digits — rewritable,
+    // and the code says cancellation.
+    let steps = vec![
+        eq_step("noise", "\\frac{1 - \\cos(10^{-8})}{(10^{-8})^2}"),
+        eq_step("claim", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(result.steps[1]
+        .status
+        .caveats
+        .iter()
+        .any(|c| c.code == caveat_codes::CATASTROPHIC_CANCELLATION));
+
+    // sin(10^20): no subtraction anywhere — the code must NOT claim
+    // cancellation; the digits died of argument-magnitude
+    // ill-conditioning, which no rewrite recovers.
+    let steps = vec![eq_step("huge", "\\sin(10^{20})"), eq_step("claim", "42")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::ILL_CONDITIONED),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+    assert!(!result.steps[1]
+        .status
+        .caveats
+        .iter()
+        .any(|c| c.code == caveat_codes::CATASTROPHIC_CANCELLATION));
+
+    // The margin band is an outcome; every outcome carries a code.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(400000000000000)"),
+        eq_step("claim", "0.397"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::MARGIN_BAND),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+
+    // Binder-capture refusal carries its code, not just prose.
+    let steps = vec![
+        eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
+        rel_step(
+            "sub",
+            "6 \\cdot k",
+            Relation::Substitution,
+            Some("x"),
+            Some("k"),
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::BINDER_CAPTURE),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+}
+
+#[test]
+fn bounded_pass_has_one_code_regardless_of_exact_f64_agreement() {
+    use arithma::status::caveat_codes;
+    // diff == 0.0 is a coincidence of rounding, not a category — and an
+    // exactly-zero difference between float computations is the signature
+    // of TOTAL cancellation, the case to trust least. It must not draw a
+    // more reassuring code than ordinary sub-resolution agreement.
+    let steps = vec![eq_step("start", "\\cos(0)"), eq_step("one", "1")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::SUB_RESOLUTION),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+}
+
+#[test]
+fn near_root_membership_tier_matches_its_own_caveat() {
+    // A float near-root passes solution_of as APPROXIMATE membership — and
+    // the tier must say approximate, because the min-rule reads the tier,
+    // not the prose. Formerly: status verified(1) beside a caveat saying
+    // "approximate membership" — a payload contradicting itself.
+    let steps = vec![
+        eq_step("eq", "x^2 = 2"),
+        rel_step(
+            "near-root",
+            "x = 1.4142135623",
+            Relation::SolutionOf,
+            None,
+            None,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Pass);
+    assert!(
+        matches!(
+            result.steps[1].status.status,
+            ResultStatus::Approximate { .. }
+        ),
+        "tier must agree with the approximate-membership caveat, got {:?}",
+        result.steps[1].status.status
+    );
 }
 
 #[test]
@@ -759,7 +1044,7 @@ fn probe_one_sided_undefinedness_is_a_domain_refutation() {
             .status
             .caveats
             .iter()
-            .any(|c| c.contains("domain")),
+            .any(|c| c.code == arithma::status::caveat_codes::DOMAIN_MISMATCH),
         "expected a domain caveat, got: {:?}",
         result.steps[1].status.caveats
     );
@@ -885,14 +1170,16 @@ fn finding7_float_valued_solution_of_does_not_claim_membership() {
     let result = verify_chain(&steps, &Environment::new()).unwrap();
     let caveats = &result.steps[1].status.caveats;
     assert!(
-        !caveats.iter().any(|c| c.contains("membership verified")),
+        !caveats
+            .iter()
+            .any(|c| c.message.contains("membership verified")),
         "float near-root must not earn the membership sentence: {:?}",
         caveats
     );
     assert!(
         caveats
             .iter()
-            .any(|c| c.contains("approximate") || c.contains("floating-point")),
+            .any(|c| c.code == arithma::status::caveat_codes::F64_PRECISION),
         "expected an approximate-membership caveat, got: {:?}",
         caveats
     );

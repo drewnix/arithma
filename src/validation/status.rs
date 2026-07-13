@@ -30,6 +30,100 @@ use crate::simplify::Simplifiable;
 use crate::verify::verify_identity;
 use num_traits::One;
 
+/// Stable machine codes for caveats. Consumers switch on these; the prose
+/// message beside each code is for humans and carries NO contract — it may
+/// be reworded at any time without a schema version bump. Codes are
+/// `&'static str` constants on purpose: a caveat cannot be constructed with
+/// an ad-hoc code that no consumer has ever heard of.
+///
+/// Registry discipline: adding a code is additive (consumers ignore unknown
+/// codes); renaming or removing one is a breaking schema change.
+pub mod caveat_codes {
+    /// Result computed in f64 floating point; exactness not claimed.
+    pub const F64_PRECISION: &str = "f64_precision";
+    /// An independent recomputation disagreed with the result — the tool's
+    /// own output is under suspicion (simplify self-check, integration
+    /// round-trip, factor/inverse multiply-back).
+    pub const SELF_CHECK_FAILED: &str = "self_check_failed";
+    /// The independent check could not be run at all; the result is
+    /// unvalidated, not contradicted.
+    pub const CHECK_UNAVAILABLE: &str = "check_unavailable";
+    /// The independent check ran but its sampling was insufficient to
+    /// conclude anything.
+    pub const CHECK_INCONCLUSIVE: &str = "check_inconclusive";
+    /// A symbolic claim with no numeric corroboration path.
+    pub const NOT_CORROBORATED: &str = "not_corroborated";
+    /// Numeric samples agree with the claim along the approach path.
+    pub const CORROBORATED: &str = "corroborated";
+    /// Samples move toward the claim but too slowly to land within
+    /// tolerance — consistent, not confirming.
+    pub const SLOW_CONVERGENCE: &str = "slow_convergence";
+    /// Numeric samples contradict the claim.
+    pub const CORROBORATION_FAILED: &str = "corroboration_failed";
+    /// One side of a comparison was undefined at some sample points;
+    /// values were compared only where both sides are defined.
+    pub const DOMAIN_MISMATCH: &str = "domain_mismatch";
+    /// A series or expansion result is truncated at a stated order.
+    pub const TRUNCATION: &str = "truncation";
+    /// Two constants agree only below the resolution of the numeric
+    /// comparison — the agreement is an absence of evidence, not evidence.
+    pub const SUB_RESOLUTION: &str = "sub_resolution";
+    /// Subtractive cancellation destroyed the significant digits of the
+    /// result. Often remediable: an algebraic rewrite of the subtraction
+    /// (e.g. 1 − cos x = 2sin²(x/2)) can recover the value.
+    pub const CATASTROPHIC_CANCELLATION: &str = "catastrophic_cancellation";
+    /// The computation is ill-conditioned at this input (e.g. trig
+    /// argument reduction at huge arguments): the digits are lost to the
+    /// condition number itself, and NO rewrite recovers them in f64.
+    pub const ILL_CONDITIONED: &str = "ill_conditioned";
+    /// The disagreement lies inside the refutation safety margin — larger
+    /// than the error bound, smaller than the refutation threshold; too
+    /// uncertain to confirm or refute.
+    pub const MARGIN_BAND: &str = "margin_band";
+    /// A substitution was refused because it would capture a bound
+    /// summation/product index.
+    pub const BINDER_CAPTURE: &str = "binder_capture";
+    /// The solver could not produce the solutions the check needed — a
+    /// limitation of the solver, not a theorem about the equations.
+    pub const SOLVER_INCOMPLETE: &str = "solver_incomplete";
+    /// An expression the check needed could not be evaluated numerically.
+    pub const NOT_EVALUABLE: &str = "not_evaluable";
+    /// The sampler could not gather enough valid test points to conclude
+    /// anything.
+    pub const INSUFFICIENT_SAMPLING: &str = "insufficient_sampling";
+    /// An `exact` claim reached the tool boundary without a checked
+    /// certificate and was downgraded to `heuristic`.
+    pub const UNCERTIFIED_EXACT: &str = "uncertified_exact";
+    /// Disagreement was established in exact rational arithmetic — a
+    /// disproof, not a tolerance judgement.
+    pub const EXACT_DISAGREEMENT: &str = "exact_disagreement";
+    /// Complex quantities are expressed symbolically with `i` as a symbol.
+    pub const SYMBOLIC_IMAGINARY: &str = "symbolic_imaginary";
+    /// A structural property of the chain (anchors, degenerate shapes),
+    /// not a judgement about any single step's mathematics.
+    pub const CHAIN_STRUCTURE: &str = "chain_structure";
+    /// The evaluation returned a simplified-but-unevaluated form instead
+    /// of a value.
+    pub const UNEVALUATED: &str = "unevaluated";
+    /// A statement of what the check's method does and does not certify
+    /// (scope of the evidence, not a defect in it).
+    pub const METHOD_SCOPE: &str = "method_scope";
+    /// Complex solutions were omitted from a real-valued comparison.
+    pub const COMPLEX_OMITTED: &str = "complex_omitted";
+    /// The specific witness of a disagreement, in prose, beside the
+    /// structured counterexample.
+    pub const DISAGREEMENT_WITNESS: &str = "disagreement_witness";
+}
+
+/// A caveat: a stable machine `code` from [`caveat_codes`] plus a human
+/// `message`. Orthogonal to the evidence class — domain restrictions,
+/// precision notes, corroboration outcomes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Caveat {
+    pub code: &'static str,
+    pub message: String,
+}
+
 /// A checkable receipt proving that a result is exact. The tool boundary
 /// grants `exact` only after verifying that a certificate exists and has
 /// been checked. Finding is hard, checking is easy — every checker is
@@ -148,6 +242,12 @@ pub enum ResultStatus {
     /// Independently checked numerically at `points_tested` points. Evidence,
     /// not proof.
     Verified { points_tested: usize },
+    /// A floating-point value, correct only to `significant_digits` leading
+    /// decimal digits (from first-order error propagation; `None` when no
+    /// bound could be computed). Weaker than `verified` — nothing checked
+    /// it independently — but stronger than `heuristic`: its precision is
+    /// stated rather than unknown.
+    Approximate { significant_digits: Option<u32> },
     /// Transformation believed sound but not independently verified.
     Heuristic,
     /// The request was understood but no answer could be produced.
@@ -185,7 +285,7 @@ impl Verdict {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatusReport {
     pub status: ResultStatus,
-    pub caveats: Vec<String>,
+    pub caveats: Vec<Caveat>,
     /// Present for verdict-shaped tools; `None` for tools whose result is
     /// an expression rather than a claim.
     pub verdict: Option<Verdict>,
@@ -203,6 +303,12 @@ pub struct StatusReport {
     /// by replaying a cheap check. At the tool boundary, exact without a
     /// checked certificate is downgraded to heuristic.
     certificate: Option<Certificate>,
+    /// Present when a bounded numeric comparison ran: the propagated
+    /// absolute floating-point error bound the outcome was judged against.
+    /// The bound is the DOMAIN of the outcome — a pass certifies agreement
+    /// only within ±bound — so it is published, machine-readable, on every
+    /// outcome the bounded mechanism produces.
+    error_bound: Option<f64>,
 }
 
 impl StatusReport {
@@ -216,6 +322,10 @@ impl StatusReport {
 
     pub fn verified(points_tested: usize) -> Self {
         Self::new(ResultStatus::Verified { points_tested })
+    }
+
+    pub fn approximate(significant_digits: Option<u32>) -> Self {
+        Self::new(ResultStatus::Approximate { significant_digits })
     }
 
     pub fn heuristic() -> Self {
@@ -240,6 +350,7 @@ impl StatusReport {
             counterexample: None,
             special_form: None,
             certificate: None,
+            error_bound: None,
         }
     }
 
@@ -256,8 +367,22 @@ impl StatusReport {
         self
     }
 
-    pub fn with_caveat(mut self, caveat: &str) -> Self {
-        self.caveats.push(caveat.to_string());
+    /// Attach a caveat: a stable machine code from [`caveat_codes`] plus a
+    /// human-readable message. The `&'static str` code type is the registry
+    /// discipline — free-form codes cannot be constructed at call sites.
+    pub fn with_caveat(mut self, code: &'static str, message: &str) -> Self {
+        self.caveats.push(Caveat {
+            code,
+            message: message.to_string(),
+        });
+        self
+    }
+
+    /// Attach the propagated error bound a bounded comparison was judged
+    /// against. Published on every outcome — pass, fail, or refusal — per
+    /// the name-the-domain discipline.
+    pub fn with_error_bound(mut self, bound: f64) -> Self {
+        self.error_bound = Some(bound);
         self
     }
 
@@ -318,13 +443,23 @@ impl StatusReport {
                 }
                 _ => {
                     obj["status"] = json!("heuristic");
-                    obj["caveats"] = json!(["uncertified exact result — no certificate"]);
+                    obj["caveats"] = json!([{
+                        "code": caveat_codes::UNCERTIFIED_EXACT,
+                        "message": "uncertified exact result — no certificate",
+                    }]);
                     return obj;
                 }
             },
             ResultStatus::Verified { points_tested } => {
                 obj["status"] = json!("verified");
                 obj["points_tested"] = json!(points_tested);
+            }
+            ResultStatus::Approximate { significant_digits } => {
+                obj["status"] = json!("approximate");
+                // An untracked bound must not default into a number.
+                if let Some(digits) = significant_digits {
+                    obj["significant_digits"] = json!(digits);
+                }
             }
             ResultStatus::Heuristic => {
                 obj["status"] = json!("heuristic");
@@ -342,16 +477,34 @@ impl StatusReport {
             obj["verdict"] = json!(v.as_str());
         }
         if !self.caveats.is_empty() {
-            obj["caveats"] = json!(self.caveats);
+            obj["caveats"] = Value::Array(
+                self.caveats
+                    .iter()
+                    .map(|c| json!({ "code": c.code, "message": c.message }))
+                    .collect(),
+            );
         }
         if let Some(cx) = &self.counterexample {
             obj["counterexample"] = cx.clone();
+        }
+        if let Some(bound) = &self.error_bound {
+            obj["error_bound"] = json!(bound);
         }
         if let Some((function, form)) = &self.special_form {
             obj["special_function"] = json!(function);
             obj["special_form"] = json!(form);
         }
         obj
+    }
+
+    /// Human-readable caveat messages joined for prose rendering. Markers
+    /// and sentence renderers show messages only — codes are for machines.
+    pub fn caveat_messages(&self) -> String {
+        self.caveats
+            .iter()
+            .map(|c| c.message.as_str())
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     /// Text marker for non-exact statuses. `exact` is quiet (unmarked
@@ -372,15 +525,27 @@ impl StatusReport {
                 let detail = if self.caveats.is_empty() {
                     format!("numeric evidence, {} points — not proof", points_tested)
                 } else {
-                    format!("{} points — {}", points_tested, self.caveats.join("; "))
+                    format!("{} points — {}", points_tested, self.caveat_messages())
                 };
                 Some(format!("[verified] {}", detail))
+            }
+            ResultStatus::Approximate { significant_digits } => {
+                let precision = match significant_digits {
+                    Some(d) => format!("~{} significant digits", d),
+                    None => "precision not tracked".to_string(),
+                };
+                let detail = if self.caveats.is_empty() {
+                    precision
+                } else {
+                    format!("{} — {}", precision, self.caveat_messages())
+                };
+                Some(format!("[approximate] floating-point result, {}", detail))
             }
             ResultStatus::Heuristic => {
                 let detail = if self.caveats.is_empty() {
                     "result not independently verified".to_string()
                 } else {
-                    self.caveats.join("; ")
+                    self.caveat_messages()
                 };
                 Some(format!("[heuristic] {}", detail))
             }
@@ -394,7 +559,7 @@ impl StatusReport {
                     Some(format!(
                         "[unable to compute] {} — {}",
                         reason,
-                        self.caveats.join("; ")
+                        self.caveat_messages()
                     ))
                 }
             }
@@ -545,20 +710,26 @@ fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> Sta
             .iter()
             .map(|(v, val)| format!("{}={}", v, val))
             .collect();
-        return StatusReport::heuristic().with_caveat(&format!(
-            "numeric {} FAILED at {}: lhs={}, rhs={} — treat result with suspicion",
-            context,
-            point.join(", "),
-            cx.lhs_value,
-            cx.rhs_value
-        ));
+        return StatusReport::heuristic().with_caveat(
+            caveat_codes::SELF_CHECK_FAILED,
+            &format!(
+                "numeric {} FAILED at {}: lhs={}, rhs={} — treat result with suspicion",
+                context,
+                point.join(", "),
+                cx.lhs_value,
+                cx.rhs_value
+            ),
+        );
     }
     if result.insufficient_points {
-        return StatusReport::heuristic().with_caveat(&format!(
-            "numeric {} inconclusive ({})",
-            context,
-            result.insufficiency_reason()
-        ));
+        return StatusReport::heuristic().with_caveat(
+            caveat_codes::CHECK_INCONCLUSIVE,
+            &format!(
+                "numeric {} inconclusive ({})",
+                context,
+                result.insufficiency_reason()
+            ),
+        );
     }
     StatusReport::verified(result.points_tested)
 }
@@ -571,11 +742,15 @@ fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> Sta
 pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
     if result.insufficient_points {
         return StatusReport::unable_to_compute(&result.insufficiency_reason())
+            .with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid sample points to conclude anything",
+            )
             .with_verdict(Verdict::Inconclusive);
     }
     let mut report = StatusReport::verified(result.points_tested);
     if result.domain_mismatches > 0 {
-        report = report.with_caveat(&format!(
+        report = report.with_caveat(caveat_codes::DOMAIN_MISMATCH, &format!(
             "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
             result.domain_mismatches,
             if result.domain_mismatches == 1 { "" } else { "s" }
@@ -626,8 +801,10 @@ pub fn classify_limit(
     use crate::limits::{parse_limit_point, LimitDirection, LimitPoint};
 
     let not_corroborated = || {
-        StatusReport::heuristic()
-            .with_caveat("symbolic limit; not numerically corroborated along the approach path")
+        StatusReport::heuristic().with_caveat(
+            caveat_codes::NOT_CORROBORATED,
+            "symbolic limit; not numerically corroborated along the approach path",
+        )
     };
 
     let (point, direction) = match parse_limit_point(point_str) {
@@ -775,12 +952,16 @@ pub fn classify_limit(
     };
 
     match outcome {
-        Corroboration::Confirmed => StatusReport::verified(n)
-            .with_caveat("corroborated numerically along the approach path"),
+        Corroboration::Confirmed => StatusReport::verified(n).with_caveat(
+            caveat_codes::CORROBORATED,
+            "corroborated numerically along the approach path",
+        ),
         Corroboration::SlowButConsistent => StatusReport::heuristic().with_caveat(
+            caveat_codes::SLOW_CONVERGENCE,
             "samples move toward the claimed limit but too slowly to corroborate within tolerance",
         ),
         Corroboration::Contradicted => StatusReport::heuristic().with_caveat(
+            caveat_codes::CORROBORATION_FAILED,
             "numeric corroboration FAILED: samples along the approach path do not converge to the claimed limit — treat result with suspicion",
         ),
     }
@@ -801,8 +982,10 @@ pub fn classify_integral(
     let derivative = match differentiate(antiderivative, var) {
         Ok(d) => d,
         Err(e) => {
-            return StatusReport::heuristic()
-                .with_caveat(&format!("round-trip check unavailable: {}", e))
+            return StatusReport::heuristic().with_caveat(
+                caveat_codes::CHECK_UNAVAILABLE,
+                &format!("round-trip check unavailable: {}", e),
+            )
         }
     };
     let derivative = derivative.simplify(env).unwrap_or(derivative);

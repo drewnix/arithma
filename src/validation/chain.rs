@@ -21,7 +21,9 @@ use crate::environment::Environment;
 use crate::node::Node;
 use crate::simplify::Simplifiable;
 pub use crate::status::Verdict;
-use crate::status::{free_variables, is_algebraic_exact, Certificate, ResultStatus, StatusReport};
+use crate::status::{
+    caveat_codes, free_variables, is_algebraic_exact, Certificate, ResultStatus, StatusReport,
+};
 use crate::verify::verify_identity;
 
 /// The relation a step declares to its predecessor.
@@ -127,8 +129,11 @@ pub struct ChainResult {
 /// Evidence rank for the min-across-steps rule. Higher is stronger.
 fn rank(status: &ResultStatus) -> u8 {
     match status {
-        ResultStatus::Exact => 4,
-        ResultStatus::Verified { .. } => 3,
+        ResultStatus::Exact => 5,
+        ResultStatus::Verified { .. } => 4,
+        // Weaker than verified (nothing independent checked it), stronger
+        // than heuristic (its precision is stated, not unknown).
+        ResultStatus::Approximate { .. } => 3,
         ResultStatus::Heuristic => 2,
         ResultStatus::UnableToCompute { .. } => 1,
         ResultStatus::ProvablyImpossible { .. } => 0,
@@ -202,7 +207,10 @@ pub fn verify_chain(steps: &[ChainStepInput], env: &Environment) -> Result<Chain
         (None, Some(i)) => results[i].status.clone(),
         (None, None) => {
             StatusReport::exact(Certificate::by_construction("anchor — no claim to check"))
-                .with_caveat("anchor only; a one-step chain contains no relations to verify")
+                .with_caveat(
+                    caveat_codes::CHAIN_STRUCTURE,
+                    "anchor only; a one-step chain contains no relations to verify",
+                )
         }
     };
 
@@ -357,11 +365,14 @@ fn compare_constructed_derivative(
                 .unwrap_or_else(|| "no witness recorded".to_string());
             CheckedStep {
                 verdict: Verdict::Inconclusive,
-                status: raw.status.with_caveat(&format!(
-                    "the simplified derivative disagreed with the claimed step at {}; \
+                status: raw.status.with_caveat(
+                    caveat_codes::CHECK_INCONCLUSIVE,
+                    &format!(
+                        "the simplified derivative disagreed with the claimed step at {}; \
                      a refutation through an unverified simplification is not certified",
-                    witness
-                )),
+                        witness
+                    ),
+                ),
                 mechanism: format!("simplify+{}", retried.mechanism),
             }
         }
@@ -438,7 +449,10 @@ fn capture_aware_substitute(
         Ok(n) => Ok(SubstOutcome::Node(n)),
         Err(e) if e.contains("capture") => Ok(SubstOutcome::Refused(Box::new(CheckedStep {
             verdict: Verdict::Inconclusive,
-            status: StatusReport::unable_to_compute(&e),
+            status: StatusReport::unable_to_compute(&e).with_caveat(
+                caveat_codes::BINDER_CAPTURE,
+                "the substitution would capture a bound summation/product index",
+            ),
             mechanism: mechanism.to_string(),
         }))),
         Err(e) => Err(format!("substitution failed: {}", e)),
@@ -501,7 +515,11 @@ fn check_equation_equals(
                 status: StatusReport::unable_to_compute(&format!(
                     "could not solve both equations for {} to compare solution sets; use 'implies' for one-directional checks or 'solution_of' for a specific root",
                     var
-                )),
+                ))
+                .with_caveat(
+                    caveat_codes::SOLVER_INCOMPLETE,
+                    "the solver could not produce the solution sets the comparison needs",
+                ),
                 mechanism,
             })
         }
@@ -518,18 +536,23 @@ fn check_equation_equals(
 
     if set_a.keys().eq(set_b.keys()) {
         let mut status = StatusReport::verified(set_a.len().max(1)).with_caveat(
+            caveat_codes::METHOD_SCOPE,
             "equations compared by solution set as computed by the solver — capped at verified (solver completeness is not proven)",
         );
         if set_a.is_empty() {
             status = status.with_caveat(
+                caveat_codes::METHOD_SCOPE,
                 "both equations have empty solution sets as far as the solver can find",
             );
         }
         if sa.complex_omitted != sb.complex_omitted {
-            status = status.with_caveat(&format!(
-                "complex solutions omitted from the comparison: {} vs {}",
-                sa.complex_omitted, sb.complex_omitted
-            ));
+            status = status.with_caveat(
+                caveat_codes::COMPLEX_OMITTED,
+                &format!(
+                    "complex solutions omitted from the comparison: {} vs {}",
+                    sa.complex_omitted, sb.complex_omitted
+                ),
+            );
         }
         return Ok(CheckedStep {
             verdict: Verdict::Pass,
@@ -552,11 +575,13 @@ fn check_equation_equals(
         })
         .expect("sets differ, symmetric difference is nonempty");
 
-    let mut status =
-        StatusReport::verified(set_a.len().max(set_b.len()).max(1)).with_caveat(&format!(
+    let mut status = StatusReport::verified(set_a.len().max(set_b.len()).max(1)).with_caveat(
+        caveat_codes::DISAGREEMENT_WITNESS,
+        &format!(
             "the equations have different solution sets: {} = {} satisfies one but not the other",
             var, witness_str
-        ));
+        ),
+    );
     if let Some((l, r)) = as_equation(lacking) {
         let lhs_val = crate::substitute::substitute_variable(l, &var, &witness)
             .map(|n| node_to_f64(&n, env))
@@ -613,6 +638,30 @@ fn check_solution_of(
 
     let mut checked = check_equals(&lhs_sub, &rhs_sub, env);
     checked.mechanism = format!("solution_substitution+{}", checked.mechanism);
+    if checked.verdict == Verdict::Fail {
+        // The error-bounded comparison correctly refutes STRICT equality
+        // for a rounded literal — but solution_of's documented semantics
+        // accept a near-root as APPROXIMATE membership: the author names a
+        // root to the precision they wrote down, and the caveat below says
+        // exactly that. The legacy tolerance decides near-ness, so the
+        // mechanism names the legacy check.
+        if let (Ok(a), Ok(b)) = (
+            crate::evaluator::Evaluator::evaluate(&lhs_sub, env),
+            crate::evaluator::Evaluator::evaluate(&rhs_sub, env),
+        ) {
+            if a.is_finite() && b.is_finite() && crate::verify::values_match(a, b) {
+                checked = CheckedStep {
+                    verdict: Verdict::Pass,
+                    // Approximate membership must carry the approximate
+                    // TIER — the min-rule reads the tier, not the caveat
+                    // prose. No digits claim: the legacy tolerance carries
+                    // no propagated bound.
+                    status: StatusReport::approximate(None),
+                    mechanism: "solution_substitution+numeric_constant_eval".to_string(),
+                };
+            }
+        }
+    }
     if checked.verdict == Verdict::Pass {
         // The membership sentence is earned only by exact arithmetic. A
         // float value agreeing within f64 tolerance is a near-root, and a
@@ -620,10 +669,12 @@ fn check_solution_of(
         // approximate, never "verified".
         checked.status = if matches!(checked.status.status, ResultStatus::Exact) {
             checked.status.with_caveat(
+                caveat_codes::METHOD_SCOPE,
                 "solution membership verified; completeness of the solution set is not claimed",
             )
         } else {
             checked.status.with_caveat(
+                caveat_codes::F64_PRECISION,
                 "agreement within floating-point tolerance only — approximate membership, not verified as an exact root; supply an exact value (fraction or radical) for exact membership verification",
             )
         };
@@ -674,7 +725,11 @@ fn check_implies(
                 status: StatusReport::unable_to_compute(&format!(
                     "could not solve the antecedent for {}: {}",
                     var, e
-                )),
+                ))
+                .with_caveat(
+                    caveat_codes::SOLVER_INCOMPLETE,
+                    "the solver could not solve the antecedent",
+                ),
                 mechanism,
             })
         }
@@ -686,6 +741,10 @@ fn check_implies(
             verdict: Verdict::Inconclusive,
             status: StatusReport::unable_to_compute(
                 "the antecedent has no solutions the solver can find; implication is vacuous as far as checked",
+            )
+            .with_caveat(
+                caveat_codes::SOLVER_INCOMPLETE,
+                "no antecedent solutions found; vacuous as far as checked",
             ),
             mechanism,
         });
@@ -709,10 +768,13 @@ fn check_implies(
                 // This solution of the antecedent violates the consequent:
                 // the implication is refuted, and the solution is the
                 // diagnosis.
-                let mut status = StatusReport::verified(checked_count + 1).with_caveat(&format!(
-                    "the antecedent solution {} = {} does not satisfy the consequent",
-                    var, sol
-                ));
+                let mut status = StatusReport::verified(checked_count + 1).with_caveat(
+                    caveat_codes::DISAGREEMENT_WITNESS,
+                    &format!(
+                        "the antecedent solution {} = {} does not satisfy the consequent",
+                        var, sol
+                    ),
+                );
                 // Prefer the inner check's counterexample — for parametric
                 // solutions it carries actual numbers where a direct f64
                 // rendering of the symbolic solution would serialize as
@@ -745,7 +807,11 @@ fn check_implies(
                     status: StatusReport::unable_to_compute(&format!(
                         "could not evaluate the consequent at the antecedent solution {} = {}",
                         var, sol
-                    )),
+                    ))
+                    .with_caveat(
+                        caveat_codes::NOT_EVALUABLE,
+                        "the consequent could not be evaluated at a checked point",
+                    ),
                     mechanism,
                 })
             }
@@ -753,14 +819,18 @@ fn check_implies(
     }
 
     let mut status = StatusReport::verified(checked_count).with_caveat(
+        caveat_codes::METHOD_SCOPE,
         "implication checked at the antecedent's solutions — evidence, not proof; capped at verified by design",
     );
     if solved.complex_omitted > 0 {
-        status = status.with_caveat(&format!(
-            "{} complex solution{} of the antecedent omitted from the check",
-            solved.complex_omitted,
-            if solved.complex_omitted == 1 { "" } else { "s" }
-        ));
+        status = status.with_caveat(
+            caveat_codes::COMPLEX_OMITTED,
+            &format!(
+                "{} complex solution{} of the antecedent omitted from the check",
+                solved.complex_omitted,
+                if solved.complex_omitted == 1 { "" } else { "s" }
+            ),
+        );
     }
     Ok(CheckedStep {
         verdict: Verdict::Pass,
@@ -1016,7 +1086,10 @@ fn exact_rational_check(
                 status: StatusReport::exact(Certificate::by_construction(
                     "exact_constant_eval — constants differ in exact rational arithmetic",
                 ))
-                .with_caveat("constants differ in exact rational arithmetic")
+                .with_caveat(
+                    caveat_codes::EXACT_DISAGREEMENT,
+                    "constants differ in exact rational arithmetic",
+                )
                 .with_counterexample_value(exact_counterexample_json(&[], &a, &b)),
                 mechanism,
             };
@@ -1093,6 +1166,7 @@ fn exact_rational_check(
                                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                                     ))
                                     .with_caveat(
+                                        caveat_codes::EXACT_DISAGREEMENT,
                                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                                     )
                                     .with_counterexample_value(exact_counterexample_json(
@@ -1133,6 +1207,7 @@ fn exact_rational_check(
                         "interpolation_identity_Q",
                         "exact evaluation on a grid exceeding the degree bound (polynomial identity theorem)",
                     )).with_caveat(
+                        caveat_codes::METHOD_SCOPE,
                         "equality in the rational function field, decided by exact evaluation on a grid exceeding the degree bound of the difference (polynomial identity theorem)",
                     ),
                     mechanism: "interpolation_identity_Q".to_string(),
@@ -1189,6 +1264,7 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
                         "disagreement established in exact rational arithmetic — a disproof",
                     ))
                     .with_caveat(
+                        caveat_codes::EXACT_DISAGREEMENT,
                         "disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement",
                     )
                     .with_counterexample_value(exact_counterexample_json(&point_values, &a, &b)),
@@ -1208,13 +1284,18 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
                 tested,
                 if tested == 1 { "" } else { "s" },
                 crate::verify::MIN_POINTS_FOR_PASS
-            )),
+            ))
+            .with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid exact test points to conclude anything",
+            ),
             mechanism,
         };
     }
     CheckedStep {
         verdict: Verdict::Pass,
         status: StatusReport::verified(tested).with_caveat(
+            caveat_codes::METHOD_SCOPE,
             "agreement established by exact rational evaluation (no floating-point tolerance), but at fewer points than the degree bound of the difference — evidence, not proof",
         ),
         mechanism,
@@ -1333,6 +1414,136 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     // same point twelve times as twelve (evidence inflation).
     if vars.is_empty() {
         let env_pt = Environment::new();
+
+        // Preferred path: measure the disagreement against the PROPAGATED
+        // floating-point error bound of the two computations instead of a
+        // fixed tolerance. A fixed tolerance cannot tell e^{-50} = 0
+        // (difference 1.9e-22, bound ~1e-35: a real disagreement) from
+        // sin(2π) = 0 (difference 2.4e-16, bound ~1e-15: indistinguishable
+        // from equal); the bound holds both verdicts correctly.
+        if let (Ok((av, ae, a_cancel)), Ok((bv, be, b_cancel))) = (
+            crate::error_eval::evaluate_with_error_traced(lhs, &env_pt),
+            crate::error_eval::evaluate_with_error_traced(rhs, &env_pt),
+        ) {
+            let mechanism = "numeric_constant_eval_bounded".to_string();
+            let diff = (av - bv).abs();
+            let bound = ae + be;
+
+            // Resolution gate. The bound is the DOMAIN of any outcome here:
+            // a pass certifies agreement only within ±bound, so if the
+            // bound swamps the scale of the comparison, `diff <= bound` is
+            // satisfied by almost any claim and certifies nothing —
+            // (1−cos 10⁻⁸)/10⁻¹⁶ "equals" 0 AND 1, sin(10²⁰) "equals" 42.
+            // This is the same gate evaluate() applies before publishing a
+            // value (zero surviving digits = noise), expressed through the
+            // same function so the two consumers of error_eval cannot
+            // drift apart again. The unit floor on the scale is a
+            // convention this module owns: an absolute bound below 1 is
+            // accepted as resolving evidence for claims about zero
+            // (sin(2π) = 0, bound ~1e-15, is evidence; the alternative
+            // reference — input magnitudes — would bless sin(10²⁰) = 42,
+            // since the inputs there are enormous). Consumers who want a
+            // different threshold have the published bound to apply it to.
+            let scale = av.abs().max(bv.abs()).max(1.0);
+            if crate::error_eval::significant_digits(scale, bound) == 0 {
+                // The two causes of resolution loss have OPPOSITE remedies,
+                // so the code must name the actual mechanism: subtractive
+                // cancellation is often fixable by rewriting the
+                // subtraction; ill-conditioning cannot be rewritten away.
+                let (code, diagnosis) = if a_cancel || b_cancel {
+                    (
+                        caveat_codes::CATASTROPHIC_CANCELLATION,
+                        "subtractive cancellation destroyed the resolution of the comparison; an algebraic rewrite of the cancelling subtraction may recover the values",
+                    )
+                } else {
+                    (
+                        caveat_codes::ILL_CONDITIONED,
+                        "the computation is ill-conditioned at this input; the resolution is lost to the condition number itself and no rewrite recovers it in f64",
+                    )
+                };
+                return CheckedStep {
+                    verdict: Verdict::Inconclusive,
+                    status: StatusReport::unable_to_compute(&format!(
+                        "the propagated floating-point error bound (±{:.3e}) swamps the comparison scale ({:.3e}) — the computation cannot distinguish the claimed values at f64 precision",
+                        bound, scale
+                    ))
+                    .with_caveat(code, diagnosis)
+                    .with_error_bound(bound),
+                    mechanism,
+                };
+            }
+
+            // Three-way outcome. The 4× margin exists to prevent false
+            // disproofs, and a margin is not symmetric: it must widen
+            // REFUSAL, never agreement. Agreement inside the bound passes;
+            // a disagreement clearing 4× the bound refutes; the band in
+            // between means "too uncertain to refute" and is Inconclusive —
+            // scoring it as PASS would issue a certificate asserting a
+            // bound it did not enforce. A PASS means what its caveat says.
+            if diff <= bound {
+                // A pass whose entire evidence is one f64 evaluation
+                // agreeing within a rounding bound is `approximate`, not
+                // `verified` — the digits say what the comparison resolved
+                // at its scale (NOT digits of either value; see
+                // docs/result-status.md).
+                let digits = crate::error_eval::significant_digits(scale, bound);
+                // One code for every bounded pass: whether the f64
+                // difference lands on exactly 0.0 is a coincidence of
+                // rounding, not a category — and exact agreement between
+                // float computations is the signature of TOTAL
+                // cancellation, the case to trust least. It must not draw
+                // a more reassuring code.
+                let status = StatusReport::approximate(Some(digits)).with_caveat(
+                    caveat_codes::SUB_RESOLUTION,
+                    &format!(
+                        "values agree within the propagated floating-point error bound (±{:.3e}) — the comparison resolves ~{} digits at its scale; equality at f64 resolution, not proof",
+                        bound, digits
+                    ),
+                );
+                return CheckedStep {
+                    verdict: Verdict::Pass,
+                    status: status.with_error_bound(bound),
+                    mechanism,
+                };
+            }
+            if diff <= 4.0 * bound {
+                return CheckedStep {
+                    verdict: Verdict::Inconclusive,
+                    status: StatusReport::unable_to_compute(&format!(
+                        "the disagreement ({:.3e}: lhs={}, rhs={}) lies inside the refutation safety margin — larger than the error bound (±{:.3e}), smaller than the 4× refutation threshold; too uncertain to confirm or refute",
+                        diff, av, bv, bound
+                    ))
+                    .with_caveat(
+                        caveat_codes::MARGIN_BAND,
+                        "the disagreement lies inside the refutation safety margin",
+                    )
+                    .with_error_bound(bound),
+                    mechanism,
+                };
+            }
+            let cx = crate::verify::Counterexample {
+                point: Vec::new(),
+                lhs_value: av,
+                rhs_value: bv,
+            };
+            return CheckedStep {
+                verdict: Verdict::Fail,
+                status: StatusReport::verified(1)
+                    .with_caveat(
+                        caveat_codes::DISAGREEMENT_WITNESS,
+                        &format!(
+                            "the disagreement exceeds 4× the propagated floating-point error bound (±{:.3e}) — a real difference, not a rounding artifact",
+                            bound
+                        ),
+                    )
+                    .with_counterexample(&cx)
+                    .with_error_bound(bound),
+                mechanism,
+            };
+        }
+
+        // Fallback for expressions without an error model: fixed-tolerance
+        // comparison, honestly labeled.
         let mechanism = "numeric_constant_eval".to_string();
         let (a, b) = match (
             crate::evaluator::Evaluator::evaluate(lhs, &env_pt),
@@ -1344,6 +1555,10 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                     verdict: Verdict::Inconclusive,
                     status: StatusReport::unable_to_compute(
                         "variable-free comparison could not be evaluated numerically",
+                    )
+                    .with_caveat(
+                        caveat_codes::NOT_EVALUABLE,
+                        "neither side could be evaluated numerically",
                     ),
                     mechanism,
                 }
@@ -1353,6 +1568,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
             return CheckedStep {
                 verdict: Verdict::Pass,
                 status: StatusReport::verified(1).with_caveat(
+                    caveat_codes::F64_PRECISION,
                     "variable-free comparison: a single floating-point evaluation is the evidence",
                 ),
                 mechanism,
@@ -1377,7 +1593,7 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     // points is correct, hiding them is not.
     let domain_caveat = |report: StatusReport| {
         if result.domain_mismatches > 0 {
-            report.with_caveat(&format!(
+            report.with_caveat(caveat_codes::DOMAIN_MISMATCH, &format!(
                 "the expressions differ in domain at {} sample point{} (one side undefined); values compared only where both sides are defined",
                 result.domain_mismatches,
                 if result.domain_mismatches == 1 { "" } else { "s" }
@@ -1399,7 +1615,10 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     if result.insufficient_points {
         return CheckedStep {
             verdict: Verdict::Inconclusive,
-            status: StatusReport::unable_to_compute(&result.insufficiency_reason()),
+            status: StatusReport::unable_to_compute(&result.insufficiency_reason()).with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid sample points to conclude anything",
+            ),
             mechanism: "numeric_sample".to_string(),
         };
     }

@@ -273,6 +273,101 @@ fn verify_fail_carries_counterexample_in_status() {
 }
 
 #[test]
+fn result_status_reaches_typed_consumers_via_structured_content() {
+    // F3: typed MCP SDKs drop unknown TOP-LEVEL fields, so a sibling
+    // result_status never reaches them — Claude Code itself strips it.
+    // structuredContent is the standards-track surface; the sibling stays
+    // for existing raw-JSON consumers. Both must carry the same object.
+    for (tool, args) in [
+        ("simplify", json!({"expr": "x^2 + 2x + 1"})),
+        (
+            "verify",
+            json!({"expr_a": "\\sin(x)", "expr_b": "\\cos(x)"}),
+        ),
+        (
+            "verify_chain",
+            json!({"steps": [{"expr": "(x+1)^2"}, {"expr": "x^2+2x+1"}]}),
+        ),
+        ("evaluate", json!({"expr": "e^{-50}"})),
+    ] {
+        let resp = call(tool, args);
+        let sibling = &resp["result"]["result_status"];
+        let structured = &resp["result"]["structuredContent"]["result_status"];
+        assert!(!sibling.is_null(), "{}: sibling missing", tool);
+        assert_eq!(
+            structured, sibling,
+            "{}: structuredContent must mirror the sibling exactly",
+            tool
+        );
+    }
+}
+
+#[test]
+fn verify_infers_free_variables_when_omitted() {
+    // Omitting `variables` used to default to ["x"], starving the sampler
+    // for any identity in other variables (an identity in n reported
+    // "0 valid test points"). The default is now the expressions' actual
+    // free variables, binder-aware: the summation index k is bound, n is
+    // free.
+    let resp = call(
+        "verify",
+        json!({
+            "expr_a": "\\sum_{k=1}^{n} (\\frac{1}{k} - \\frac{1}{k+1})",
+            "expr_b": "1 - \\frac{1}{n+1}"
+        }),
+    );
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["verdict"], "pass", "status: {}", status);
+    assert_eq!(status["status"], "verified", "status: {}", status);
+}
+
+#[test]
+fn evaluate_unevaluated_echo_is_unable_to_compute() {
+    // F8: an unevaluated echo is not a candidate result — the request was
+    // a number and no number was produced. heuristic says "use with
+    // suspicion"; the honest status is unable_to_compute, with the
+    // simplified form preserved in the text for the caller's benefit.
+    let resp = call("evaluate", json!({"expr": "x + 1"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "unable_to_compute", "status: {}", status);
+    assert_eq!(status["caveats"][0]["code"], "unevaluated");
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("x + 1"),
+        "simplified form must still reach the caller: {}",
+        text
+    );
+}
+
+#[test]
+fn evaluate_float_path_is_approximate_with_digits() {
+    // e^{-50} is tiny but well-conditioned: ~13 trustworthy digits.
+    let resp = call("evaluate", json!({"expr": "e^{-50}"}));
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "approximate", "status: {}", status);
+    let digits = status["significant_digits"].as_u64().unwrap();
+    assert!(digits >= 10, "digits: {}", digits);
+}
+
+#[test]
+fn evaluate_catastrophic_cancellation_refuses_loudly() {
+    // (1 - cos x)/x² at x = 1e-8: f64 computes 0, true value ½. A value
+    // with zero significant digits is not a result — it must be refused
+    // with the mechanism named, never presented with a generic caveat.
+    let resp = call(
+        "evaluate",
+        json!({"expr": "\\frac{1 - \\cos(x)}{x^2}", "variables": {"x": 1e-8}}),
+    );
+    let status = &resp["result"]["result_status"];
+    assert_eq!(status["status"], "unable_to_compute", "status: {}", status);
+    assert_eq!(
+        status["caveats"][0]["code"], "catastrophic_cancellation",
+        "status: {}",
+        status
+    );
+}
+
+#[test]
 fn evaluate_exact_path_is_exact() {
     let resp = call("evaluate", json!({"expr": "2 + 2"}));
     assert_eq!(resp["result"]["result_status"]["status"], "exact");
@@ -283,8 +378,11 @@ fn taylor_series_is_exact_with_truncation_caveat() {
     let resp = call("taylor_series", json!({"expr": "e^x", "order": 3}));
     assert_eq!(resp["result"]["result_status"]["status"], "exact");
     let caveats = &resp["result"]["result_status"]["caveats"];
+    // F5 contract: caveats are {code, message} pairs — the code is the
+    // machine surface, the message the human one.
+    assert_eq!(caveats[0]["code"], "truncation", "caveats: {}", caveats);
     assert!(
-        caveats[0].as_str().unwrap().contains("order 3"),
+        caveats[0]["message"].as_str().unwrap().contains("order 3"),
         "caveats: {}",
         caveats
     );
