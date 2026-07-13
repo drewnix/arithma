@@ -645,7 +645,11 @@ fn check_solution_of(
             if a.is_finite() && b.is_finite() && crate::verify::values_match(a, b) {
                 checked = CheckedStep {
                     verdict: Verdict::Pass,
-                    status: StatusReport::verified(1),
+                    // Approximate membership must carry the approximate
+                    // TIER — the min-rule reads the tier, not the caveat
+                    // prose. No digits claim: the legacy tolerance carries
+                    // no propagated bound.
+                    status: StatusReport::approximate(None),
                     mechanism: "solution_substitution+numeric_constant_eval".to_string(),
                 };
             }
@@ -1434,14 +1438,19 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                 };
             }
 
-            // The bound is first-order; a wrongful FAIL would be a false
-            // disproof — the worst outcome — so a refutation must clear a
-            // 4× safety margin.
-            if diff <= 4.0 * bound {
+            // Three-way outcome. The 4× margin exists to prevent false
+            // disproofs, and a margin is not symmetric: it must widen
+            // REFUSAL, never agreement. Agreement inside the bound passes;
+            // a disagreement clearing 4× the bound refutes; the band in
+            // between means "too uncertain to refute" and is Inconclusive —
+            // scoring it as PASS would issue a certificate asserting a
+            // bound it did not enforce. A PASS means what its caveat says.
+            if diff <= bound {
                 // A pass whose entire evidence is one f64 evaluation
                 // agreeing within a rounding bound is `approximate`, not
                 // `verified` — the digits say what the comparison resolved
-                // at its scale.
+                // at its scale (NOT digits of either value; see
+                // docs/result-status.md).
                 let digits = crate::error_eval::significant_digits(scale, bound);
                 let status = if diff == 0.0 {
                     StatusReport::approximate(Some(digits)).with_caveat(
@@ -1455,14 +1464,25 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                     StatusReport::approximate(Some(digits)).with_caveat(
                         caveat_codes::SUB_RESOLUTION,
                         &format!(
-                            "values agree within the propagated floating-point error bound (±{:.3e}) — equality at f64 resolution, not proof",
-                            bound
+                            "values agree within the propagated floating-point error bound (±{:.3e}) — the comparison resolves ~{} digits at its scale; equality at f64 resolution, not proof",
+                            bound, digits
                         ),
                     )
                 };
                 return CheckedStep {
                     verdict: Verdict::Pass,
                     status: status.with_error_bound(bound),
+                    mechanism,
+                };
+            }
+            if diff <= 4.0 * bound {
+                return CheckedStep {
+                    verdict: Verdict::Inconclusive,
+                    status: StatusReport::unable_to_compute(&format!(
+                        "the disagreement ({:.3e}: lhs={}, rhs={}) lies inside the refutation safety margin — larger than the error bound (±{:.3e}), smaller than the 4× refutation threshold; too uncertain to confirm or refute",
+                        diff, av, bv, bound
+                    ))
+                    .with_error_bound(bound),
                     mechanism,
                 };
             }

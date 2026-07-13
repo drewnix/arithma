@@ -536,6 +536,83 @@ fn bounded_constant_pass_is_approximate_with_published_bound() {
 }
 
 #[test]
+fn margin_band_is_inconclusive_never_a_pass() {
+    // The 4× refutation margin exists to prevent false disproofs. A margin
+    // is not symmetric: it must widen REFUSAL, never agreement. The band
+    // (bound, 4·bound] means "too uncertain to refute" — scoring it as
+    // PASS manufactured a certificate asserting a bound it did not
+    // enforce: sin(4e14) = 0.397 passed with caveat "±8.88e-2" while the
+    // actual disagreement was 0.350. Three-way outcome: agreement inside
+    // the bound passes, the margin band is Inconclusive, only clearing
+    // 4× the bound refutes. A PASS must mean what its caveat says.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(400000000000000)"),
+        eq_step("claim", "0.397"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(
+        result.steps[1].verdict,
+        Verdict::Inconclusive,
+        "the margin band must refuse, not confirm"
+    );
+    assert!(matches!(
+        result.steps[1].status.status,
+        ResultStatus::UnableToCompute { .. }
+    ));
+    // The bound is still published on the refusal.
+    assert!(result.steps[1]
+        .status
+        .to_json()
+        .get("error_bound")
+        .is_some());
+
+    // The three-way boundaries hold the flagship rows: agreement INSIDE
+    // the bound still passes...
+    let steps = vec![
+        eq_step("start", "\\sin(2 \\cdot \\pi)"),
+        eq_step("zero", "0"),
+    ];
+    assert_eq!(
+        verify_chain(&steps, &Environment::new()).unwrap().verdict,
+        Verdict::Pass
+    );
+    // ...and disagreement beyond 4× the bound still refutes.
+    let steps = vec![eq_step("start", "e^{-50}"), eq_step("zero", "0")];
+    assert_eq!(
+        verify_chain(&steps, &Environment::new()).unwrap().verdict,
+        Verdict::Fail
+    );
+}
+
+#[test]
+fn near_root_membership_tier_matches_its_own_caveat() {
+    // A float near-root passes solution_of as APPROXIMATE membership — and
+    // the tier must say approximate, because the min-rule reads the tier,
+    // not the prose. Formerly: status verified(1) beside a caveat saying
+    // "approximate membership" — a payload contradicting itself.
+    let steps = vec![
+        eq_step("eq", "x^2 = 2"),
+        rel_step(
+            "near-root",
+            "x = 1.4142135623",
+            Relation::SolutionOf,
+            None,
+            None,
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.steps[1].verdict, Verdict::Pass);
+    assert!(
+        matches!(
+            result.steps[1].status.status,
+            ResultStatus::Approximate { .. }
+        ),
+        "tier must agree with the approximate-membership caveat, got {:?}",
+        result.steps[1].status.status
+    );
+}
+
+#[test]
 fn r3_substitution_refuses_binder_capture() {
     // Σ_{k=1}^{3} k·x with x := k would capture the bound index and
     // silently produce Σ k² = 14. Refusal with an explicit capture error;
