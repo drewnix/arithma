@@ -52,14 +52,35 @@ pub fn significant_digits(value: f64, bound: f64) -> u32 {
 /// points). Callers must treat `Err` as "bound unavailable", never as
 /// "bound zero".
 pub fn evaluate_with_error(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
-    let (v, e) = eval(node, env)?;
-    if !v.is_finite() || !e.is_finite() {
-        return Err("evaluation did not produce a finite value".to_string());
-    }
+    let (v, e, _) = evaluate_with_error_traced(node, env)?;
     Ok((v, e))
 }
 
-fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
+/// Like [`evaluate_with_error`], but also reports WHERE the error came
+/// from: the third element is true when subtractive cancellation occurred
+/// anywhere in the computation — an addition or subtraction whose inherited
+/// absolute error survived at or above the magnitude of what remained. The
+/// distinction routes remedies: cancellation is often fixable by an
+/// algebraic rewrite of the subtraction; ill-conditioning (flag false with
+/// zero surviving digits) cannot be rewritten away in f64 at any cost.
+pub fn evaluate_with_error_traced(
+    node: &Node,
+    env: &Environment,
+) -> Result<(f64, f64, bool), String> {
+    let (v, e, cancelled) = eval(node, env)?;
+    if !v.is_finite() || !e.is_finite() {
+        return Err("evaluation did not produce a finite value".to_string());
+    }
+    Ok((v, e, cancelled))
+}
+
+/// Cancellation signature at an add/subtract node: inherited absolute
+/// error at or above the magnitude that survived the operation.
+fn cancels(v: f64, inherited: f64) -> bool {
+    inherited > 0.0 && inherited >= v.abs()
+}
+
+fn eval(node: &Node, env: &Environment) -> Result<(f64, f64, bool), String> {
     match node {
         Node::Num(n) => {
             let v = n.to_f64();
@@ -69,77 +90,77 @@ fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
             } else {
                 v.abs() * EPS
             };
-            Ok((v, bound))
+            Ok((v, bound, false))
         }
         Node::Variable(var) => {
             if let Some(val) = env.get_exact(var) {
                 // The caller's f64 IS the input — the bound measures the
                 // algorithm's error on it, not the caller's intent.
-                Ok((val.to_f64(), 0.0))
+                Ok((val.to_f64(), 0.0, false))
             } else if var == "π" {
-                Ok((std::f64::consts::PI, std::f64::consts::PI * EPS))
+                Ok((std::f64::consts::PI, std::f64::consts::PI * EPS, false))
             } else if var == "e" {
-                Ok((std::f64::consts::E, std::f64::consts::E * EPS))
+                Ok((std::f64::consts::E, std::f64::consts::E * EPS, false))
             } else {
                 Err(format!("Variable '{}' is not defined.", var))
             }
         }
         Node::Negate(inner) => {
-            let (v, e) = eval(inner, env)?;
-            Ok((-v, e))
+            let (v, e, c) = eval(inner, env)?;
+            Ok((-v, e, c))
         }
         Node::Abs(inner) => {
-            let (v, e) = eval(inner, env)?;
-            Ok((v.abs(), e))
+            let (v, e, c) = eval(inner, env)?;
+            Ok((v.abs(), e, c))
         }
         Node::Add(l, r) => {
-            let (lv, le) = eval(l, env)?;
-            let (rv, re) = eval(r, env)?;
+            let (lv, le, lc) = eval(l, env)?;
+            let (rv, re, rc) = eval(r, env)?;
             let v = lv + rv;
-            Ok((v, le + re + v.abs() * EPS))
+            Ok((v, le + re + v.abs() * EPS, lc || rc || cancels(v, le + re)))
         }
         Node::Subtract(l, r) => {
-            let (lv, le) = eval(l, env)?;
-            let (rv, re) = eval(r, env)?;
+            let (lv, le, lc) = eval(l, env)?;
+            let (rv, re, rc) = eval(r, env)?;
             let v = lv - rv;
             // Cancellation lives here: le + re is absolute, so when
             // |v| ≪ |lv| + |rv| the bound dwarfs the value.
-            Ok((v, le + re + v.abs() * EPS))
+            Ok((v, le + re + v.abs() * EPS, lc || rc || cancels(v, le + re)))
         }
         Node::Multiply(l, r) => {
-            let (lv, le) = eval(l, env)?;
-            let (rv, re) = eval(r, env)?;
+            let (lv, le, lc) = eval(l, env)?;
+            let (rv, re, rc) = eval(r, env)?;
             let v = lv * rv;
-            Ok((v, lv.abs() * re + rv.abs() * le + v.abs() * EPS))
+            Ok((v, lv.abs() * re + rv.abs() * le + v.abs() * EPS, lc || rc))
         }
         Node::Divide(l, r) => {
-            let (lv, le) = eval(l, env)?;
-            let (rv, re) = eval(r, env)?;
+            let (lv, le, lc) = eval(l, env)?;
+            let (rv, re, rc) = eval(r, env)?;
             if rv == 0.0 {
                 return Err("division by zero".to_string());
             }
             let v = lv / rv;
-            Ok((v, (le + v.abs() * re) / rv.abs() + v.abs() * EPS))
+            Ok((v, (le + v.abs() * re) / rv.abs() + v.abs() * EPS, lc || rc))
         }
         Node::Sqrt(inner) => {
-            let (xv, xe) = eval(inner, env)?;
+            let (xv, xe, xc) = eval(inner, env)?;
             if xv < 0.0 {
                 return Err("square root of negative number".to_string());
             }
             if xv == 0.0 {
                 return if xe == 0.0 {
-                    Ok((0.0, 0.0))
+                    Ok((0.0, 0.0, xc))
                 } else {
                     // First-order breaks down at the branch point.
                     Err("no error model for sqrt at an uncertain zero".to_string())
                 };
             }
             let v = xv.sqrt();
-            Ok((v, xe / (2.0 * v) + v * EPS))
+            Ok((v, xe / (2.0 * v) + v * EPS, xc))
         }
         Node::Power(base, exp) => {
-            let (bv, be) = eval(base, env)?;
-            let (xv, xe) = eval(exp, env)?;
+            let (bv, be, bc) = eval(base, env)?;
+            let (xv, xe, xc) = eval(exp, env)?;
             // Value semantics mirror the evaluator (powf on f64).
             let v = bv.powf(xv);
             if !v.is_finite() {
@@ -166,10 +187,10 @@ fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
                 }
                 bound += (v * bv.ln()).abs() * xe;
             }
-            Ok((v, bound))
+            Ok((v, bound, bc || xc))
         }
         Node::Factorial(inner) => {
-            let (xv, xe) = eval(inner, env)?;
+            let (xv, xe, _) = eval(inner, env)?;
             if xe != 0.0 || xv.fract() != 0.0 || xv < 0.0 {
                 return Err("factorial requires an exact non-negative integer".to_string());
             }
@@ -180,12 +201,17 @@ fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
             if !v.is_finite() {
                 return Err("factorial overflow".to_string());
             }
-            Ok((v, v * EPS * (xv.max(1.0))))
+            Ok((v, v * EPS * (xv.max(1.0)), false))
         }
         Node::Summation(index_var, start, end, body) => {
             fold_range(index_var, start, end, body, env, 0.0, |acc, term| {
                 let v = acc.0 + term.0;
-                (v, acc.1 + term.1 + v.abs() * EPS)
+                let inherited = acc.1 + term.1;
+                (
+                    v,
+                    inherited + v.abs() * EPS,
+                    acc.2 || term.2 || cancels(v, inherited),
+                )
             })
         }
         Node::Product(index_var, start, end, body) => {
@@ -194,6 +220,7 @@ fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
                 (
                     v,
                     acc.0.abs() * term.1 + term.0.abs() * acc.1 + v.abs() * EPS,
+                    acc.2 || term.2,
                 )
             })
         }
@@ -201,8 +228,9 @@ fn eval(node: &Node, env: &Environment) -> Result<(f64, f64), String> {
             if args.len() != 1 {
                 return Err(format!("no error model for {}-ary function", args.len()));
             }
-            let (x, xe) = eval(&args[0], env)?;
-            unary_function(name, x, xe)
+            let (x, xe, xc) = eval(&args[0], env)?;
+            let (v, e) = unary_function(name, x, xe)?;
+            Ok((v, e, xc))
         }
         // Discontinuous, piecewise, relational, and matrix constructs have
         // no sound first-order model here. Refusing is the honest bound.
@@ -219,16 +247,16 @@ fn fold_range(
     body: &Node,
     env: &Environment,
     identity: f64,
-    combine: impl Fn((f64, f64), (f64, f64)) -> (f64, f64),
-) -> Result<(f64, f64), String> {
-    let (sv, se) = eval(start, env)?;
-    let (ev, ee) = eval(end, env)?;
+    combine: impl Fn((f64, f64, bool), (f64, f64, bool)) -> (f64, f64, bool),
+) -> Result<(f64, f64, bool), String> {
+    let (sv, se, _) = eval(start, env)?;
+    let (ev, ee, _) = eval(end, env)?;
     if se != 0.0 || ee != 0.0 || sv.fract() != 0.0 || ev.fract() != 0.0 {
         return Err("range bounds must be exact integers".to_string());
     }
     let (lo, hi) = (sv as i64, ev as i64);
     let mut scoped = env.clone();
-    let mut acc = (identity, 0.0);
+    let mut acc = (identity, 0.0, false);
     for i in lo..=hi {
         scoped.set_exact(index_var, crate::exact::ExactNum::integer(i));
         let term = eval(body, &scoped)?;

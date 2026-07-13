@@ -68,9 +68,29 @@ pub mod caveat_codes {
     /// Two constants agree only below the resolution of the numeric
     /// comparison — the agreement is an absence of evidence, not evidence.
     pub const SUB_RESOLUTION: &str = "sub_resolution";
-    /// Floating-point cancellation destroyed the significant digits of the
-    /// result; the value is numerical noise.
+    /// Subtractive cancellation destroyed the significant digits of the
+    /// result. Often remediable: an algebraic rewrite of the subtraction
+    /// (e.g. 1 − cos x = 2sin²(x/2)) can recover the value.
     pub const CATASTROPHIC_CANCELLATION: &str = "catastrophic_cancellation";
+    /// The computation is ill-conditioned at this input (e.g. trig
+    /// argument reduction at huge arguments): the digits are lost to the
+    /// condition number itself, and NO rewrite recovers them in f64.
+    pub const ILL_CONDITIONED: &str = "ill_conditioned";
+    /// The disagreement lies inside the refutation safety margin — larger
+    /// than the error bound, smaller than the refutation threshold; too
+    /// uncertain to confirm or refute.
+    pub const MARGIN_BAND: &str = "margin_band";
+    /// A substitution was refused because it would capture a bound
+    /// summation/product index.
+    pub const BINDER_CAPTURE: &str = "binder_capture";
+    /// The solver could not produce the solutions the check needed — a
+    /// limitation of the solver, not a theorem about the equations.
+    pub const SOLVER_INCOMPLETE: &str = "solver_incomplete";
+    /// An expression the check needed could not be evaluated numerically.
+    pub const NOT_EVALUABLE: &str = "not_evaluable";
+    /// The sampler could not gather enough valid test points to conclude
+    /// anything.
+    pub const INSUFFICIENT_SAMPLING: &str = "insufficient_sampling";
     /// An `exact` claim reached the tool boundary without a checked
     /// certificate and was downgraded to `heuristic`.
     pub const UNCERTIFIED_EXACT: &str = "uncertified_exact";
@@ -722,6 +742,10 @@ fn status_from_verify(result: crate::verify::VerifyResult, context: &str) -> Sta
 pub fn classify_verify(result: &crate::verify::VerifyResult) -> StatusReport {
     if result.insufficient_points {
         return StatusReport::unable_to_compute(&result.insufficiency_reason())
+            .with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid sample points to conclude anything",
+            )
             .with_verdict(Verdict::Inconclusive);
     }
     let mut report = StatusReport::verified(result.points_tested);

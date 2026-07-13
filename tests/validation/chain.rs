@@ -585,6 +585,102 @@ fn margin_band_is_inconclusive_never_a_pass() {
 }
 
 #[test]
+fn refusal_codes_name_their_actual_mechanism() {
+    use arithma::status::caveat_codes;
+    // Cancellation noise: a subtraction destroyed the digits — rewritable,
+    // and the code says cancellation.
+    let steps = vec![
+        eq_step("noise", "\\frac{1 - \\cos(10^{-8})}{(10^{-8})^2}"),
+        eq_step("claim", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(result.steps[1]
+        .status
+        .caveats
+        .iter()
+        .any(|c| c.code == caveat_codes::CATASTROPHIC_CANCELLATION));
+
+    // sin(10^20): no subtraction anywhere — the code must NOT claim
+    // cancellation; the digits died of argument-magnitude
+    // ill-conditioning, which no rewrite recovers.
+    let steps = vec![eq_step("huge", "\\sin(10^{20})"), eq_step("claim", "42")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::ILL_CONDITIONED),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+    assert!(!result.steps[1]
+        .status
+        .caveats
+        .iter()
+        .any(|c| c.code == caveat_codes::CATASTROPHIC_CANCELLATION));
+
+    // The margin band is an outcome; every outcome carries a code.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(400000000000000)"),
+        eq_step("claim", "0.397"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::MARGIN_BAND),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+
+    // Binder-capture refusal carries its code, not just prose.
+    let steps = vec![
+        eq_step("start", "\\sum_{k=1}^{3} k \\cdot x"),
+        rel_step(
+            "sub",
+            "6 \\cdot k",
+            Relation::Substitution,
+            Some("x"),
+            Some("k"),
+        ),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::BINDER_CAPTURE),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+}
+
+#[test]
+fn bounded_pass_has_one_code_regardless_of_exact_f64_agreement() {
+    use arithma::status::caveat_codes;
+    // diff == 0.0 is a coincidence of rounding, not a category — and an
+    // exactly-zero difference between float computations is the signature
+    // of TOTAL cancellation, the case to trust least. It must not draw a
+    // more reassuring code than ordinary sub-resolution agreement.
+    let steps = vec![eq_step("start", "\\cos(0)"), eq_step("one", "1")];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    assert!(
+        result.steps[1]
+            .status
+            .caveats
+            .iter()
+            .any(|c| c.code == caveat_codes::SUB_RESOLUTION),
+        "got: {:?}",
+        result.steps[1].status.caveats
+    );
+}
+
+#[test]
 fn near_root_membership_tier_matches_its_own_caveat() {
     // A float near-root passes solution_of as APPROXIMATE membership — and
     // the tier must say approximate, because the min-rule reads the tier,

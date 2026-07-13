@@ -102,6 +102,28 @@ fn summation_accumulates_error_through_the_fold() {
 }
 
 #[test]
+fn cancellation_is_attributed_to_subtraction() {
+    // The two causes of digit loss have OPPOSITE remedies: subtractive
+    // cancellation can be rewritten away (1 − cos x = 2sin²(x/2) recovers
+    // full precision); argument-magnitude ill-conditioning cannot, at any
+    // cost. A code that routes consumers to a remedy must know which one
+    // it is. The tracker flags cancellation when a subtraction's inherited
+    // absolute error survives at or above the magnitude of what remains.
+    use arithma::error_eval::evaluate_with_error_traced;
+    let mut env = Environment::new();
+    env.set("x", 1e-8);
+    let node = parse_latex_raw("\\frac{1 - \\cos(x)}{x^2}").unwrap();
+    let (_, _, cancelled) = evaluate_with_error_traced(&node, &env).unwrap();
+    assert!(cancelled, "1 - cos(1e-8) is textbook cancellation");
+
+    // sin(10^20) contains no subtraction: the digits die from the
+    // argument-reduction condition number, and nothing can be rewritten.
+    let node = parse_latex_raw("\\sin(10^{20})").unwrap();
+    let (_, _, cancelled) = evaluate_with_error_traced(&node, &Environment::new()).unwrap();
+    assert!(!cancelled, "sin(10^20) has nothing to cancel");
+}
+
+#[test]
 fn undefined_variable_is_an_error() {
     let node = parse_latex_raw("x + 1").expect("parse");
     assert!(evaluate_with_error(&node, &Environment::new()).is_err());

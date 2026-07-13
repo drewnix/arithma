@@ -449,7 +449,10 @@ fn capture_aware_substitute(
         Ok(n) => Ok(SubstOutcome::Node(n)),
         Err(e) if e.contains("capture") => Ok(SubstOutcome::Refused(Box::new(CheckedStep {
             verdict: Verdict::Inconclusive,
-            status: StatusReport::unable_to_compute(&e),
+            status: StatusReport::unable_to_compute(&e).with_caveat(
+                caveat_codes::BINDER_CAPTURE,
+                "the substitution would capture a bound summation/product index",
+            ),
             mechanism: mechanism.to_string(),
         }))),
         Err(e) => Err(format!("substitution failed: {}", e)),
@@ -512,7 +515,11 @@ fn check_equation_equals(
                 status: StatusReport::unable_to_compute(&format!(
                     "could not solve both equations for {} to compare solution sets; use 'implies' for one-directional checks or 'solution_of' for a specific root",
                     var
-                )),
+                ))
+                .with_caveat(
+                    caveat_codes::SOLVER_INCOMPLETE,
+                    "the solver could not produce the solution sets the comparison needs",
+                ),
                 mechanism,
             })
         }
@@ -718,7 +725,11 @@ fn check_implies(
                 status: StatusReport::unable_to_compute(&format!(
                     "could not solve the antecedent for {}: {}",
                     var, e
-                )),
+                ))
+                .with_caveat(
+                    caveat_codes::SOLVER_INCOMPLETE,
+                    "the solver could not solve the antecedent",
+                ),
                 mechanism,
             })
         }
@@ -730,6 +741,10 @@ fn check_implies(
             verdict: Verdict::Inconclusive,
             status: StatusReport::unable_to_compute(
                 "the antecedent has no solutions the solver can find; implication is vacuous as far as checked",
+            )
+            .with_caveat(
+                caveat_codes::SOLVER_INCOMPLETE,
+                "no antecedent solutions found; vacuous as far as checked",
             ),
             mechanism,
         });
@@ -792,7 +807,11 @@ fn check_implies(
                     status: StatusReport::unable_to_compute(&format!(
                         "could not evaluate the consequent at the antecedent solution {} = {}",
                         var, sol
-                    )),
+                    ))
+                    .with_caveat(
+                        caveat_codes::NOT_EVALUABLE,
+                        "the consequent could not be evaluated at a checked point",
+                    ),
                     mechanism,
                 })
             }
@@ -1265,7 +1284,11 @@ fn bounded_exact_sample(lhs: &Node, rhs: &Node, env: &Environment, vars: &[Strin
                 tested,
                 if tested == 1 { "" } else { "s" },
                 crate::verify::MIN_POINTS_FOR_PASS
-            )),
+            ))
+            .with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid exact test points to conclude anything",
+            ),
             mechanism,
         };
     }
@@ -1398,9 +1421,9 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
         // (difference 1.9e-22, bound ~1e-35: a real disagreement) from
         // sin(2π) = 0 (difference 2.4e-16, bound ~1e-15: indistinguishable
         // from equal); the bound holds both verdicts correctly.
-        if let (Ok((av, ae)), Ok((bv, be))) = (
-            crate::error_eval::evaluate_with_error(lhs, &env_pt),
-            crate::error_eval::evaluate_with_error(rhs, &env_pt),
+        if let (Ok((av, ae, a_cancel)), Ok((bv, be, b_cancel))) = (
+            crate::error_eval::evaluate_with_error_traced(lhs, &env_pt),
+            crate::error_eval::evaluate_with_error_traced(rhs, &env_pt),
         ) {
             let mechanism = "numeric_constant_eval_bounded".to_string();
             let diff = (av - bv).abs();
@@ -1423,16 +1446,28 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
             // different threshold have the published bound to apply it to.
             let scale = av.abs().max(bv.abs()).max(1.0);
             if crate::error_eval::significant_digits(scale, bound) == 0 {
+                // The two causes of resolution loss have OPPOSITE remedies,
+                // so the code must name the actual mechanism: subtractive
+                // cancellation is often fixable by rewriting the
+                // subtraction; ill-conditioning cannot be rewritten away.
+                let (code, diagnosis) = if a_cancel || b_cancel {
+                    (
+                        caveat_codes::CATASTROPHIC_CANCELLATION,
+                        "subtractive cancellation destroyed the resolution of the comparison; an algebraic rewrite of the cancelling subtraction may recover the values",
+                    )
+                } else {
+                    (
+                        caveat_codes::ILL_CONDITIONED,
+                        "the computation is ill-conditioned at this input; the resolution is lost to the condition number itself and no rewrite recovers it in f64",
+                    )
+                };
                 return CheckedStep {
                     verdict: Verdict::Inconclusive,
                     status: StatusReport::unable_to_compute(&format!(
                         "the propagated floating-point error bound (±{:.3e}) swamps the comparison scale ({:.3e}) — the computation cannot distinguish the claimed values at f64 precision",
                         bound, scale
                     ))
-                    .with_caveat(
-                        caveat_codes::CATASTROPHIC_CANCELLATION,
-                        "cancellation or ill-conditioning destroyed the resolution of the comparison; agreement inside so large a bound is not evidence",
-                    )
+                    .with_caveat(code, diagnosis)
                     .with_error_bound(bound),
                     mechanism,
                 };
@@ -1452,23 +1487,19 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                 // at its scale (NOT digits of either value; see
                 // docs/result-status.md).
                 let digits = crate::error_eval::significant_digits(scale, bound);
-                let status = if diff == 0.0 {
-                    StatusReport::approximate(Some(digits)).with_caveat(
-                        caveat_codes::F64_PRECISION,
-                        &format!(
-                            "variable-free comparison: a single floating-point evaluation is the evidence (agreement within ±{:.3e})",
-                            bound
-                        ),
-                    )
-                } else {
-                    StatusReport::approximate(Some(digits)).with_caveat(
-                        caveat_codes::SUB_RESOLUTION,
-                        &format!(
-                            "values agree within the propagated floating-point error bound (±{:.3e}) — the comparison resolves ~{} digits at its scale; equality at f64 resolution, not proof",
-                            bound, digits
-                        ),
-                    )
-                };
+                // One code for every bounded pass: whether the f64
+                // difference lands on exactly 0.0 is a coincidence of
+                // rounding, not a category — and exact agreement between
+                // float computations is the signature of TOTAL
+                // cancellation, the case to trust least. It must not draw
+                // a more reassuring code.
+                let status = StatusReport::approximate(Some(digits)).with_caveat(
+                    caveat_codes::SUB_RESOLUTION,
+                    &format!(
+                        "values agree within the propagated floating-point error bound (±{:.3e}) — the comparison resolves ~{} digits at its scale; equality at f64 resolution, not proof",
+                        bound, digits
+                    ),
+                );
                 return CheckedStep {
                     verdict: Verdict::Pass,
                     status: status.with_error_bound(bound),
@@ -1482,6 +1513,10 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                         "the disagreement ({:.3e}: lhs={}, rhs={}) lies inside the refutation safety margin — larger than the error bound (±{:.3e}), smaller than the 4× refutation threshold; too uncertain to confirm or refute",
                         diff, av, bv, bound
                     ))
+                    .with_caveat(
+                        caveat_codes::MARGIN_BAND,
+                        "the disagreement lies inside the refutation safety margin",
+                    )
                     .with_error_bound(bound),
                     mechanism,
                 };
@@ -1520,6 +1555,10 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                     verdict: Verdict::Inconclusive,
                     status: StatusReport::unable_to_compute(
                         "variable-free comparison could not be evaluated numerically",
+                    )
+                    .with_caveat(
+                        caveat_codes::NOT_EVALUABLE,
+                        "neither side could be evaluated numerically",
                     ),
                     mechanism,
                 }
@@ -1576,7 +1615,10 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
     if result.insufficient_points {
         return CheckedStep {
             verdict: Verdict::Inconclusive,
-            status: StatusReport::unable_to_compute(&result.insufficiency_reason()),
+            status: StatusReport::unable_to_compute(&result.insufficiency_reason()).with_caveat(
+                caveat_codes::INSUFFICIENT_SAMPLING,
+                "too few valid sample points to conclude anything",
+            ),
             mechanism: "numeric_sample".to_string(),
         };
     }

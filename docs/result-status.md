@@ -203,7 +203,13 @@ reworded freely).
 | `domain_mismatch` | One side undefined at some sample points; values compared only where both defined. |
 | `truncation` | A series result is truncated at a stated order. |
 | `sub_resolution` | Two constants agree only within the propagated floating-point error bound — equality at f64 resolution, not proof. |
-| `catastrophic_cancellation` | Cancellation or ill-conditioning destroyed every significant digit; the value is numerical noise. |
+| `catastrophic_cancellation` | Subtractive cancellation destroyed the significant digits. Often remediable: rewriting the cancelling subtraction (e.g. 1 − cos x = 2sin²(x/2)) can recover the value. |
+| `ill_conditioned` | The computation is ill-conditioned at this input (e.g. trig argument reduction at huge arguments); the digits are lost to the condition number itself and NO rewrite recovers them in f64. |
+| `margin_band` | The disagreement lies inside the refutation safety margin — larger than the error bound, smaller than the refutation threshold; too uncertain to confirm or refute. |
+| `binder_capture` | A substitution was refused because it would capture a bound Σ/Π index. |
+| `solver_incomplete` | The solver could not produce the solutions a check needed — a solver limitation, not a theorem. |
+| `not_evaluable` | An expression the check needed could not be evaluated numerically. |
+| `insufficient_sampling` | The sampler could not gather enough valid test points to conclude anything. |
 | `uncertified_exact` | An `exact` claim reached the boundary without a checked certificate and was downgraded. |
 | `exact_disagreement` | Disagreement established in exact rational arithmetic — a disproof, not a tolerance judgement. |
 | `symbolic_imaginary` | Complex quantities expressed with `i` as a symbol. |
@@ -215,6 +221,22 @@ reworded freely).
 
 Adding a code is additive (consumers ignore unknown codes); renaming or
 removing one is a breaking schema change.
+
+Two registry rules, learned the expensive way:
+
+- **Every refusal carries a code.** An `unable_to_compute` without a caveat
+  code is a shrug with good grammar: five different situations demanding
+  five different responses must not collapse into one status with the
+  diagnosis living in contract-free prose. When you add an outcome, give it
+  a code.
+- **A code names the mechanism that actually fired, not a neighbor.**
+  `catastrophic_cancellation` and `ill_conditioned` have OPPOSITE remedies
+  (rewrite the subtraction vs. nothing helps); the error tracker attributes
+  which one occurred rather than guessing. And a coincidence is not a
+  category: whether an f64 difference lands on exactly 0.0 does not change
+  the code — exact float agreement is the signature of total cancellation,
+  the case to trust least, and must never draw a more reassuring code than
+  ordinary sub-resolution agreement.
 
 **`points_tested` semantics.** The field's meaning switches on the verdict:
 on **PASS** it is the sample size (how many points agreed); on **FAIL** it

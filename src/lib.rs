@@ -93,7 +93,9 @@ pub use language::tokenizer::Tokenizer;
 pub use math::transform::composition;
 pub use math::transform::composition::{compose, compose_latex, compose_multiple};
 pub use math::transform::error_eval;
-pub use math::transform::error_eval::{evaluate_with_error, significant_digits};
+pub use math::transform::error_eval::{
+    evaluate_with_error, evaluate_with_error_traced, significant_digits,
+};
 pub use math::transform::evaluator;
 pub use math::transform::evaluator::Evaluator;
 pub use math::transform::simplify;

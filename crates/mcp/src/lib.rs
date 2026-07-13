@@ -948,6 +948,11 @@ fn tool_solve(args: &Value) -> ToolResult {
                     "polynomial has irreducible factors of degree ≥ 5 — \
                      roots may exist (including real roots) but cannot be expressed \
                      in the current radical formula repertoire",
+                )
+                .with_caveat(
+                    caveat_codes::SOLVER_INCOMPLETE,
+                    "a limitation of the radical formula repertoire, not a proof of \
+                     impossibility",
                 ),
             ));
         }
@@ -1432,20 +1437,30 @@ fn float_evaluation_result(
     simplified: &arithma::Node,
     env: &Environment,
 ) -> (String, StatusReport) {
-    match arithma::evaluate_with_error(simplified, env) {
-        Ok((_, bound)) => {
+    match arithma::evaluate_with_error_traced(simplified, env) {
+        Ok((_, bound, cancelled)) => {
             let digits = arithma::significant_digits(value, bound);
             if digits == 0 {
+                // Name the actual mechanism: the remedies are opposite.
+                let (code, diagnosis) = if cancelled {
+                    (
+                        caveat_codes::CATASTROPHIC_CANCELLATION,
+                        "subtractive cancellation destroyed every significant digit; an \
+                         algebraic rewrite of the cancelling subtraction may recover the value",
+                    )
+                } else {
+                    (
+                        caveat_codes::ILL_CONDITIONED,
+                        "the computation is ill-conditioned at this input; the digits are \
+                         lost to the condition number itself and no rewrite recovers them in f64",
+                    )
+                };
                 return (
                     String::new(),
                     StatusReport::unable_to_compute(
                         "floating-point evaluation retains no significant digits at this input",
                     )
-                    .with_caveat(
-                        caveat_codes::CATASTROPHIC_CANCELLATION,
-                        "cancellation or ill-conditioning destroyed every significant digit; \
-                         the computed value is numerical noise",
-                    ),
+                    .with_caveat(code, diagnosis),
                 );
             }
             (
