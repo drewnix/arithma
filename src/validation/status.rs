@@ -283,6 +283,12 @@ pub struct StatusReport {
     /// by replaying a cheap check. At the tool boundary, exact without a
     /// checked certificate is downgraded to heuristic.
     certificate: Option<Certificate>,
+    /// Present when a bounded numeric comparison ran: the propagated
+    /// absolute floating-point error bound the outcome was judged against.
+    /// The bound is the DOMAIN of the outcome — a pass certifies agreement
+    /// only within ±bound — so it is published, machine-readable, on every
+    /// outcome the bounded mechanism produces.
+    error_bound: Option<f64>,
 }
 
 impl StatusReport {
@@ -324,6 +330,7 @@ impl StatusReport {
             counterexample: None,
             special_form: None,
             certificate: None,
+            error_bound: None,
         }
     }
 
@@ -348,6 +355,14 @@ impl StatusReport {
             code,
             message: message.to_string(),
         });
+        self
+    }
+
+    /// Attach the propagated error bound a bounded comparison was judged
+    /// against. Published on every outcome — pass, fail, or refusal — per
+    /// the name-the-domain discipline.
+    pub fn with_error_bound(mut self, bound: f64) -> Self {
+        self.error_bound = Some(bound);
         self
     }
 
@@ -451,6 +466,9 @@ impl StatusReport {
         }
         if let Some(cx) = &self.counterexample {
             obj["counterexample"] = cx.clone();
+        }
+        if let Some(bound) = &self.error_bound {
+            obj["error_bound"] = json!(bound);
         }
         if let Some((function, form)) = &self.special_form {
             obj["special_function"] = json!(function);

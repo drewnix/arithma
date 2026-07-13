@@ -1400,25 +1400,69 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
         ) {
             let mechanism = "numeric_constant_eval_bounded".to_string();
             let diff = (av - bv).abs();
+            let bound = ae + be;
+
+            // Resolution gate. The bound is the DOMAIN of any outcome here:
+            // a pass certifies agreement only within ±bound, so if the
+            // bound swamps the scale of the comparison, `diff <= bound` is
+            // satisfied by almost any claim and certifies nothing —
+            // (1−cos 10⁻⁸)/10⁻¹⁶ "equals" 0 AND 1, sin(10²⁰) "equals" 42.
+            // This is the same gate evaluate() applies before publishing a
+            // value (zero surviving digits = noise), expressed through the
+            // same function so the two consumers of error_eval cannot
+            // drift apart again. The unit floor on the scale is a
+            // convention this module owns: an absolute bound below 1 is
+            // accepted as resolving evidence for claims about zero
+            // (sin(2π) = 0, bound ~1e-15, is evidence; the alternative
+            // reference — input magnitudes — would bless sin(10²⁰) = 42,
+            // since the inputs there are enormous). Consumers who want a
+            // different threshold have the published bound to apply it to.
+            let scale = av.abs().max(bv.abs()).max(1.0);
+            if crate::error_eval::significant_digits(scale, bound) == 0 {
+                return CheckedStep {
+                    verdict: Verdict::Inconclusive,
+                    status: StatusReport::unable_to_compute(&format!(
+                        "the propagated floating-point error bound (±{:.3e}) swamps the comparison scale ({:.3e}) — the computation cannot distinguish the claimed values at f64 precision",
+                        bound, scale
+                    ))
+                    .with_caveat(
+                        caveat_codes::CATASTROPHIC_CANCELLATION,
+                        "cancellation or ill-conditioning destroyed the resolution of the comparison; agreement inside so large a bound is not evidence",
+                    )
+                    .with_error_bound(bound),
+                    mechanism,
+                };
+            }
+
             // The bound is first-order; a wrongful FAIL would be a false
             // disproof — the worst outcome — so a refutation must clear a
             // 4× safety margin.
-            let bound = 4.0 * (ae + be);
-            if diff <= bound {
+            if diff <= 4.0 * bound {
+                // A pass whose entire evidence is one f64 evaluation
+                // agreeing within a rounding bound is `approximate`, not
+                // `verified` — the digits say what the comparison resolved
+                // at its scale.
+                let digits = crate::error_eval::significant_digits(scale, bound);
                 let status = if diff == 0.0 {
-                    StatusReport::verified(1).with_caveat(
+                    StatusReport::approximate(Some(digits)).with_caveat(
                         caveat_codes::F64_PRECISION,
-                        "variable-free comparison: a single floating-point evaluation is the evidence",
+                        &format!(
+                            "variable-free comparison: a single floating-point evaluation is the evidence (agreement within ±{:.3e})",
+                            bound
+                        ),
                     )
                 } else {
-                    StatusReport::verified(1).with_caveat(
+                    StatusReport::approximate(Some(digits)).with_caveat(
                         caveat_codes::SUB_RESOLUTION,
-                        "values agree within the propagated floating-point error bound — equality at f64 resolution, not proof",
+                        &format!(
+                            "values agree within the propagated floating-point error bound (±{:.3e}) — equality at f64 resolution, not proof",
+                            bound
+                        ),
                     )
                 };
                 return CheckedStep {
                     verdict: Verdict::Pass,
-                    status,
+                    status: status.with_error_bound(bound),
                     mechanism,
                 };
             }
@@ -1432,9 +1476,13 @@ fn numeric_check(lhs: &Node, rhs: &Node, env: &Environment) -> CheckedStep {
                 status: StatusReport::verified(1)
                     .with_caveat(
                         caveat_codes::DISAGREEMENT_WITNESS,
-                        "the disagreement exceeds the propagated floating-point error bound — a real difference, not a rounding artifact",
+                        &format!(
+                            "the disagreement exceeds 4× the propagated floating-point error bound (±{:.3e}) — a real difference, not a rounding artifact",
+                            bound
+                        ),
                     )
-                    .with_counterexample(&cx),
+                    .with_counterexample(&cx)
+                    .with_error_bound(bound),
                 mechanism,
             };
         }

@@ -105,6 +105,23 @@ fn uncertified_exact_downgrade_carries_coded_caveat() {
 }
 
 #[test]
+fn error_bound_serializes_when_attached() {
+    // The bound is the domain of a bounded-comparison certificate: the
+    // step would pass for ANY rhs within it. Publishing it is the
+    // name-the-domain discipline, machine-readable, not prose.
+    let json = StatusReport::approximate(Some(14))
+        .with_error_bound(2.8e-15)
+        .to_json();
+    assert!((json["error_bound"].as_f64().unwrap() - 2.8e-15).abs() < 1e-20);
+}
+
+#[test]
+fn error_bound_absent_when_not_attached() {
+    let json = StatusReport::approximate(Some(14)).to_json();
+    assert!(json.get("error_bound").is_none());
+}
+
+#[test]
 fn approximate_report_serializes_with_digits() {
     // F8: a floating-point value is not "verified" by anything — it is
     // approximate, and the tier says how approximate.

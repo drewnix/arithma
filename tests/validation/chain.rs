@@ -431,6 +431,111 @@ fn r2_e_to_minus_50_is_refuted_beyond_the_error_bound() {
 }
 
 #[test]
+fn cancellation_noise_equality_is_inconclusive_not_verified() {
+    // E = (1 − cos(10⁻⁸))/(10⁻⁸)² has true value ½; f64 cancels it to
+    // exactly 0 with a propagated bound ≈ 2.2. Before the resolution gate,
+    // the chain certified BOTH E = 0 and E = 1 as `verified` — agreement
+    // inside a bound that swamps the values is the absence of resolution,
+    // not evidence. evaluate() already refuses this value as noise
+    // (significant_digits == 0); the chain must consult the same gate.
+    let e_expr = "\\frac{1 - \\cos(10^{-8})}{(10^{-8})^2}";
+    for claimed in ["0", "1", "0.5"] {
+        let steps = vec![eq_step("noise", e_expr), eq_step("claim", claimed)];
+        let result = verify_chain(&steps, &Environment::new()).unwrap();
+        assert_eq!(
+            result.steps[1].verdict,
+            Verdict::Inconclusive,
+            "E = {} must be refused, not certified",
+            claimed
+        );
+        assert!(
+            matches!(
+                result.steps[1].status.status,
+                ResultStatus::UnableToCompute { .. }
+            ),
+            "E = {}: got {:?}",
+            claimed,
+            result.steps[1].status.status
+        );
+        assert!(
+            result.steps[1]
+                .status
+                .caveats
+                .iter()
+                .any(|c| c.code == arithma::status::caveat_codes::CATASTROPHIC_CANCELLATION),
+            "E = {}: the refusal must name the mechanism",
+            claimed
+        );
+        // The bound is the domain of this non-certificate — publish it.
+        assert!(
+            result.steps[1]
+                .status
+                .to_json()
+                .get("error_bound")
+                .is_some(),
+            "E = {}: refusal must publish the bound it refused over",
+            claimed
+        );
+    }
+}
+
+#[test]
+fn swamped_trig_bound_is_inconclusive_not_verified() {
+    // sin(10²⁰): the argument-reduction intrinsic makes the bound ≈ 2.2e4
+    // on a quantity in [−1, 1]. Before the gate, sin(10²⁰) = 42 passed as
+    // `verified`. The comparison cannot resolve anything at that scale —
+    // Inconclusive, never a certificate.
+    for claimed in ["42", "1000", "0"] {
+        let steps = vec![
+            eq_step("huge-arg", "\\sin(10^{20})"),
+            eq_step("claim", claimed),
+        ];
+        let result = verify_chain(&steps, &Environment::new()).unwrap();
+        assert_eq!(
+            result.steps[1].verdict,
+            Verdict::Inconclusive,
+            "sin(10^20) = {} must be refused",
+            claimed
+        );
+    }
+    // Control: a claim OUTSIDE the swamped interval is still refutable —
+    // the gate compares the bound to the claim's own scale.
+    let steps = vec![
+        eq_step("huge-arg", "\\sin(10^{20})"),
+        eq_step("claim", "10^9"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Fail);
+}
+
+#[test]
+fn bounded_constant_pass_is_approximate_with_published_bound() {
+    // F2: a pass whose entire evidence is one f64 evaluation agreeing
+    // within a rounding bound is the paradigm case for `approximate` —
+    // reporting it as `verified` is a tier over-claim. The digits count
+    // states what the comparison resolved at its scale, and the bound
+    // itself is published: the bound is the domain of the certificate.
+    let steps = vec![
+        eq_step("start", "\\sin(2 \\cdot \\pi)"),
+        eq_step("zero", "0"),
+    ];
+    let result = verify_chain(&steps, &Environment::new()).unwrap();
+    assert_eq!(result.verdict, Verdict::Pass);
+    match result.steps[1].status.status {
+        ResultStatus::Approximate { significant_digits } => {
+            let d = significant_digits.expect("digits tracked for constants");
+            assert!(d >= 10, "digits: {}", d);
+        }
+        ref other => panic!("expected Approximate, got {:?}", other),
+    }
+    let json = result.steps[1].status.to_json();
+    assert!(
+        json.get("error_bound").is_some(),
+        "the pass certificate must publish the bound it passed within"
+    );
+}
+
+#[test]
 fn r3_substitution_refuses_binder_capture() {
     // Σ_{k=1}^{3} k·x with x := k would capture the bound index and
     // silently produce Σ k² = 14. Refusal with an explicit capture error;
