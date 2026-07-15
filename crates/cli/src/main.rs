@@ -773,8 +773,13 @@ fn preprocess_input(input: &str) -> String {
             }
         }
 
-        out.push(b[i] as char);
-        i += 1;
+        // Pass the character through intact — pushing bytes as chars
+        // double-encodes multi-byte UTF-8 (pasted π, α, ·). i is always a
+        // char boundary here: every path advances by whole chars, and the
+        // keyword matches above compare pure-ASCII byte strings.
+        let c = input[i..].chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
     }
 
     out
@@ -1412,5 +1417,31 @@ fn repl() {
 
     if let Some(ref path) = history_path() {
         let _ = rl.save_history(path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preprocess_input;
+
+    #[test]
+    fn preprocess_converts_natural_notation() {
+        assert_eq!(preprocess_input("pi"), "\\pi");
+        assert_eq!(preprocess_input("2 * pi"), "2 * \\pi");
+        assert_eq!(preprocess_input("inf"), "\\infty");
+        assert_eq!(preprocess_input("infinity"), "\\infty");
+        // word boundaries: no conversion inside identifiers
+        assert_eq!(preprocess_input("pick"), "pick");
+        assert_eq!(preprocess_input("x_pi"), "x_pi");
+    }
+
+    #[test]
+    fn preprocess_passes_non_ascii_through() {
+        // Pasted Unicode input must survive preprocessing intact — the old
+        // byte-as-char fallback double-encoded it, so 'π + π' reached the
+        // parser as mangled bytes and simplified to a phantom variable.
+        assert_eq!(preprocess_input("π + π"), "π + π");
+        assert_eq!(preprocess_input("α + α"), "α + α");
+        assert_eq!(preprocess_input("2·3"), "2·3");
     }
 }
