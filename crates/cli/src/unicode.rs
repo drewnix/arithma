@@ -93,9 +93,11 @@ pub fn latex_to_unicode(input: &str) -> String {
                     continue;
                 }
             } else {
-                let c = b[i + 1] as char;
+                // i + 1 is a char boundary (b[i] is ASCII '^'); decode the
+                // whole char — a byte-as-char cast splits multi-byte UTF-8.
+                let c = input[i + 1..].chars().next().unwrap();
                 out.push_str(&to_superscript(&c.to_string()));
-                i += 2;
+                i += 1 + c.len_utf8();
                 continue;
             }
         }
@@ -123,8 +125,13 @@ pub fn latex_to_unicode(input: &str) -> String {
             continue;
         }
 
-        out.push(b[i] as char);
-        i += 1;
+        // Fallback: pass the character through intact. Non-ASCII input (the
+        // engine already emits Unicode like ∞ and ∪) must be decoded as a
+        // whole char — pushing bytes as chars double-encodes multi-byte UTF-8.
+        // i is always a char boundary here: every path advances by whole chars.
+        let c = input[i..].chars().next().unwrap();
+        out.push(c);
+        i += c.len_utf8();
     }
 
     out
@@ -447,6 +454,24 @@ mod tests {
         assert_eq!(latex_to_unicode("5"), "5");
         assert_eq!(latex_to_unicode("x + 1"), "x + 1");
         assert_eq!(latex_to_unicode("-1"), "-1");
+    }
+
+    #[test]
+    fn non_ascii_passthrough() {
+        // Engine output that is already Unicode must survive conversion intact.
+        // Interval notation from the inequality solver is the motivating case:
+        // the old byte-wise fallback double-encoded every multi-byte character.
+        assert_eq!(latex_to_unicode("(-∞, -2) ∪ (2, ∞)"), "(-∞, -2) ∪ (2, ∞)");
+        assert_eq!(latex_to_unicode("x = √2"), "x = √2");
+        assert_eq!(latex_to_unicode("π + ∞"), "π + ∞");
+        // Mixed: LaTeX commands still convert while Unicode passes through.
+        assert_eq!(latex_to_unicode("∞ + \\pi"), "∞ + π");
+    }
+
+    #[test]
+    fn non_ascii_superscript_char() {
+        // A bare non-ASCII char after ^ must not be split into bytes.
+        assert_eq!(latex_to_unicode("x^π"), "x^(π)");
     }
 
     #[test]
