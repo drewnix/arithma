@@ -10,9 +10,9 @@ exact rational arithmetic and well-chosen algorithms make possible.
 
 ## Why Arithma
 
-**Single binary, no dependencies.** The MCP server is 2.5 MB. No Python
-runtime, no Java, no Wolfram kernel, no network calls. Copy it anywhere and
-it works.
+**Single binary, no dependencies.** The MCP server is a 3.3 MB binary. No
+Python runtime, no Java, no Wolfram kernel, no network calls. Copy it
+anywhere and it works.
 
 **Exact arithmetic.** Every computation uses rational numbers (`BigRational`),
 not floating-point. $\frac{1}{3} + \frac{1}{3} + \frac{1}{3} = 1$, not
@@ -36,12 +36,19 @@ name.
 
 **Every answer declares its evidence.** Each MCP response carries a
 `result_status`: `exact` (decision procedure), `verified` (numeric agreement
-at n points — evidence, never proof), `heuristic`, `unable_to_compute`, or
-`provably_impossible` (with certificate). An agent can tell an algebraic
-identity from "agreed at 12 test points" — because those are different
-things. Verdict-shaped tools additionally carry a machine-readable
-`verdict` (`pass`/`fail`/`inconclusive`) — no consumer ever parses prose to
-learn an outcome. See [docs/result-status.md](docs/result-status.md).
+at n points — evidence, never proof), `approximate` (floating-point result
+with a first-order propagated error bound and a `significant_digits` count),
+`heuristic`, `unable_to_compute`, or `provably_impossible` (with
+certificate). An agent can tell an algebraic identity from "agreed at 12
+test points" — because those are different things. Every caveat carries a
+machine-readable `code` from a fixed registry (the prose message carries no
+contract), every refusal states its reason as a code, and bounded numeric
+outcomes publish the `error_bound` they were judged against. Verdict-shaped
+tools additionally carry a machine-readable `verdict`
+(`pass`/`fail`/`inconclusive`) — no consumer ever parses prose to learn an
+outcome. `result_status` is emitted both as a top-level field and inside
+`structuredContent`, so typed SDK clients that drop unknown siblings still
+see it. See [docs/result-status.md](docs/result-status.md).
 
 **Verifies whole derivations, not just answers.** The `verify_chain` tool
 takes an ordered list of reasoning steps — each declaring its relation to
@@ -52,7 +59,7 @@ the mechanism appropriate to its relation. The chain's status is the
 `verified`, never `exact`. A failing step carries the specific
 counterexample that refutes it. The counterexample is the diagnosis.
 
-**1722 tests, zero failures.** Every algorithm is verified against known results.
+**1813 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -155,8 +162,10 @@ equality notion and its boundaries are documented in
 | Exact refutation | inside the polynomial/rational fragment, disagreements are established in exact rational arithmetic — no floating-point tolerance; `x = x + 10^{-15}` is refuted, not tolerated |
 | Expression equivalence | simplify-and-compare, then assumption-aware sampling |
 | Non-elementarity proofs | Risch algorithm certificates; recognized special-function antiderivatives (erf, Ei, li) named alongside the certificate, guarded by a differentiation round-trip |
-| Result status | evidence taxonomy on every response — `exact` / `verified` / `heuristic` / `unable_to_compute` / `provably_impossible` |
-| Machine-readable verdicts | `pass` / `fail` / `inconclusive` on `verify`, `equivalent`, `verify_chain` — outcomes are fields, not prose |
+| Result status | evidence taxonomy on every response — `exact` / `verified` / `approximate` / `heuristic` / `unable_to_compute` / `provably_impossible` |
+| Error propagation | float paths carry a first-order propagated error bound; `significant_digits` gates what may be claimed, zero digits is a refusal, and cancellation is attributed (rewritable) vs ill-conditioning (not) |
+| Coded caveats | every caveat is `{code, message}` from a fixed registry; every refusal carries its reason as a code — agents route on codes, never prose |
+| Machine-readable verdicts | `pass` / `fail` / `inconclusive` on `verify`, `equivalent`, `verify_chain` — outcomes are fields, not prose; a bounded comparison that can neither confirm nor refute says `inconclusive` with the bound published |
 | Self-checking | transcendental simplifications and integration round-trips are independently verified before being blessed |
 
 ---
@@ -179,7 +188,7 @@ stdio. 17 tools with LaTeX I/O:
 | `partial_fractions` | Decompose $P(x)/Q(x)$ |
 | `limit` | Symbolic limits |
 | `taylor_series` | Series expansion with exact coefficients |
-| `evaluate` | Numerical evaluation |
+| `evaluate` | Numerical evaluation — exact when possible; float results carry `approximate` status with propagated error bound and significant-digit count, and refuse rather than return digit-free noise |
 | `matrix` | Determinant, inverse, eigenvalues, rank, RREF, $Ax=b$ |
 | `equivalent` | Check if two expressions are equal |
 | `verify` | Numerically cross-check at multiple test points |
@@ -264,32 +273,35 @@ Then open `http://localhost:5173`.
 
 ## Command Line
 
-Interactive REPL or one-shot subcommands:
+Interactive REPL or one-shot subcommands. Output is human-readable Unicode
+when attached to a terminal; pipe the output (or pass `--latex`) to get raw
+LaTeX instead.
 
 ```
 $ arithma simplify "x^2 + 2x + 1"
-x^{2} + 2x + 1
+x² + 2x + 1
 
 $ arithma diff "x^3 + \sin(x)" x
-3x^{2} + \cos(x)
+3x² + cos(x)
 
 $ arithma integrate "3x^2" x
-x^{3} + C
+x³ + C
 
 $ arithma solve "x^2 - 2 = 0"
-x = \sqrt{2}
-x = -\sqrt{2}
+x = √2
+x = -√2
 
 $ arithma simplify "\sum_{k=1}^{n} k^2"
-\frac{n \cdot (n + 1) \cdot (2n + 1)}{6}
+n · (n + 1) · (2n + 1)/6
 
 $ arithma solve "x^2 - 4 > 0"
 (-∞, -2) ∪ (2, ∞)
 
 $ arithma integrate "\exp(-x^2)" x
-[provably impossible] No elementary antiderivative exists. The differential
-equation q' + (-2x)·q = 1 has no rational solution. — antiderivative in
-special functions: \frac{\sqrt{\pi}}{2} \cdot \erf(x)
+[provably impossible] This integral has no formula using elementary
+functions (polynomials, exponentials, logarithms, trigonometric). This is a
+theorem, not a limitation of the tool. — antiderivative in special
+functions: √π/2 · erf(x)
 ```
 
 All 13 subcommands: `format`, `simplify`, `differentiate` (`diff`), `integrate`,
@@ -311,7 +323,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1722 tests
+cargo test --workspace                    # run all 1813 tests
 ```
 
 ---
