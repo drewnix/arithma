@@ -59,7 +59,7 @@ the mechanism appropriate to its relation. The chain's status is the
 `verified`, never `exact`. A failing step carries the specific
 counterexample that refutes it. The counterexample is the diagnosis.
 
-**1811 tests, zero failures.** Every algorithm is verified against known results.
+**1813 tests, zero failures.** Every algorithm is verified against known results.
 The simplifier has a verified idempotency contract:
 `simplify(simplify(e)) = simplify(e)`.
 
@@ -323,7 +323,7 @@ Cargo workspace: math engine library (root) + CLI (`crates/cli/`) + MCP server (
 cargo build --release --workspace         # all crates
 cargo build --release -p arithma-cli      # CLI only
 cargo build --release -p arithma-mcp-server # MCP server only
-cargo test --workspace                    # run all 1811 tests
+cargo test --workspace                    # run all 1813 tests
 ```
 
 ---
