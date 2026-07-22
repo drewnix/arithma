@@ -149,6 +149,17 @@ fn taylor_negative_order_is_rejected() {
 }
 
 #[test]
+fn taylor_huge_order_is_rejected() {
+    // `order` declares a maximum: without it, a huge integral float
+    // (1e19) passes the integer type check and saturates through
+    // `f as u64` into an effectively unbounded computation.
+    let resp = call("taylor_series", json!({"expr": "e^x", "order": 1e19}));
+    assert_rejects(&resp, "order");
+    let resp = call("taylor_series", json!({"expr": "e^x", "order": 20000}));
+    assert_rejects(&resp, "order");
+}
+
+#[test]
 fn taylor_integral_float_order_is_honored() {
     // JSON producers (Python among them) serialize integral floats as 7.0.
     // JSON Schema's "integer" admits them; so must we — and the value must
@@ -268,12 +279,17 @@ fn solve_ode_string_coefficient_is_rejected() {
 // string-only. Behavior and schema must agree — the schema widens.
 
 #[test]
-fn limit_numeric_point_is_accepted() {
-    let resp = call("limit", json!({"expr": "\\frac{\\sin(x)}{x}", "point": 0}));
+fn limit_numeric_point_is_accepted_and_takes_effect() {
+    // The point must DIFFER from the schema default of 0, or this test is
+    // vacuous against the disease it guards: a silently dropped numeric
+    // point would fall back to the default and still produce a value.
+    // lim x² as x→3 is 9; a dropped point computes the limit at 0 and
+    // returns 0.
+    let resp = call("limit", json!({"expr": "x^2", "point": 3}));
     assert!(resp["result"]["isError"].is_null(), "errored: {}", resp);
     let text = resp["result"]["content"][0]["text"].as_str().unwrap();
     // The status marker line may precede the value; the value is the last line.
-    assert_eq!(text.lines().last().unwrap(), "1");
+    assert_eq!(text.lines().last().unwrap(), "9");
 }
 
 // ── Multivariate taylor center: number must not be silently dropped ────

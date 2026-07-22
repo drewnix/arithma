@@ -313,6 +313,7 @@ fn tools_schema() -> Value {
                     "order": {
                         "type": "integer",
                         "minimum": 0,
+                        "maximum": 10000,
                         "description": "Maximum degree of the expansion",
                         "default": 5
                     },
@@ -494,6 +495,7 @@ fn tools_schema() -> Value {
                     "order": {
                         "type": "integer",
                         "minimum": 0,
+                        "maximum": 10000,
                         "description": "Truncation degree for power series solution (default: 10)"
                     },
                     "initial_values": {

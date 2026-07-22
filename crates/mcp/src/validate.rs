@@ -16,10 +16,15 @@
 //!
 //! Supported schema subset: `type` (string or array of strings),
 //! `properties` / `required` / `additionalProperties`, `items`, `enum`,
-//! and `minimum`. Objects that declare `properties` are closed: a key that
-//! is neither declared nor covered by an `additionalProperties` schema is
-//! an error, because an unknown field is almost always a typo whose effect
-//! would otherwise be "your option silently did nothing".
+//! `minimum`, and `maximum`. Objects that declare `properties` are closed:
+//! a key that is neither declared nor covered by an `additionalProperties`
+//! schema is an error, because an unknown field is almost always a typo
+//! whose effect would otherwise be "your option silently did nothing".
+//! NOTE for schema authors: `additionalProperties: false` is NOT
+//! interpreted (only object-valued `additionalProperties` schemas are) —
+//! declaring `properties` already closes the object, which covers the
+//! same intent. Any keyword outside this subset is silently unenforced;
+//! extend the subset before relying on one.
 //!
 //! An explicit `null` for a non-required field means "not provided" —
 //! the pre-existing contract of the assumptions plumbing.
@@ -134,6 +139,21 @@ fn validate(schema: &Value, value: &Value, path: &str, errors: &mut Vec<String>)
                 "{}: must be >= {}, got {}",
                 display_path(path),
                 min,
+                v
+            ));
+            return;
+        }
+    }
+
+    if let (Some(max), Some(v)) = (
+        schema.get("maximum").and_then(|m| m.as_f64()),
+        value.as_f64(),
+    ) {
+        if v > max {
+            errors.push(format!(
+                "{}: must be <= {}, got {}",
+                display_path(path),
+                max,
                 v
             ));
             return;
