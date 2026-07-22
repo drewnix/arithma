@@ -7,6 +7,8 @@
 
 use serde_json::{json, Value};
 
+mod validate;
+
 use arithma::assumptions::Assumptions;
 use arithma::chain::{verify_chain, ChainResult, ChainStepInput, Relation};
 use arithma::derivative::differentiate_latex;
@@ -279,7 +281,7 @@ fn tools_schema() -> Value {
                         "default": "x"
                     },
                     "point": {
-                        "type": "string",
+                        "type": ["number", "string"],
                         "description": "The point the variable approaches. Accepts numbers (\"0\", \"1\", \"3.14\"), infinity (\"inf\", \"\\\\infty\", \"-inf\"), or one-sided limits (\"0+\" for right, \"0-\" for left, \"3+\", \"3-\").",
                         "default": "0"
                     },
@@ -310,6 +312,8 @@ fn tools_schema() -> Value {
                     },
                     "order": {
                         "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000,
                         "description": "Maximum degree of the expansion",
                         "default": 5
                     },
@@ -490,6 +494,8 @@ fn tools_schema() -> Value {
                     },
                     "order": {
                         "type": "integer",
+                        "minimum": 0,
+                        "maximum": 10000,
                         "description": "Truncation degree for power series solution (default: 10)"
                     },
                     "initial_values": {
@@ -504,9 +510,35 @@ fn tools_schema() -> Value {
     ])
 }
 
+/// Look up a tool's published `inputSchema` from the same object served
+/// by `tools/list` — validation and advertisement cannot disagree.
+fn tool_input_schema(name: &str) -> Option<Value> {
+    tools_schema()
+        .as_array()?
+        .iter()
+        .find(|t| t["name"] == name)
+        .map(|t| t["inputSchema"].clone())
+}
+
 pub fn handle_tools_call(id: Option<Value>, params: &Value) -> Value {
     let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or(json!({}));
+    // An explicit `"arguments": null` means "no arguments", same as absent.
+    let args = params
+        .get("arguments")
+        .filter(|v| !v.is_null())
+        .cloned()
+        .unwrap_or(json!({}));
+
+    // Strict validation against the published schema, before any tool code
+    // runs. A type mismatch, unknown field, or missing required field is a
+    // JSON-RPC invalid-params error naming the offending key — never a
+    // silent ignore: a malformed argument that is dropped produces an
+    // answer to a question the caller did not ask.
+    if let Some(schema) = tool_input_schema(tool_name) {
+        if let Err(e) = validate::validate_tool_args(tool_name, &schema, &args) {
+            return json_rpc_error(id, -32602, &e);
+        }
+    }
 
     // verify_chain carries structured per-step detail beyond the shared
     // (text, status) shape, so it assembles its own response.
@@ -604,6 +636,16 @@ fn get_str_or<'a>(args: &'a Value, key: &str, default: &'a str) -> &'a str {
 
 fn get_var(args: &Value, default: &str) -> String {
     normalize_var(get_str_or(args, "variable", default))
+}
+
+/// Read an "order"-style integer parameter. Validation has already
+/// guaranteed a non-negative integer when present, but JSON producers
+/// (Python among them) serialize integral values as 7.0, which `as_u64`
+/// rejects — the schema admits them, so the reader must too.
+fn get_order(args: &Value, default: u64) -> usize {
+    args.get("order")
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+        .unwrap_or(default) as usize
 }
 
 fn env_from_args(args: &Value) -> Result<Environment, String> {
@@ -1318,7 +1360,7 @@ fn tool_limit(args: &Value) -> ToolResult {
 fn tool_taylor_series(args: &Value) -> ToolResult {
     let expr = get_str(args, "expr").ok_or("Missing required parameter: expr")?;
     let var = get_var(args, "x");
-    let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+    let order = get_order(args, 5);
     let env = env_from_args(args)?;
 
     // Coefficients come from exact rational recurrences; the caveat records
@@ -1334,10 +1376,19 @@ fn tool_taylor_series(args: &Value) -> ToolResult {
     if var.contains(',') {
         let vars: Vec<&str> = var.split(',').map(|s| s.trim()).collect();
         let default_centers = vec!["0"; vars.len()].join(",");
+        // A numeric center is as valid multivariate as univariate: its
+        // string form expands to every variable below. Dropping it to the
+        // default origin silently would be the exact disease the argument
+        // validator exists to prevent.
         let center_str = args
             .get("center")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&default_centers);
+            .and_then(|v| {
+                v.as_str()
+                    .map(str::to_string)
+                    .or_else(|| v.as_i64().map(|i| i.to_string()))
+                    .or_else(|| v.as_f64().map(|f| f.to_string()))
+            })
+            .unwrap_or(default_centers);
         let centers: Vec<&str> = center_str.split(',').map(|s| s.trim()).collect();
         if centers.len() == 1 && vars.len() > 1 {
             let c = centers[0];
@@ -1953,7 +2004,7 @@ fn tool_solve_ode_series(args: &Value, poly_arr: &[Value]) -> ToolResult {
     }
 
     let indep = normalize_var(get_str_or(args, "indep", "x"));
-    let order = args.get("order").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+    let order = get_order(args, 10);
 
     let mut coeffs: Vec<Polynomial> = Vec::new();
     for (i, poly_val) in poly_arr.iter().enumerate() {

@@ -69,9 +69,12 @@ fn every_tool_reports_result_status() {
 
 #[test]
 fn protocol_errors_carry_no_status() {
+    // Malformed arguments are JSON-RPC invalid-params errors: no result,
+    // no result_status. A missing required field is not a mathematical
+    // outcome.
     let resp = call("simplify", json!({}));
-    assert_eq!(resp["result"]["isError"], json!(true));
-    assert!(resp["result"].get("result_status").is_none());
+    assert!(resp.get("result").is_none(), "resp: {}", resp);
+    assert_eq!(resp["error"]["code"], json!(-32602), "resp: {}", resp);
 }
 
 #[test]

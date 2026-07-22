@@ -102,10 +102,13 @@ fn verify_chain_unknown_relation_is_a_protocol_error() {
         ]}
     });
     let response = arithma_mcp_server::handle_tools_call(Some(json!(1)), &params);
-    assert_eq!(response["result"]["isError"], true);
-    // The error names the offending relation and the valid vocabulary.
-    let text = response["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(text.contains("proves"), "got: {}", text);
+    // Caught by schema validation before dispatch: a JSON-RPC
+    // invalid-params error naming the offending relation and the
+    // valid vocabulary.
+    assert_eq!(response["error"]["code"], json!(-32602), "{}", response);
+    let msg = response["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("proves"), "got: {}", msg);
+    assert!(msg.contains("equals"), "got: {}", msg);
 }
 
 #[test]
