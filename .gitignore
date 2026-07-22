@@ -8,3 +8,4 @@ frontend/public/pkg/
 .claude/*
 !.claude/skills/
 .DS_Store
+__pycache__/
