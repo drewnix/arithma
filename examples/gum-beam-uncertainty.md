@@ -39,6 +39,11 @@ in exact rational arithmetic, no floating point anywhere:
 | Modulus $E$ | 200000 MPa | 2000 MPa | 1% |
 | Yield $Y$ | 250 MPa | 2.5 MPa | 1% |
 
+The uncertainty budget worked below is for the **stress** $\sigma$, which
+depends only on $F$, $L$, $b$, $h$. The uncertainties of $E$ and $Y$ are
+listed for completeness of the model — they enter the deflection and
+safety-factor stages, whose budgets propagate the same way.
+
 ## Step 1 — verify the model composition
 
 Before propagating anything, prove the composed formulas are what you
