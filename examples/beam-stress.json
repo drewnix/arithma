@@ -1,0 +1,11 @@
+{
+  "name": "beam bending stress",
+  "expression": "\\frac{3 F L}{2 b h^2}",
+  "unit": "MPa",
+  "parameters": {
+    "F": {"value": "1000", "uncertainty": "10", "unit": "N"},
+    "L": {"value": "2000", "uncertainty": "10", "unit": "mm"},
+    "b": {"value": "50", "uncertainty": "1/2", "unit": "mm"},
+    "h": {"value": "100", "uncertainty": "1", "unit": "mm"}
+  }
+}
