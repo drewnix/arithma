@@ -214,6 +214,12 @@ its evidence class. A wrong step comes back with the counterexample that
 refutes it. For incremental use, send a two-step chain of the previous and
 new step.
 
+For the full closed-loop pattern — generate a step, verify it, branch on the
+evidence, correct or proceed — with replayable transcripts of catching a
+mid-chain error and redirecting on an impossibility proof, see
+[docs/agent-integration.md](docs/agent-integration.md). A worked application
+built on the loop is [examples/gum-beam-uncertainty.md](examples/gum-beam-uncertainty.md).
+
 All tools accept an optional `assumptions` parameter:
 
 ```json
