@@ -1013,3 +1013,101 @@ pub fn classify_integral(
 
     numeric_equivalence_status(&derivative, &integrand_s, env, "round-trip")
 }
+
+#[cfg(test)]
+mod marker_contract_tests {
+    //! The text markers are a PUBLISHED delivery surface. Most MCP hosts strip
+    //! the `result_status` sidecar, so for text-only hosts the marker line is
+    //! the ONLY tier signal that reaches the agent — the agent-integration
+    //! guide (`docs/agent-integration.md`, "Delivery surface") tells such hosts
+    //! to parse it and calls it stable. These tests make "stable" a property of
+    //! the code rather than a promise in prose: reword a marker prefix and CI
+    //! fails here, instead of silently breaking exactly the hosts that have no
+    //! structured fallback.
+    use super::*;
+
+    #[test]
+    fn exact_is_quiet() {
+        // Unmarked means proof; `exact` carries no marker by contract.
+        let r = StatusReport::exact(Certificate::replay("k", "w"));
+        assert_eq!(r.marker(), None);
+    }
+
+    #[test]
+    fn verified_marker_prefix_and_disclaims_proof() {
+        let m = StatusReport::verified(12)
+            .marker()
+            .expect("verified is loud");
+        assert!(m.starts_with("[verified] "), "prefix changed: {m}");
+        assert!(m.contains("not proof"), "verified must disclaim proof: {m}");
+    }
+
+    #[test]
+    fn verdict_shaped_verified_suppresses_generic_marker() {
+        // verify/equivalent/verify_chain carry their tier in-band in the
+        // sentence; the generic marker is suppressed to avoid double-marking.
+        let r = StatusReport::verified(12).with_verdict(Verdict::Pass);
+        assert_eq!(r.marker(), None);
+    }
+
+    #[test]
+    fn approximate_marker_prefix() {
+        let m = StatusReport::approximate(Some(13))
+            .marker()
+            .expect("approximate is loud");
+        assert!(m.starts_with("[approximate] "), "prefix changed: {m}");
+    }
+
+    #[test]
+    fn heuristic_marker_prefix() {
+        let m = StatusReport::heuristic()
+            .marker()
+            .expect("heuristic is loud");
+        assert!(m.starts_with("[heuristic] "), "prefix changed: {m}");
+    }
+
+    #[test]
+    fn unable_to_compute_marker_prefix() {
+        let m = StatusReport::unable_to_compute("no technique applies")
+            .marker()
+            .expect("unable_to_compute is loud");
+        assert!(m.starts_with("[unable to compute] "), "prefix changed: {m}");
+    }
+
+    #[test]
+    fn provably_impossible_marker_prefix() {
+        let proof = ProofCertificate::new(
+            "risch-de",
+            "no rational solution",
+            "no elementary antiderivative",
+        );
+        let m = StatusReport::provably_impossible(proof)
+            .marker()
+            .expect("provably_impossible is loud");
+        assert!(
+            m.starts_with("[provably impossible] "),
+            "prefix changed: {m}"
+        );
+    }
+
+    #[test]
+    fn provably_impossible_special_form_phrasing() {
+        let proof = ProofCertificate::new(
+            "risch-de",
+            "no rational solution",
+            "no elementary antiderivative",
+        );
+        let m = StatusReport::provably_impossible(proof)
+            .with_special_form("erf", "\\frac{\\sqrt{\\pi}}{2} \\cdot \\erf(x)")
+            .marker()
+            .expect("provably_impossible is loud");
+        assert!(
+            m.starts_with("[provably impossible] "),
+            "prefix changed: {m}"
+        );
+        assert!(
+            m.contains("antiderivative in special functions:"),
+            "special-form marker phrasing changed: {m}"
+        );
+    }
+}
